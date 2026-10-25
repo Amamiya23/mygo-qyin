@@ -1,6 +1,7 @@
 package app
 
 import (
+	"runtime"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -190,12 +191,18 @@ func Run() error {
 		if shotHook != nil {
 			shotHook(a)
 		}
-		// Closing the window hides it: music plays on, under the notch,
-		// and the Dock icon brings it back.
+		// On macOS closing the window hides it: music plays on, under the
+		// notch, and the Dock icon brings it back. Elsewhere nothing would
+		// bring it back, so closing it quits.
 		a.win.OnClose(func(e *mygo.CloseEvent) {
-			if !a.quitting {
-				e.PreventDefault()
+			if a.quitting {
+				return
+			}
+			e.PreventDefault()
+			if runtime.GOOS == "darwin" {
 				a.win.Hide()
+			} else {
+				mygo.App.Quit()
 			}
 		})
 	})
