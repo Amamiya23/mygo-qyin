@@ -88,6 +88,9 @@ func (t *Track) Playable() bool {
 
 func (t *Track) Length() time.Duration { return time.Duration(t.Duration) * time.Millisecond }
 
+// URL is the track's page on the NetEase website.
+func (t *Track) URL() string { return apiBase + "/song?id=" + strconv.FormatInt(t.ID, 10) }
+
 type Playlist struct {
 	ID          int64   `json:"id"`
 	Name        string  `json:"name"`

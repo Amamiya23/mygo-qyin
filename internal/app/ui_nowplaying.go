@@ -128,7 +128,8 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 						ui.Text(c, tr.Name).FontSize(22).FontWeight(700).LetterSpacing(-0.3).SingleLine()
 						ui.Text(c, tr.ArtistNames()+" — "+tr.Album.Name).FontSize(15).TextColor(white.Alpha(0.6)).SingleLine()
 					})
-					a.likeButton(c.Key("like"), tr, 22, white.Alpha(0.7)).Margin(0, -8, 0, 0)
+					a.likeButton(c.Key("like"), tr, 22, white.Alpha(0.7))
+					a.songMenu(c.Key("more"), tr, 22, white.Alpha(0.7)).Margin(0, -8, 0, 0)
 				})
 				a.scrubber(c.Key("np-scrub"), &a.npScrub, white.Alpha(0.18), white.Alpha(0.9), 16, accent.Mix(white, 0.35))
 				ui.Row(c).Children(func() {
@@ -243,6 +244,7 @@ func (a *app) stageBar(c *ui.Context, tr *netease.Track, art *artwork, accent ui
 					ui.Text(c, tr.ArtistNames()).FontSize(12).TextColor(white.Alpha(0.55)).SingleLine()
 				})
 				a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6))
+				a.songMenu(c.Key("more"), tr, 17, white.Alpha(0.6)).Margin(0, 0, 0, -10)
 			})
 			a.transport(c, white, white.Alpha(0.45), white, 22)
 			ui.Row(c).Grow(1).Basis(0).MinWidth(0).Justify(ui.End).Children(func() {
@@ -484,7 +486,8 @@ func (a *app) queuePane(c *ui.Context) {
 		i := order[r]
 		tr := &pl.Queue()[i]
 		playing := r == at
-		row := ui.ButtonBase(c.Key(i)).Height(58).PaddingX(10).Gap(14).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name)
+		row := ui.ButtonBase(c.Key(i)).Height(58).PaddingX(10).Gap(14).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
+			ContextMenu(songItems(tr))
 		switch {
 		case playing:
 			row.Background(white.Alpha(0.12))

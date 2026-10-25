@@ -352,7 +352,8 @@ func (a *app) dailyPicks(c *ui.Context, songs []netease.Track, ours bool) {
 	ui.Column(c.Key("picks")).Width(236).Shrink(0).Gap(2).Children(func() {
 		for i := range min(3, len(songs)) {
 			tr := &songs[i]
-			row := ui.ButtonBase(c.Key(tr.ID)).Row().Gap(12).Padding(7, 12).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name)
+			row := ui.ButtonBase(c.Key(tr.ID)).Row().Gap(12).Padding(7, 12).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
+				ContextMenu(songItems(tr))
 			bg := white.Alpha(0)
 			if row.Hovered() {
 				bg = white.Alpha(0.1)

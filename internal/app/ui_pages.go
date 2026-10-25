@@ -349,7 +349,8 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 		i--
 		tr := &tracks[i]
 		playing := cur != nil && cur.ID == tr.ID
-		row := ui.ButtonBase(c.Key(tr.ID)).Height(54).PaddingX(12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(tr.Name)
+		row := ui.ButtonBase(c.Key(tr.ID)).Height(54).PaddingX(12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
+			ContextMenu(songItems(tr))
 		hovered := row.Hovered()
 		bg := ui.Transparent
 		switch {
