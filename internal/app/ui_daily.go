@@ -471,19 +471,29 @@ func (a *app) dailyBlurb() string {
 }
 
 func (a *app) dailyPage(c *ui.Context) {
-	if len(a.daily) == 0 {
-		a.centered(c, a.homeLoading, "暂时没有推荐", a.loadHome)
+	loading := len(a.daily) == 0
+	if loading && !a.homeLoading {
+		a.centered(c, "暂时没有推荐", a.loadHome)
 		return
 	}
 	now := c.Now()
 	songs := a.daily
-	a.trackRows(c, songs, true, func(c *ui.Context) {
+	s := a.pageShimmer(c)
+	header := func(c *ui.Context) {
 		p := a.pal
 		ui.Row(c).Gap(28).AlignItems(ui.End).Padding(0, 0, 26, 0).Children(func() {
 			a.dailyArt(c, now, 212)
 			ui.Column(c).Gap(8).Children(func() {
 				ui.Text(c, "每日推荐").FontSize(12).FontWeight(600).TextColor(p.accent)
 				ui.Text(c, "每日歌曲推荐").FontSize(30).FontWeight(800).LetterSpacing(-0.6)
+				if loading {
+					s.text(c, 13, 1.3).Width(240)
+					ui.Row(c).Gap(10).Margin(8, 0, 0, 0).Children(func() {
+						s.bone(c, 18).Size(112, 36)
+						s.bone(c, 18).Size(112, 36)
+					})
+					return
+				}
 				ui.Text(c, fmt.Sprintf("%d 首 · %s", len(songs), a.dailyBlurb())).FontSize(13).TextColor(p.muted)
 				ui.Row(c).Gap(10).Margin(8, 0, 0, 0).Children(func() {
 					if pillButton(c.Key("play"), iconPlay, "播放全部", p.accent, p.onAccent).Clicked() {
@@ -501,5 +511,10 @@ func (a *app) dailyPage(c *ui.Context) {
 				})
 			})
 		})
-	})
+	}
+	if loading {
+		a.trackSkeleton(c, s, true, header)
+		return
+	}
+	a.trackRows(c, songs, true, header)
 }

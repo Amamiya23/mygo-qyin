@@ -315,14 +315,11 @@ func (a *app) content(c *ui.Context) {
 	}
 }
 
-// centered shows a spinner, or a message with a retry button.
-func (a *app) centered(c *ui.Context, loading bool, err string, retry func()) {
+// centered shows a message, with a retry button if retry is set: what a
+// page shows in place of what failed to load.
+func (a *app) centered(c *ui.Context, err string, retry func()) {
 	top, bottom := a.insets(c)
 	ui.Column(c).Grow(1).Padding(top, 0, bottom, 0).Center().Gap(12).Children(func() {
-		if loading {
-			ui.Spinner(c)
-			return
-		}
 		ui.Text(c, err).TextColor(a.pal.muted).FontSize(13)
 		if retry != nil && ui.Button(c, "重试").Clicked() {
 			retry()

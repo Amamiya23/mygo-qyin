@@ -275,7 +275,10 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 	pl := a.pl
 	lines, loaded := pl.Lyrics()
 	if len(lines) == 0 {
-		col := ui.Column(c).Grow(1).Center()
+		col := ui.Column(c).Grow(1)
+		if loaded {
+			col.Center()
+		}
 		dim, _ := a.quietShown(c, col, tr, lines, loaded)
 		if dim > 0.98 {
 			col.Invisible()
@@ -284,7 +287,7 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 		}
 		col.Children(func() {
 			if !loaded {
-				ui.Spinner(c)
+				lyricsSkeleton(c, npShimmer(c), h)
 				return
 			}
 			ui.Text(c, "纯音乐，请欣赏").FontSize(24).FontWeight(700).TextColor(white.Alpha(0.4))

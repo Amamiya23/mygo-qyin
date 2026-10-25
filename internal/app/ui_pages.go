@@ -34,8 +34,9 @@ func (a *app) section(c *ui.Context, title string) {
 }
 
 func (a *app) homePage(c *ui.Context) {
-	if len(a.featured) == 0 && len(a.charts) == 0 {
-		a.centered(c, a.homeLoading, a.homeErr, a.loadHome)
+	loading := len(a.featured) == 0 && len(a.charts) == 0
+	if loading && !a.homeLoading {
+		a.centered(c, a.homeErr, a.loadHome)
 		return
 	}
 	now := c.Now()
@@ -48,6 +49,10 @@ func (a *app) homePage(c *ui.Context) {
 			hello += "，" + a.profile.Nickname
 		}
 		a.heading(c, hello, fmt.Sprintf("%d月%d日 %s", now.Month(), now.Day(), weekday(now)))
+		if loading {
+			a.homeSkeleton(c, a.pageShimmer(c))
+			return
+		}
 		a.dailyCard(c, now)
 
 		if len(a.recPlaylists) > 0 {
@@ -82,8 +87,9 @@ func weekday(t time.Time) string {
 }
 
 func (a *app) chartsPage(c *ui.Context) {
-	if len(a.charts) == 0 {
-		a.centered(c, a.homeLoading, a.homeErr, a.loadHome)
+	loading := len(a.charts) == 0
+	if loading && !a.homeLoading {
+		a.centered(c, a.homeErr, a.loadHome)
 		return
 	}
 	top, bottom := a.insets(c)
@@ -91,6 +97,13 @@ func (a *app) chartsPage(c *ui.Context) {
 		a.startMark(c)
 		defer a.endMark(c)
 		a.heading(c, "排行榜", "每日更新")
+		if loading {
+			s := a.pageShimmer(c)
+			a.chartCardsSkeleton(c, s)
+			a.section(c, "全部榜单")
+			a.playlistCardsSkeleton(c, s, a.columns(c, 150)*2, 150, true)
+			return
+		}
 		official := a.charts[:min(4, len(a.charts))]
 		cols := min(4, max(2, a.columns(c, 260)))
 		ui.Grid(c).Columns(cols).Gap(20).Children(func() {
@@ -218,7 +231,12 @@ func (a *app) playlistPage(c *ui.Context) {
 	id := a.route.playlist
 	pl := a.playlists[id]
 	if pl == nil {
-		a.centered(c, a.loadingPl[id], a.plErr[id], func() { a.loadPlaylist(id, false) })
+		if !a.loadingPl[id] {
+			a.centered(c, a.plErr[id], func() { a.loadPlaylist(id, false) })
+			return
+		}
+		s := a.pageShimmer(c)
+		a.trackSkeleton(c, s, false, func(c *ui.Context) { a.playlistHeaderSkeleton(c, s) })
 		return
 	}
 	a.trackRows(c, pl.Tracks, false, func(c *ui.Context) { a.playlistHeader(c, pl) })
@@ -283,15 +301,21 @@ func (a *app) playlistHeader(c *ui.Context, pl *netease.Playlist) {
 }
 
 func (a *app) searchPage(c *ui.Context) {
+	if len(a.results) == 0 && a.searching {
+		a.trackSkeleton(c, a.pageShimmer(c), true, func(c *ui.Context) {
+			a.heading(c, "“"+a.searched+"”", "搜索")
+		})
+		return
+	}
 	if len(a.results) == 0 {
 		msg := a.searchErr
-		if msg == "" && !a.searching {
+		if msg == "" {
 			msg = "没有找到相关歌曲"
 		}
 		top, bottom := a.insets(c)
 		ui.Column(c).Grow(1).Padding(top+pageGap, pagePad, bottom, pagePad).Children(func() {
 			a.heading(c, "“"+a.searched+"”", "搜索")
-			a.centered(c, a.searching, msg, nil)
+			a.centered(c, msg, nil)
 		})
 		return
 	}

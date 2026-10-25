@@ -195,7 +195,9 @@ func (a *app) loginDialog(c *ui.Context) {
 				ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Opacity(opacity).
 					Draw(func(pt *ui.Painter, r ui.Rect) { drawQR(pt, r, code, 14) })
 			} else if l.err == "" {
-				ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Center().Children(func() { ui.Spinner(c) })
+				// On white whatever the appearance, as the code is.
+				s := shimmer{base: ui.RGBA(0, 0, 0, 0.08), sheen: ui.RGBA(0, 0, 0, 0.03)}.in(c)
+				qrSkeleton(c, s, 14).Absolute().Top(0).Left(0).Right(0).Bottom(0)
 			}
 			ui.Column(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Center().Gap(10).Children(func() {
 				switch {

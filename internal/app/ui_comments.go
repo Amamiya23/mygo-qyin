@@ -102,10 +102,16 @@ type commentKey struct {
 func (a *app) commentsPane(c *ui.Context, tr *netease.Track) {
 	cs := a.commentsFor(tr)
 	if len(cs.hot) == 0 && len(cs.latest) == 0 {
+		if cs.loading || !cs.loaded && cs.err == "" {
+			ui.Column(c).Grow(1).Padding(4, 8, 0, 0).Gap(2).Children(func() {
+				s := npShimmer(c)
+				s.text(c, 13, 1.3).Width(56).Margin(18, 12, 6, 12)
+				commentSkeleton(c, s, 6)
+			})
+			return
+		}
 		ui.Column(c).Grow(1).Center().Gap(14).Children(func() {
 			switch {
-			case cs.loading || !cs.loaded && cs.err == "":
-				ui.Spinner(c)
 			case cs.err != "":
 				ui.Text(c, cs.err).FontSize(15).TextColor(white.Alpha(0.5))
 				if pillButton(c.Key("retry"), iconComment, "重试", white.Alpha(0.14), white).Clicked() {
@@ -133,10 +139,12 @@ func (a *app) commentsPane(c *ui.Context, tr *netease.Track) {
 			for i := range cs.latest {
 				a.commentRow(c.Key(commentKey{false, cs.latest[i].ID}), &cs.latest[i], now)
 			}
+			if cs.loading {
+				commentSkeleton(c.Key("more"), npShimmer(c), 2)
+			}
 			ui.Row(c.Key("foot")).Height(56).Center().Children(func() {
 				switch {
 				case cs.loading:
-					ui.Spinner(c)
 				case cs.err != "":
 					retry := ui.ButtonBase(c.Key("retry")).Padding(6, 14).Radius(999).Background(white.Alpha(0.1)).Label("重试")
 					retry.Children(func() {

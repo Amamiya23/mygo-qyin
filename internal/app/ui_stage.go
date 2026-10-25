@@ -86,10 +86,11 @@ func (a *app) stage(c *ui.Context, tr *netease.Track, accent ui.Color) {
 	pl := a.pl
 	lines, loaded := pl.Lyrics()
 	w, h := c.Size()
+	f := min(64, max(36, w*0.045))
 	if len(lines) == 0 {
 		ui.Column(c).Grow(1).Center().Children(func() {
 			if !loaded {
-				ui.Spinner(c)
+				stageSkeleton(c, npShimmer(c), f, w)
 				return
 			}
 			ui.Text(c, "纯音乐，请欣赏").FontSize(28).FontWeight(800).TextColor(white.Alpha(0.4))
@@ -101,7 +102,6 @@ func (a *app) stage(c *ui.Context, tr *netease.Track, accent ui.Color) {
 	if pl.Playing() {
 		stageNextFrame(c, lines, cur, pos)
 	}
-	f := min(64, max(36, w*0.045))
 
 	ui.Box(c.Key("stage")).Grow(1).Children(func() {
 		// The line before goes as the new one comes.
