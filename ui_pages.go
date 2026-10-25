@@ -37,7 +37,7 @@ func (a *app) homePage(c *ui.Context) {
 	}
 	now := c.Now()
 	top, bottom := a.insets(c)
-	ui.Scroll(c.Key("home")).Grow(1).Padding(top+pageGap, pagePad, bottom+48, pagePad).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
+	ui.Scroll(c.Key("home")).TrackScroll(&a.pageScroll).Grow(1).Padding(top+pageGap, pagePad, bottom+48, pagePad).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
 		a.startMark(c)
 		defer a.endMark(c)
 		hello := greeting(now)
@@ -84,7 +84,7 @@ func (a *app) chartsPage(c *ui.Context) {
 		return
 	}
 	top, bottom := a.insets(c)
-	ui.Scroll(c.Key("charts")).Grow(1).Padding(top+pageGap, pagePad, bottom+48, pagePad).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
+	ui.Scroll(c.Key("charts")).TrackScroll(&a.pageScroll).Grow(1).Padding(top+pageGap, pagePad, bottom+48, pagePad).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
 		a.startMark(c)
 		defer a.endMark(c)
 		a.heading(c, "排行榜", "每日更新")

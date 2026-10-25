@@ -330,72 +330,155 @@ func (a *app) lyricsPane(c *ui.Context, tr *Track, h float32) {
 	}
 	if a.lyricTrack != tr.ID {
 		a.lyricTrack, a.lyricAt = tr.ID, -2
-		a.lyricScroll = ui.ScrollState{}
+		a.lyricScroll, a.lyricGlide = ui.ScrollState{}, lyricGlide{}
 	}
+	lag := a.lyricGlide.step(c, &a.lyricScroll)
 
-	scroll := ui.Scroll(c.Key("lyrics")).Grow(1).TrackScroll(&a.lyricScroll).Padding(h*0.22, 8, h*0.5, 0).Gap(6)
+	scroll := ui.Scroll(c.Key("lyrics")).Grow(1).TrackScroll(&a.lyricScroll).Padding(h*0.22, 8, h*0.5, 0)
 	var active ui.Element
+	// The lines, held back by how far the glide to the line sung has still
+	// to go (lyricGlide).
 	scroll.Children(func() {
-		for i, l := range lines {
-			line := ui.ButtonBase(c.Key(i)).Column().AlignItems(ui.Start).Padding(10, 12).Radius(12).Gap(6).FocusRing(false).Label(l.Text)
-			on := i == cur
-			alpha := float32(0.28)
-			if on {
-				alpha = 1
-			} else if line.Hovered() {
-				alpha = 0.55
-			}
-			alpha = line.AnimateTo("alpha", alpha, ui.Animation{Duration: 380 * time.Millisecond})
-			if line.Hovered() {
-				line.Background(white.Alpha(0.06))
-			}
-			scale := float32(0.94)
-			if on {
-				scale = 1
-			}
-			line.TransformOrigin(0, 0.5).AnimatePose(ui.Pose{Scale: scale}, ui.Animation{Spring: ui.SpringOptions{Duration: 600 * time.Millisecond, Bounce: 0.1}})
-			line.Children(func() {
-				if on && len(l.Words) > 0 {
-					// The line sung lights up word by word as it is sung.
-					ui.RichText(c.Key("words")).FontSize(30).FontWeight(800).LineHeight(1.25).LetterSpacing(-0.4).Children(func() {
-						for wi, wd := range l.Words {
-							lit := clamp01(float32((pos - wd.Start).Seconds() / max(0.05, (wd.End-wd.Start).Seconds())))
-							ui.Text(c.Key(wi), wd.Text).TextColor(white.Alpha(alpha * (0.38 + 0.62*lit)))
+		ui.Column(c).Gap(6).Translate(0, -lag).Children(func() {
+			for i, l := range lines {
+				line := ui.ButtonBase(c.Key(i)).Column().AlignItems(ui.Start).Padding(10, 12).Radius(12).Gap(6).FocusRing(false).Label(l.Text)
+				on := i == cur
+				alpha := float32(0.28)
+				if on {
+					alpha = 1
+				} else if line.Hovered() {
+					alpha = 0.55
+				}
+				if line.Hovered() {
+					line.Background(white.Alpha(0.06))
+				}
+				scale := float32(0.94)
+				if on {
+					scale = 1
+				}
+				line.TransformOrigin(0, 0.5).AnimatePose(ui.Pose{Scale: scale}, ui.Animation{Spring: ui.SpringOptions{Duration: 600 * time.Millisecond, Bounce: 0.1}})
+				line.Children(func() {
+					// The line fades as a pose, in frames that only paint, rather
+					// than building the view at the display's rate as it does.
+					text := ui.Column(c).AlignItems(ui.Start).Gap(6)
+					text.AnimatePose(ui.Pose{Fade: 1 - alpha}, ui.Animation{Duration: 380 * time.Millisecond})
+					text.Children(func() {
+						if on && len(l.Words) > 0 {
+							// The line sung lights up word by word as it is sung.
+							ui.RichText(c.Key("words")).FontSize(30).FontWeight(800).LineHeight(1.25).LetterSpacing(-0.4).Children(func() {
+								for wi, wd := range l.Words {
+									lit := clamp01(float32((pos - wd.Start).Seconds() / max(0.05, (wd.End-wd.Start).Seconds())))
+									ui.Text(c.Key(wi), wd.Text).TextColor(white.Alpha(0.38 + 0.62*lit))
+								}
+							})
+							if pl.playing {
+								// Words brighten smoothly enough at 25 frames a second.
+								c.After(40 * time.Millisecond)
+							}
+						} else {
+							ui.Text(c, l.Text).FontSize(30).FontWeight(800).LineHeight(1.25).LetterSpacing(-0.4).TextColor(white)
+						}
+						if l.Translation != "" {
+							ui.Text(c, l.Translation).FontSize(17).FontWeight(600).TextColor(white.Alpha(0.7))
 						}
 					})
-					if pl.playing {
-						// Words brighten smoothly enough at 25 frames a second.
-						c.After(40 * time.Millisecond)
-					}
-				} else {
-					ui.Text(c, l.Text).FontSize(30).FontWeight(800).LineHeight(1.25).LetterSpacing(-0.4).TextColor(white.Alpha(alpha))
+				})
+				if line.Clicked() {
+					pl.seek(l.At)
 				}
-				if l.Translation != "" {
-					ui.Text(c, l.Translation).FontSize(17).FontWeight(600).TextColor(white.Alpha(alpha * 0.7))
+				if on {
+					active = line
 				}
-			})
-			if line.Clicked() {
-				pl.seek(l.At)
 			}
-			if on {
-				active = line
-			}
-		}
+		})
 	})
 	// Bring the line sung to a third of the way down, once it changed.
 	if cur != a.lyricAt {
 		box := scroll.Bounds()
 		target := float32(0)
 		if active.Valid() {
-			if lb := active.Bounds(); lb.H > 0 && box.H > 0 {
+			// Where the glide is going, without where it still is.
+			if lb := active.LayoutBounds(); lb.H > 0 && box.H > 0 {
 				target = lb.Y - box.Y + a.lyricScroll.Y - box.H*0.3
 			} else {
 				return // not laid out yet: the next frame scrolls
 			}
 		}
 		a.lyricAt = cur
-		a.lyricScroll.ScrollTo(0, max(0, target), ui.Animation{Spring: ui.SpringOptions{Duration: 800 * time.Millisecond}})
+		a.lyricGlide.to(c, &a.lyricScroll, min(max(0, target), a.lyricScroll.MaxY))
 	}
+}
+
+// lyricGlide scrolls the lyrics to the line sung, as a critically damped
+// spring, as ScrollTo's would. ScrollTo moves the offset in every frame,
+// and MyGo builds the view again in the frame after each that moved it,
+// and its spring creeps over the last pixel for half a second: with a line
+// following another every second or two, most of a song. So the offset
+// goes to the line at once, in one frame, and the lines are held back by
+// what the glide has still to go, its lag, which settles to nothing within
+// half a pixel.
+type lyricGlide struct {
+	on bool
+	// The lag t after start: (a + b·t)·e^(−ωt), in DIPs.
+	a, b  float64
+	start time.Time
+	// The offset it goes to, set in the next frame (pending), with the lag
+	// that holds the lines back from it: the layout of the frame that
+	// chose it takes the offset too, the lines built without the lag.
+	target  float32
+	pending bool
+	set     float32 // the offset it set
+}
+
+// lyricOmega is the spring's ω: a line or two away, it comes within half a
+// pixel in about 800 ms.
+const lyricOmega = 10
+
+// at returns the lag at now, and how fast it changes, in DIPs a second.
+func (g *lyricGlide) at(now time.Time) (lag, v float64) {
+	if !g.on {
+		return 0, 0
+	}
+	t := now.Sub(g.start).Seconds()
+	e := math.Exp(-lyricOmega * t)
+	return (g.a + g.b*t) * e, (g.b - lyricOmega*(g.a+g.b*t)) * e
+}
+
+// to scrolls s to target from the next frame, gliding from where it
+// shows, at the speed it went if it was on its way.
+func (g *lyricGlide) to(c *ui.Context, s *ui.ScrollState, target float32) {
+	now := c.Now()
+	lag, v := g.at(now)
+	shown := float64(s.Y) + lag
+	g.target, g.pending = target, true
+	g.on = !c.Preferences().ReduceMotion
+	g.start, g.a = now, shown-float64(target)
+	g.b = v + lyricOmega*g.a
+	c.AnimationFrame()
+}
+
+// step returns the lag of the lines in this frame, and asks for the next
+// while there is one. The listener scrolling stops the glide where it
+// shows.
+func (g *lyricGlide) step(c *ui.Context, s *ui.ScrollState) float32 {
+	if g.pending {
+		s.Y, g.set, g.pending = g.target, g.target, false
+	}
+	if !g.on {
+		return 0
+	}
+	lag, v := g.at(c.Now())
+	if s.Y != g.set {
+		// The listener took over: the offset takes what showed.
+		s.Y, g.on = max(0, min(s.Y+float32(lag), s.MaxY)), false
+		return 0
+	}
+	if math.Abs(lag) < 0.5 && math.Abs(v) < 20 {
+		g.on = false
+		return 0
+	}
+	c.AnimationFrame()
+	return float32(lag)
 }
 
 func (a *app) queuePane(c *ui.Context) {

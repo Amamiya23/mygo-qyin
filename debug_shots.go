@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/pprof"
+	"syscall"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -36,7 +37,13 @@ func init() {
 			if os.Getenv("NM_SCENE") == "perf" {
 				// Muted, marks on stderr where each part begins, for the
 				// frame log of MYGO_FRAME_STATS.
-				mark := func(s string) { println("mark", time.Now().Format("15:04:05.000"), s) }
+				// With the process's CPU time so far, in ms, all its threads.
+				mark := func(s string) {
+					var ru syscall.Rusage
+					syscall.Getrusage(syscall.RUSAGE_SELF, &ru)
+					cpu := (ru.Utime.Nano() + ru.Stime.Nano()) / 1e6
+					println("mark", time.Now().Format("15:04:05.000"), s, "cpu", cpu)
+				}
 				// Above other windows: a covered window draws no frames.
 				mygo.RunOnMain(func() {
 					a.win.SetAlwaysOnTop(true)
@@ -56,6 +63,24 @@ func init() {
 				}
 				step(0, func() { a.volume = 0; a.pl.setVolume(0); a.pl.playQueue(a.daily, 0) })
 				time.Sleep(4 * time.Second)
+				if long := os.Getenv("NM_LONG"); long != "" {
+					// Each pane for a while, as one listens: a mark every 5 s.
+					// NM_LONG=stage shows only the stage.
+					panes := []int{paneLyrics, paneStage}
+					if long == "stage" {
+						panes = panes[1:]
+					}
+					for _, pane := range panes {
+						step(0, func() { a.nowPlaying, a.npPane = true, pane })
+						for i := range 4 {
+							mark(fmt.Sprint("pane", pane, "-", i))
+							time.Sleep(5 * time.Second)
+						}
+					}
+					mark("end")
+					mygo.RunOnMain(mygo.App.Quit)
+					return
+				}
 				for round := range 2 {
 					if round == 0 {
 						// A CPU profile of the opening, for go tool pprof.
@@ -76,6 +101,17 @@ func init() {
 					time.Sleep(2 * time.Second)
 				}
 				for round := range 2 {
+					if round == 0 {
+						// And one of the stage, for its character animation.
+						if f, err := os.Create(filepath.Join(dir, "stage.pprof")); err == nil {
+							pprof.StartCPUProfile(f)
+							go func() {
+								time.Sleep(4 * time.Second)
+								pprof.StopCPUProfile()
+								f.Close()
+							}()
+						}
+					}
 					mark(fmt.Sprint("stage", round))
 					step(0, func() { a.nowPlaying, a.npPane = true, paneStage })
 					time.Sleep(4 * time.Second)

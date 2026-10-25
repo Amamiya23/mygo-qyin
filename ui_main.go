@@ -37,12 +37,14 @@ func (a *app) view(c *ui.Context) {
 	npOpen, npSettled := a.npState(c)
 	root.Children(func() {
 		page := ui.Row(c).Fill().AlignItems(ui.Stretch)
-		if npOpen && npSettled {
-			// Covered by Now Playing: kept, with its scrolling and state, but
-			// not painted, so that nothing in it asks for frames.
-			page.Invisible()
-		}
 		page.Children(func() {
+			if npOpen && npSettled {
+				// Covered by Now Playing: not built, which would cost each
+				// of its frames as much again as the stage itself. Where
+				// it is scrolled is the app's (pageScroll, navScroll,
+				// trackList), so it shows again as it was.
+				return
+			}
 			side := ui.Column(c).Width(sidebarWidth)
 			if !c.Vibrancy() {
 				side.Background(p.sidebar)
@@ -95,7 +97,7 @@ func (a *app) open(r route) {
 // show shows the page of r.
 func (a *app) show(r route) {
 	a.route = r
-	a.trackList = ui.ListState{}
+	a.trackList, a.pageScroll = ui.ListState{}, ui.ScrollState{}
 	if r.page == pagePlaylist {
 		a.loadPlaylist(r.playlist, false)
 	}
@@ -153,7 +155,7 @@ func (a *app) sidebar(c *ui.Context) {
 			}
 		})
 
-		ui.Scroll(c.Key("nav")).Grow(1).Margin(0, -6).Padding(0, 6).Gap(4).Children(func() {
+		ui.Scroll(c.Key("nav")).TrackScroll(&a.navScroll).Grow(1).Margin(0, -6).Padding(0, 6).Gap(4).Children(func() {
 			a.navItem(c, iconHome, "为你推荐", route{page: pageHome})
 			a.navItem(c, iconDaily, "每日推荐", route{page: pageDaily})
 			a.navItem(c, iconCharts, "排行榜", route{page: pageCharts})
@@ -386,7 +388,7 @@ func firstPlayable(tracks []Track) int {
 func (a *app) search(q string) {
 	a.history, a.forward = append(a.history, a.route), nil
 	a.route = route{page: pageSearch}
-	a.trackList = ui.ListState{}
+	a.trackList, a.pageScroll = ui.ListState{}, ui.ScrollState{}
 	a.nowPlaying = false
 	a.runSearch(q)
 }

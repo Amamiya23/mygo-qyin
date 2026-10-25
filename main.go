@@ -53,6 +53,10 @@ type app struct {
 	loadingPl map[int64]bool
 	plErr     map[int64]string
 	trackList ui.ListState
+	// Where the page and the sidebar are scrolled, kept while Now Playing
+	// covers them, unbuilt.
+	pageScroll ui.ScrollState
+	navScroll  ui.ScrollState
 
 	query     string
 	searched  string
@@ -66,6 +70,7 @@ type app struct {
 	npChangedAt time.Time // when it last opened or closed
 	npPane      int       // 0: lyrics, 1: up next
 	lyricScroll ui.ScrollState
+	lyricGlide  lyricGlide
 	lyricAt     int
 	lyricTrack  int64
 
