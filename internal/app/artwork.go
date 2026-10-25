@@ -8,9 +8,11 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
+	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"golang.org/x/image/webp"
+	_ "golang.org/x/image/webp"
 
 	"netease-music-mygo/internal/netease"
 )
@@ -24,8 +26,10 @@ type artwork struct {
 	failed   bool
 }
 
-// artCache loads covers on goroutines and keeps them for the session.
-// Its methods run on the main thread; post runs a function there.
+// artCache loads covers on goroutines and keeps them for the session:
+// their pixels on the GPU, and on the CPU only their data, which takes a
+// fraction of the pixels. Its methods run on the main thread; post runs a
+// function there.
 type artCache struct {
 	art  map[string]*artwork
 	busy map[string]bool
@@ -55,7 +59,7 @@ func (c *artCache) get(url string, backdrop bool) *artwork {
 	c.busy[key] = true
 	go func() {
 		c.sem <- struct{}{}
-		img, err := fetchImage(url)
+		bmp, img, err := loadArt(url)
 		<-c.sem
 		var blurred *image.RGBA
 		var tint ui.Color
@@ -71,14 +75,43 @@ func (c *artCache) get(url string, backdrop bool) *artwork {
 				c.art[key] = &artwork{failed: true}
 				return
 			}
-			a := &artwork{bmp: ui.NewBitmap(img), tint: tint}
+			a := &artwork{bmp: bmp, tint: tint}
 			if blurred != nil {
 				a.backdrop = ui.NewBitmap(blurred)
 			}
 			c.art[key] = a
+			// Shown by the frame post draws, the cover drops its pixels,
+			// which its data decodes again if they are needed.
+			time.AfterFunc(artRelease, func() { mygo.RunOnMain(bmp.ReleasePixels) })
 		})
 	}()
 	return nil
+}
+
+// artRelease is how long a cover keeps its pixels once loaded: past the
+// frame that first shows it, and the smaller copies it shows from there.
+const artRelease = 2 * time.Second
+
+// loadArt fetches the cover at url, as a bitmap to draw and an image to
+// measure.
+func loadArt(url string) (*ui.Bitmap, image.Image, error) {
+	b, err := netease.Fetch(url)
+	if err != nil {
+		return nil, nil, err
+	}
+	return decodeArt(b)
+}
+
+// decodeArt decodes a cover twice: as a bitmap, which keeps the data to
+// decode its pixels again after it drops them, and as an image.
+func decodeArt(b []byte) (*ui.Bitmap, image.Image, error) {
+	b = stillCover(b)
+	img, _, err := image.Decode(bytes.NewReader(b))
+	if err != nil {
+		return nil, nil, err
+	}
+	bmp, err := ui.DecodeBitmap(b)
+	return bmp, img, err
 }
 
 func fetchImage(url string) (image.Image, error) {
@@ -90,15 +123,18 @@ func fetchImage(url string) (image.Image, error) {
 }
 
 func decodeImage(b []byte) (image.Image, error) {
-	img, _, err := image.Decode(bytes.NewReader(b))
-	if err != nil {
-		// Some covers are animated WebP, whatever their name says, which
-		// the decoder cannot read: they show their first frame.
-		if still := firstWebPFrame(b); still != nil {
-			return webp.Decode(bytes.NewReader(still))
-		}
-	}
+	img, _, err := image.Decode(bytes.NewReader(stillCover(b)))
 	return img, err
+}
+
+// stillCover returns the data of a cover that the decoders read. Some
+// covers are animated WebP, whatever their name says, which they cannot:
+// those show their first frame.
+func stillCover(b []byte) []byte {
+	if still := firstWebPFrame(b); still != nil {
+		return still
+	}
+	return b
 }
 
 // firstWebPFrame returns the first frame of an animated WebP as a still
