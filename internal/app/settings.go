@@ -11,7 +11,8 @@ import (
 // settings are the listener's choices, kept in settings.json in the user
 // data directory.
 type settings struct {
-	// Notch shows the quick player around the notch.
+	// Notch shows the quick player around the notch: the listener turns
+	// it on.
 	Notch bool `json:"notch"`
 	// NotchActivity shows the cover and the music's levels beside the
 	// notch while music plays, which hides the menu bar there.
@@ -36,7 +37,7 @@ type settings struct {
 }
 
 func defaultSettings() settings {
-	return settings{Notch: true, NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8}
+	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8}
 }
 
 func settingsPath() (string, error) {
