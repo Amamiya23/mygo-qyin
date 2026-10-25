@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mygo-cloudmusic",
+  "compatibility_date": "2026-10-01",
+  // Static assets only: no Worker script runs.
+  "assets": {
+    "directory": "./dist/client",
+    "not_found_handling": "404-page"
+  }
+}
