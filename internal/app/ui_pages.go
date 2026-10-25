@@ -261,7 +261,13 @@ func (a *app) playlistHeader(c *ui.Context, pl *netease.Playlist) {
 					}
 					a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
 				}
-				if pl.SpecialType == 5 {
+				switch {
+				case pl.SpecialType != 5:
+				case a.pl.Radio() == heartRadio:
+					if pillButton(c.Key("heart"), iconX, "退出心动模式", p.hover.Over(p.bg), p.text).Clicked() {
+						a.exitRadio()
+					}
+				default:
 					label := "心动模式"
 					if a.radioStarting == heartRadio {
 						label = "正在开启…"

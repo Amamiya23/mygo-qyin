@@ -194,6 +194,31 @@ func (p *Player) AttachRadio(name string, feed func(got func([]netease.Track))) 
 	p.refill()
 }
 
+// EndRadio stops the radio playing: the song playing plays on, but the
+// songs the radio queued after it go, and it adds no more.
+func (p *Player) EndRadio() {
+	if p.radio == "" && p.feed == nil {
+		return
+	}
+	awaiting := p.awaiting
+	p.endRadio()
+	if p.at >= 0 && p.at+1 < len(p.order) {
+		kept := make([]netease.Track, p.at+1)
+		for i, k := range p.order[:p.at+1] {
+			kept[i] = p.queue[k]
+		}
+		p.queue, p.order = kept, make([]int, len(kept))
+		for i := range p.order {
+			p.order[i] = i
+		}
+	}
+	if awaiting {
+		// At its end, waiting for more: nothing plays on.
+		p.playing = false
+		p.sync()
+	}
+}
+
 func (p *Player) endRadio() {
 	p.radioGen++
 	p.radio, p.feed, p.feeding, p.awaiting = "", nil, false, false

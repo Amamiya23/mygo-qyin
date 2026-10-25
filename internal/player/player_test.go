@@ -194,3 +194,24 @@ func TestCache(t *testing.T) {
 		t.Errorf("cleared to %d", n)
 	}
 }
+
+// Leaving a radio keeps the song playing and those before it, drops those
+// it queued after, and asks it for no more.
+func TestEndRadio(t *testing.T) {
+	p := &Player{at: -1}
+	p.Cue([]netease.Track{{ID: 1}, {ID: 2}, {ID: 3}, {ID: 4}})
+	p.at, p.track = 1, &p.queue[1]
+	asked := 0
+	p.AttachRadio("heart", func(got func([]netease.Track)) { asked++ })
+	p.EndRadio()
+	if p.Radio() != "" || p.Current().ID != 2 {
+		t.Fatalf("radio %q, current %v", p.Radio(), p.Current())
+	}
+	if q := p.Queue(); len(q) != 2 || q[0].ID != 1 || q[1].ID != 2 {
+		t.Fatalf("queue %v", q)
+	}
+	p.refill()
+	if asked != 0 {
+		t.Error("asked the radio after leaving it")
+	}
+}

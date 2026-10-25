@@ -126,7 +126,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(36, 0, 18, 0).Children(func() {
 					ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
 						if r := pl.Radio(); r != "" {
-							radioChip(c, r)
+							a.radioChip(c, r)
 						}
 						ui.Text(c, tr.Name).FontSize(22).FontWeight(700).LetterSpacing(-0.3).SingleLine()
 						ui.Text(c, tr.ArtistNames()+" — "+tr.Album.Name).FontSize(15).TextColor(white.Alpha(0.6)).SingleLine()
@@ -191,16 +191,28 @@ func (a *app) paneTabs(c *ui.Context) {
 	a.paneTab(c, paneComments, a.commentsTab())
 }
 
-// radioChip says which radio plays, over the title.
-func radioChip(c *ui.Context, name string) {
-	icon := iconRadio
+// radioChip says which radio plays, over the title: a click on it, or on
+// its cross, leaves the radio, playing on the song.
+func (a *app) radioChip(c *ui.Context, name string) {
+	icon, exit := iconRadio, "退出私人 FM"
 	if name == heartRadio {
-		icon = iconHeartFill
+		icon, exit = iconHeartFill, "退出心动模式"
 	}
-	ui.Row(c).Gap(5).AlignItems(ui.Center).Margin(0, 0, 4, 0).TextColor(white.Alpha(0.6)).Children(func() {
+	chip := ui.ButtonBase(c.Key("radio-chip")).Gap(5).Padding(3, 6, 3, 8).Margin(0, 0, 4, -8).Radius(999).
+		AlignItems(ui.Center).AlignSelf(ui.Start).FocusRing(false).Label(exit).Tooltip(exit)
+	bg, fg, cross := ui.Transparent, white.Alpha(0.6), float32(0.5)
+	if chip.Hovered() {
+		bg, fg, cross = white.Alpha(0.12), white.Alpha(0.85), 1
+	}
+	chip.Background(chip.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond})).TextColor(fg)
+	chip.Children(func() {
 		ui.Icon(c, icon).Size(12, 12)
 		ui.Text(c, radioLabel(name)).FontSize(11.5).FontWeight(700).LetterSpacing(0.3)
+		ui.Icon(c, iconX).Size(11, 11).Opacity(cross)
 	})
+	if chip.Clicked() {
+		a.exitRadio()
+	}
 }
 
 // qualityBadge marks a lossless stream, as it plays.

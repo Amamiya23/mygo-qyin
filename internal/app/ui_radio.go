@@ -119,6 +119,20 @@ func (a *app) playFM() {
 	})
 }
 
+// exitRadio stops the radio playing, but not the song it plays.
+func (a *app) exitRadio() {
+	name := a.pl.Radio()
+	if name == "" {
+		return
+	}
+	a.pl.EndRadio()
+	label := radioLabel(name)
+	if name != heartRadio {
+		label = "私人 FM"
+	}
+	a.toast = "已退出" + label
+}
+
 // trashFM skips the song playing on the FM, which plays it no more.
 func (a *app) trashFM() {
 	tr := a.pl.Current()
@@ -371,6 +385,11 @@ func (a *app) heartCard(c *ui.Context, p palette) {
 			ui.Text(c, "从你喜欢的音乐出发").FontSize(15).FontWeight(700)
 			ui.Text(c, "根据你红心过的歌曲，智能推荐风格相似的音乐，与你的喜欢穿插播放").FontSize(12.5).TextColor(p.muted)
 		})
+		if on {
+			if pillButton(c.Key("exit-heart"), iconX, "退出心动模式", p.press.Over(p.bg), p.text).Clicked() {
+				a.exitRadio()
+			}
+		}
 		label := "开启心动模式"
 		switch {
 		case a.profile == nil:
