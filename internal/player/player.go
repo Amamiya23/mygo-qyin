@@ -31,6 +31,9 @@ type Player struct {
 	Normalize func() bool
 	// Cache keeps the songs played, if set.
 	Cache *Cache
+	// Changed, if set, hears that what plays, where it is or whether it
+	// plays changed.
+	Changed func()
 
 	queue   []netease.Track
 	order   []int // the queue's indices in play order: shuffled or not
@@ -94,8 +97,11 @@ func New(post func(func())) *Player {
 	return p
 }
 
-// sync shows the system where playback is.
+// sync shows the system, and Changed, where playback is.
 func (p *Player) sync() {
+	if p.Changed != nil {
+		defer p.Changed()
+	}
 	if p.track == nil {
 		mygo.NowPlaying.Clear()
 		return

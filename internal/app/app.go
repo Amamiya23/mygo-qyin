@@ -115,6 +115,7 @@ type app struct {
 
 	restored     bool   // playback picked up where it was left
 	savedSession string // the session as last kept
+	sessionDue   bool   // a save of the session is due
 }
 
 // post runs fn on the main thread and redraws both windows. Without a
@@ -171,6 +172,7 @@ func Run() error {
 		a.pl.Quality = func() string { return a.settings.Quality }
 		a.pl.Normalize = func() bool { return a.settings.Normalize }
 		a.pl.Cache = newSongCache(a.settings.CacheMB)
+		a.pl.Changed = a.keepSession
 		a.volume = a.settings.Volume
 		a.pl.SetVolume(a.volume)
 		a.win = mygo.NewWindow(mygo.WindowOptions{
@@ -193,7 +195,6 @@ func Run() error {
 		a.setMenu()
 		a.boot()
 		a.notch = newNotch(a)
-		a.keepSession()
 		if shotHook != nil {
 			shotHook(a)
 		}

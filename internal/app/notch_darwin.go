@@ -110,8 +110,8 @@ func windowFrame(handle uintptr) (x, y, w, h float64) {
 }
 
 // watchPointer calls fn on the main thread as the pointer moves, over this
-// app's windows or another's.
-func watchPointer(fn func()) bool {
+// app's windows or another's, until stop is called.
+func watchPointer(fn func()) (stop func(), ok bool) {
 	// mouse moved, and left, right and other mouse dragged
 	const mask = uint64(1<<5 | 1<<6 | 1<<7 | 1<<27)
 	events := objc.ID(objc.GetClass("NSEvent"))
@@ -121,5 +121,14 @@ func watchPointer(fn func()) bool {
 	l := events.Send(objc.RegisterName("addLocalMonitorForEventsMatchingMask:handler:"), mask, local)
 	g.Send(objc.RegisterName("retain"))
 	l.Send(objc.RegisterName("retain"))
-	return g != 0 && l != 0
+	return func() {
+		for _, m := range []objc.ID{g, l} {
+			if m != 0 {
+				events.Send(objc.RegisterName("removeMonitor:"), m)
+				m.Send(objc.RegisterName("release"))
+			}
+		}
+		global.Release()
+		local.Release()
+	}, g != 0 && l != 0
 }

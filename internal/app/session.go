@@ -42,13 +42,30 @@ func (a *app) saveSession() {
 	}
 }
 
-// keepSession saves the session every half minute.
+// sessionEvery is how long after playback changed, and how often as it
+// plays, the session is kept.
+const sessionEvery = 30 * time.Second
+
+// keepSession saves the session a while after playback changed, and every
+// while again as it plays. Paused, nothing is due, and the app sleeps.
 func (a *app) keepSession() {
-	go func() {
-		for range time.Tick(30 * time.Second) {
-			a.win.Update(a.saveSession)
+	if a.sessionDue {
+		return
+	}
+	a.sessionDue = true
+	sessionAfter(sessionEvery, func() {
+		a.sessionDue = false
+		a.saveSession()
+		if a.pl.Playing() {
+			a.keepSession()
 		}
-	}()
+	})
+}
+
+// sessionAfter runs fn on the main thread after d, without redrawing a
+// window as Update would.
+var sessionAfter = func(d time.Duration, fn func()) {
+	time.AfterFunc(d, func() { mygo.RunOnMain(fn) })
 }
 
 // restoreSession picks up playback where it was left, paused, once the

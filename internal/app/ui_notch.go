@@ -30,10 +30,11 @@ type notch struct {
 	hello      bool // it shows itself, turned off, with a way to keep it
 	enteredAt  time.Time
 	lastInside time.Time
-	passing    bool // clicks pass through to what is under the window
-	watched    bool // the pointer's moves poll
-	active     bool // the app is active, when they go unseen over the menu bar
-	polling    bool // a poll is due
+	passing    bool   // clicks pass through to what is under the window
+	watched    bool   // the pointer's moves poll
+	unwatch    func() // stops them polling, nil while they don't
+	active     bool   // the app is active, when they go unseen over the menu bar
+	polling    bool   // a poll is due
 
 	bars  barState
 	scrub scrubState
@@ -87,9 +88,23 @@ func newNotch(a *app) *notch {
 	n.active = true
 	mygo.App.OnDidBecomeActive(func() { n.active = true; n.poll() })
 	mygo.App.OnDidResignActive(func() { n.active = false })
-	n.watched = watchPointer(n.poll)
+	n.watch()
 	n.poll()
 	return n
+}
+
+// watch follows the pointer's moves while the notch shows, turned on or
+// greeting. Otherwise it lets them be: each, anywhere on the screen, would
+// wake the app for nothing.
+func (n *notch) watch() {
+	on := n.a.settings.Notch || n.hello
+	switch {
+	case on && n.unwatch == nil:
+		n.unwatch, n.watched = watchPointer(n.poll)
+	case !on && n.unwatch != nil:
+		n.unwatch()
+		n.unwatch, n.watched = nil, false
+	}
 }
 
 // measure finds the housing of the display with the menu bar.
@@ -122,16 +137,19 @@ func (n *notch) setEnabled(on bool) {
 	}
 	if on == n.win.IsVisible() {
 		n.win.Invalidate()
+		n.watch()
 		return
 	}
 	if on {
 		n.win.ShowInactive()
 		pinToTop(n.win.NativeHandle(), float64(n.winW), float64(n.winH))
+		n.watch()
 		n.poll()
 		return
 	}
 	n.open, n.hello = false, false
 	n.win.Hide()
+	n.watch()
 }
 
 // greet shows the notch once, as the first song plays, to a listener who
@@ -150,6 +168,7 @@ func (n *notch) greet() {
 	}
 	n.win.ShowInactive()
 	pinToTop(n.win.NativeHandle(), float64(n.winW), float64(n.winH))
+	n.watch()
 	n.poll()
 	n.byeSoon(7 * time.Second)
 }
@@ -184,6 +203,7 @@ func (n *notch) bye() {
 		mygo.RunOnMain(func() {
 			if !n.hello && !n.a.settings.Notch {
 				n.win.Hide()
+				n.watch()
 			}
 		})
 	})
