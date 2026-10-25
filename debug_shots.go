@@ -18,6 +18,9 @@ func init() {
 		return
 	}
 	shotHook = func(a *app) {
+		// The scenes change settings to measure them: keep the
+		// listener's own as they were.
+		a.settings.path = ""
 		go func() {
 			shot := func(name string, w *mygo.Window) {
 				png, err := w.CapturePage()
@@ -35,7 +38,14 @@ func init() {
 				// frame log of MYGO_FRAME_STATS.
 				mark := func(s string) { println("mark", time.Now().Format("15:04:05.000"), s) }
 				// Above other windows: a covered window draws no frames.
-				mygo.RunOnMain(func() { a.win.SetAlwaysOnTop(true); a.win.Show() })
+				mygo.RunOnMain(func() {
+					a.win.SetAlwaysOnTop(true)
+					a.win.Show()
+					// NM_SMOKE=0 and NM_NOTCH=0 turn them off, to measure them.
+					a.settings.Smoke = os.Getenv("NM_SMOKE") != "0"
+					a.settings.Notch = os.Getenv("NM_NOTCH") != "0"
+					a.notch.setEnabled(a.settings.Notch)
+				})
 				for range 40 {
 					var n int
 					mygo.RunOnMain(func() { n = len(a.daily) })

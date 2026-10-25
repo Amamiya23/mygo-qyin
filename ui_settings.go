@@ -82,6 +82,11 @@ func (a *app) settingsView(c *ui.Context) {
 		})
 
 		group("播放", func() {
+			row("进度条烟雾特效", "播放时进度条化作拖着烟雾的光点，随音乐起伏；会多用一些电量", func() {
+				if ui.Switch(c.Key("smoke"), &s.Smoke).Label("进度条烟雾特效").Changed() {
+					a.changed()
+				}
+			})
 			row("音质", "下一首歌曲开始生效", func() {
 				labels := make([]string, len(qualityLevels))
 				chosen := qualityLevels[len(qualityLevels)-1].label
