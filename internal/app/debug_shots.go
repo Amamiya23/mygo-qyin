@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/pprof"
-	"syscall"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -39,10 +38,7 @@ func init() {
 				// frame log of MYGO_FRAME_STATS.
 				// With the process's CPU time so far, in ms, all its threads.
 				mark := func(s string) {
-					var ru syscall.Rusage
-					syscall.Getrusage(syscall.RUSAGE_SELF, &ru)
-					cpu := (ru.Utime.Nano() + ru.Stime.Nano()) / 1e6
-					println("mark", time.Now().Format("15:04:05.000"), s, "cpu", cpu)
+					println("mark", time.Now().Format("15:04:05.000"), s, "cpu", cpuTime())
 				}
 				// Above other windows: a covered window draws no frames.
 				mygo.RunOnMain(func() {

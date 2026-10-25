@@ -157,6 +157,15 @@ func Run() error {
 		a.settings = loadSettings()
 		a.settings.applyAppearance()
 		a.npPane = a.lyricsPaneChosen()
+		// Before the window: on Windows it lays out its content as it is
+		// made, and the view asks the player what plays.
+		a.art = newArtCache(a.post)
+		a.pl = player.New(a.post)
+		a.pl.Quality = func() string { return a.settings.Quality }
+		a.pl.Normalize = func() bool { return a.settings.Normalize }
+		a.pl.Cache = newSongCache(a.settings.CacheMB)
+		a.volume = a.settings.Volume
+		a.pl.SetVolume(a.volume)
 		a.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:         "网易云音乐",
 			Width:         1180,
@@ -172,13 +181,6 @@ func Run() error {
 			BackgroundColor:      "light-dark(#ffffff, #141416)",
 			Content:              ui.View(a.view),
 		})
-		a.art = newArtCache(a.post)
-		a.pl = player.New(a.post)
-		a.pl.Quality = func() string { return a.settings.Quality }
-		a.pl.Normalize = func() bool { return a.settings.Normalize }
-		a.pl.Cache = newSongCache(a.settings.CacheMB)
-		a.volume = a.settings.Volume
-		a.pl.SetVolume(a.volume)
 		a.setMenu()
 		a.boot()
 		a.notch = newNotch(a)
