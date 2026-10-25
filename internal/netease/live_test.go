@@ -2,7 +2,9 @@ package netease
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -69,5 +71,35 @@ func TestPrivilegesLive(t *testing.T) {
 	st, err := SongURL(2652820720, "exhigh")
 	if err != nil || st.URL == "" || st.Size == 0 || st.Type != "mp3" {
 		t.Fatalf("stream %+v %v", st, err)
+	}
+}
+
+func TestRecentPlaysLive(t *testing.T) {
+	// The session of a development build, which has the listener's plays.
+	path := os.Getenv("NM_SESSION")
+	if os.Getenv("LIVE") == "" || path == "" {
+		t.Skip()
+	}
+	deviceOnce.Do(func() { deviceID = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123" })
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cookies []*http.Cookie
+	for _, part := range strings.Split(string(b), ";") {
+		if name, value, ok := strings.Cut(strings.TrimSpace(part), "="); ok {
+			cookies = append(cookies, &http.Cookie{Name: name, Value: value, Path: "/"})
+		}
+	}
+	httpClient.Jar.SetCookies(siteURL, cookies)
+	plays, err := RecentPlays(20)
+	if err != nil || len(plays) == 0 {
+		t.Fatalf("%d plays, %v", len(plays), err)
+	}
+	for _, p := range plays[:min(5, len(plays))] {
+		t.Logf("%s %s %q playable %v", p.At.Format("01-02 15:04"), p.Device, p.Track.Name, p.Track.Playable())
+	}
+	if plays[0].Track.ID == 0 || plays[0].Device == "" || plays[0].At.Year() < 2020 {
+		t.Fatalf("latest play %+v", plays[0])
 	}
 }

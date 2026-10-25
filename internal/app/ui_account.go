@@ -115,6 +115,9 @@ func (a *app) pollLogin(gen int, key string) {
 				case code == netease.QRConfirmed:
 					l.status, l.finished = code, true
 					a.signedIn(prof)
+					if prof != nil {
+						a.pickUp(prof.UserID)
+					}
 					a.closeLoginSoon(gen)
 				case code == netease.QRExpired || code == netease.QRWaiting || code == netease.QRScanned:
 					l.status = code

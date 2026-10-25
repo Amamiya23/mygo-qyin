@@ -48,6 +48,7 @@ type app struct {
 	deleting     deleteDialog   // whether to delete a playlist, asked
 	liked        map[int64]bool // the songs the listener likes
 	toast        string         // a message to show once
+	picked       pickedUp       // the song a login picked up, waiting to play
 
 	daily       []netease.Track
 	dailySpin   spinState // the record on the daily card

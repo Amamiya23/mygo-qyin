@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo"
 )
@@ -228,6 +229,50 @@ func LikedIDs(uid int64) ([]int64, error) {
 		return nil, fmt.Errorf("netease: liked songs: code %d", res.Code)
 	}
 	return res.IDs, nil
+}
+
+// Play is a song the listener played, on one of their devices.
+type Play struct {
+	Track Track
+	At    time.Time
+	// Device is the system NetEase names the device by: iphone, android,
+	// osx, pc, web…
+	Device string
+}
+
+// RecentPlays returns the songs the listener played last, on any device
+// signed in as them, the latest first.
+func RecentPlays(limit int) ([]Play, error) {
+	var res struct {
+		Code int `json:"code"`
+		Data struct {
+			List []struct {
+				Data     Track `json:"data"`
+				PlayTime int64 `json:"playTime"` // milliseconds
+				Terminal struct {
+					OS string `json:"os"`
+				} `json:"multiTerminalInfo"`
+			} `json:"list"`
+		} `json:"data"`
+	}
+	if err := eapiPost("/api/play-record/song/list", map[string]any{"limit": limit}, &res); err != nil {
+		return nil, err
+	}
+	if res.Code != 200 {
+		return nil, fmt.Errorf("netease: recent plays: code %d", res.Code)
+	}
+	plays := make([]Play, len(res.Data.List))
+	songs := make([]Track, len(plays))
+	for i, l := range res.Data.List {
+		songs[i] = l.Data
+		plays[i] = Play{At: time.UnixMilli(l.PlayTime), Device: l.Terminal.OS}
+	}
+	// They come without privileges, as the daily songs do.
+	detailPrivileges(songs)
+	for i := range plays {
+		plays[i].Track = songs[i]
+	}
+	return plays, nil
 }
 
 // Like likes a song, adding it to the listener's liked songs, or unlikes it.
