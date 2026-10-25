@@ -4,6 +4,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"netease-music-mygo/internal/lyrics"
@@ -28,6 +29,15 @@ func (a *app) npState(c *ui.Context) (open, settled bool) {
 		// A build once it is at rest: to stop painting what it covers, or
 		// itself once gone.
 		c.After(npSettle)
+		// The window buttons light over its dark backdrop, and as the
+		// theme over the pages (Windows).
+		if a.win != nil {
+			buttons := mygo.ThemeSystem
+			if open {
+				buttons = mygo.ThemeDark
+			}
+			a.win.SetWindowButtonsTheme(buttons)
+		}
 	}
 	return open, now.Sub(a.npChangedAt) >= npSettle
 }
