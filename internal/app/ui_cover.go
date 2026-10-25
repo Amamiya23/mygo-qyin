@@ -2,9 +2,11 @@ package app
 
 import (
 	"math"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/shader"
 
 	"netease-music-mygo/internal/netease"
 )
@@ -34,6 +36,38 @@ type coverKey struct {
 	id  int64
 	gen int
 }
+
+// glareSource paints the glare as the shadow of a point, grown by Core
+// and blurred by Sigma, would be: the blur of a square Core from Center
+// each way. It rounds the cover's corners itself, where a clip would be
+// rasterized anew each frame the cover tilts in depth.
+const glareSource = `package main
+
+var Center vec2
+var Core float
+var Sigma float
+var Alpha float
+
+// erf approximates the error function, within 0.0002.
+func erf(x float) float {
+	x2 := x * x
+	return sign(x) * sqrt(1.0-exp(-x2*(1.2732395+0.147*x2)/(1.0+0.147*x2)))
+}
+
+// spread is how much of a line of length 2*Core around 0, blurred, is at d.
+func spread(d float) float {
+	k := 0.70710678 / Sigma
+	return 0.5 * (erf((d+Core)*k) - erf((d-Core)*k))
+}
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	d := pos - Center
+	a := Alpha * spread(d.x) * spread(d.y)
+	return vec4(a, a, a, a)
+}
+`
+
+var glareShader = sync.OnceValue(func() *shader.Shader { return shader.MustCompile(glareSource) })
 
 // coverSwing is how the cover goes to rest, or off.
 var coverSwing = ui.Animation{Spring: ui.SpringOptions{Duration: 480 * time.Millisecond, Bounce: 0.18}}
@@ -169,9 +203,9 @@ func (a *app) npCover(c *ui.Context, tr *netease.Track, art *artwork, size float
 			artImage(c, bitmap(art), 16, in)
 			if shine > 0.01 {
 				ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough().Draw(func(p *ui.Painter, r ui.Rect) {
-					p.Clip(r, 16, func() {
-						p.Shadow(ui.Rect{X: r.X + gx, Y: r.Y + gy}, 0, 0, 0, r.W*0.45, r.W*0.16, white.Alpha(0.26*shine))
-					})
+					glareShader().Draw(p, r, shader.Options{Radius: 16, Uniforms: map[string]any{
+						"Center": [2]float32{gx, gy}, "Core": r.W * 0.16, "Sigma": r.W * 0.225, "Alpha": 0.26 * shine,
+					}})
 				})
 			}
 		})
