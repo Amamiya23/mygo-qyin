@@ -237,20 +237,30 @@ const pageGap = 12
 // insets returns the room the bars over a page take at its top and its
 // bottom: pages pad their content by it, and scroll under the bars.
 func (a *app) insets(c *ui.Context) (top, bottom float32) {
-	return topBar(c) + topEdgePad, playerBarHeight
+	top = topBar(c)
+	if runtime.GOOS == "darwin" {
+		// The edge reaches a little below the traffic lights' strip.
+		top += topEdgePad
+	}
+	return top, playerBarHeight
 }
 
-// topEdgePad is the room the edge over a page leaves below the strip.
+// topEdgePad is the room the edge over a page leaves below the strip, on
+// macOS.
 const topEdgePad = 6
+
+// buttonsHeight is the height of the window buttons off macOS, which fill
+// the edge over a page.
+const buttonsHeight = topBarHeight + topEdgePad
 
 // topBar returns the height of the strip along the top of the window, as
 // tall as the window buttons and the room above and below them, which
 // what sits in it centers on.
 func topBar(c *ui.Context) float32 {
 	if runtime.GOOS != "darwin" {
-		// The buttons' bar is as tall as the app says, the edge over a
-		// page with it: taking its height back would grow the edge.
-		return topBarHeight
+		// The whole edge, which the buttons fill: what sits in the strip
+		// centers on their glyphs.
+		return buttonsHeight
 	}
 	return max(c.TitleBar().Height, topBarHeight)
 }
