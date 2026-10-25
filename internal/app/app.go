@@ -174,6 +174,8 @@ func Run() error {
 			MinHeight:     580,
 			StateKey:      "main",
 			TitleBarStyle: mygo.TitleBarHidden,
+			// As tall as the edge over a page (Linux, Windows).
+			TitleBarHeight: topBarHeight + topEdgePad,
 			// Inset from the corner, within the sidebar, as macOS 26's
 			// apps with a sidebar place them.
 			TrafficLightPosition: &mygo.Point{X: 20, Y: 20},

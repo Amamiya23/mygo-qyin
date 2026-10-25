@@ -1,6 +1,7 @@
 package app
 
 import (
+	"runtime"
 	"strings"
 	"time"
 
@@ -136,9 +137,14 @@ func (a *app) goForward() {
 
 func (a *app) sidebar(c *ui.Context) {
 	p := a.pal
-	bar := topBar(c)
-	ui.Column(c).Fill().Padding(bar+4, 14, 14, 14).Gap(4).Children(func() {
-		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(bar).DragWindow()
+	// Under the window buttons where they sit over the sidebar, as the
+	// traffic lights do; elsewhere, as close to the top as to the sides.
+	top := float32(14)
+	if c.TitleBar().Left > 0 {
+		top = topBar(c) + 4
+	}
+	ui.Column(c).Fill().Padding(top, 14, 14, 14).Gap(4).Children(func() {
+		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(top).DragWindow()
 
 		// The search field.
 		field := ui.Row(c).Height(32).PaddingX(10).Gap(7).Radius(9).AlignItems(ui.Center).Margin(0, 0, 14, 0)
@@ -231,15 +237,26 @@ const pageGap = 12
 // insets returns the room the bars over a page take at its top and its
 // bottom: pages pad their content by it, and scroll under the bars.
 func (a *app) insets(c *ui.Context) (top, bottom float32) {
-	return topBar(c) + 6, playerBarHeight
+	return topBar(c) + topEdgePad, playerBarHeight
 }
+
+// topEdgePad is the room the edge over a page leaves below the strip.
+const topEdgePad = 6
 
 // topBar returns the height of the strip along the top of the window, as
 // tall as the window buttons and the room above and below them, which
 // what sits in it centers on.
 func topBar(c *ui.Context) float32 {
-	return max(c.TitleBar().Height, 40)
+	if runtime.GOOS != "darwin" {
+		// The buttons' bar is as tall as the app says, the edge over a
+		// page with it: taking its height back would grow the edge.
+		return topBarHeight
+	}
+	return max(c.TitleBar().Height, topBarHeight)
 }
+
+// topBarHeight is the least height of the strip along the top.
+const topBarHeight = 40
 
 // startMark marks where a page's content starts, first in what scrolls:
 // once it has moved up, content is under the bar at the top.
