@@ -1,6 +1,7 @@
 package app
 
 import (
+	"runtime"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -241,15 +242,16 @@ func (a *app) profileName() string {
 	return a.profile.Nickname
 }
 
-// accountRow sits at the foot of the sidebar: who is signed in, with a menu
-// to sign out, or a way to sign in.
+// accountRow sits at the foot of the sidebar: who is signed in, with a
+// dropdown to open the settings or sign out, or a way to sign in.
 func (a *app) accountRow(c *ui.Context) {
 	p := a.pal
 	b := ui.ButtonBase(c.Key("account")).Height(40).PaddingX(8).Gap(10).Radius(10).AlignItems(ui.Center).Justify(ui.Start).FocusRing(false)
-	if b.Hovered() {
+	if b.Hovered() || a.accountOpen && a.profile != nil {
 		b.Background(p.hover)
 	}
 	if a.profile == nil {
+		a.accountOpen = false
 		b.Label("登录").Children(func() {
 			ui.Box(c).Size(26, 26).Radius(13).Background(p.press).Center().Children(func() {
 				ui.Icon(c, iconUser).Size(14, 14).TextColor(p.muted)
@@ -262,19 +264,62 @@ func (a *app) accountRow(c *ui.Context) {
 		return
 	}
 	prof := a.profile
-	b.Label(prof.Nickname).Children(func() {
+	b.Label(prof.Nickname).Expanded(a.accountOpen).Children(func() {
 		a.avatar(c, prof.AvatarURL, 26, p.press)
-		ui.Text(c, prof.Nickname).FontSize(13).FontWeight(600).SingleLine().Shrink(1).MinWidth(0)
+		ui.Text(c, prof.Nickname).FontSize(13).FontWeight(600).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+		ui.Icon(c, iconUpDown).Size(13, 13).TextColor(p.faint)
 	})
-	b.Menu(func(m *ui.Menu) {
-		if m.Item("设置…").Chosen() {
+	if b.Clicked() {
+		a.accountOpen = !a.accountOpen
+	}
+	a.accountMenu(c, b)
+}
+
+// accountMenu drops up from the account row, as wide as it, in the colors
+// of the volume popover: the settings, then signing out.
+func (a *app) accountMenu(c *ui.Context, row ui.Element) {
+	pop := popoverColors(a.pal.dark)
+	ui.PopoverBase(c.Key("account-menu"), row, &a.accountOpen, func(panel ui.Element) {
+		panel.AttachTo(row, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 6, 0).Padding(5).Gap(1).
+			Radius(12).Background(pop.fill).Border(0.5, pop.edge).Shadow(0, 8, 24, -4, ui.RGBA(0, 0, 0, 0.2)).
+			Role(ui.RoleMenu).FocusGroup(ui.Vertical).Label("账户").TransformOrigin(0.5, 1).
+			Transition(ui.ElementTransition{Animation: &ui.Snappy, Enter: &ui.Motion{Scale: 0.96, Y: 4}, Exit: &ui.Motion{Scale: 0.98}})
+		if w := row.Bounds().W; w > 0 {
+			panel.Width(w)
+		}
+		shortcut := "Ctrl+,"
+		if runtime.GOOS == "darwin" {
+			shortcut = "⌘,"
+		}
+		if a.menuItem(c, iconSettings, "设置…", shortcut).AutoFocus().Clicked() {
+			a.accountOpen = false
 			a.openSettings()
 		}
-		m.Separator()
-		if m.Item("退出登录").Chosen() {
+		ui.Box(c).Height(0.5).Margin(4, 8).Background(pop.edge)
+		if a.menuItem(c, iconSignOut, "退出登录", "").Clicked() {
+			a.accountOpen = false
 			a.signOut()
 		}
 	})
+}
+
+// menuItem is an item of a dropdown: an icon, its label, and the shortcut
+// that does the same, if any.
+func (a *app) menuItem(c *ui.Context, icon *ui.SVG, label, shortcut string) ui.Element {
+	p := a.pal
+	b := ui.ButtonBase(c.Key(label)).Role(ui.RoleMenuItem).Label(label).Height(30).PaddingX(8).Gap(9).Radius(7).
+		AlignItems(ui.Center).Justify(ui.Start).FocusRing(false)
+	if b.Hovered() || b.FocusVisible() {
+		b.Background(p.press)
+	}
+	b.Children(func() {
+		ui.Icon(c, icon).Size(15, 15).TextColor(p.muted)
+		ui.Text(c, label).FontSize(13).Grow(1)
+		if shortcut != "" {
+			ui.Text(c, shortcut).FontSize(12).TextColor(p.faint)
+		}
+	})
+	return b
 }
 
 // myPlaylists lists the listener's playlists in the sidebar: those they
