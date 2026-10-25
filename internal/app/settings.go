@@ -37,7 +37,7 @@ type settings struct {
 	// measured of each.
 	Normalize bool `json:"normalize"`
 	// HotComments shows a song's hot comments in its quiet parts, in
-	// place of the lyrics (quietComment).
+	// place of the lyrics (quietComment): the listener turns it on.
 	HotComments bool `json:"hotComments"`
 	// Fog fills Now Playing's backdrop with fog of the cover's color,
 	// rising and swelling with the bass: an experiment the listener turns
@@ -51,7 +51,7 @@ type settings struct {
 }
 
 func defaultSettings() settings {
-	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8, Normalize: true, HotComments: true, CacheMB: 2048}
+	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8, Normalize: true, CacheMB: 2048}
 }
 
 func settingsPath() (string, error) {

@@ -15,6 +15,7 @@ import (
 func quietApp(pos time.Duration) (*app, netease.Track, []lyrics.Line) {
 	a := newTestApp()
 	a.settings = defaultSettings()
+	a.settings.HotComments = true
 	tr := netease.Track{ID: 9, Name: "晴天", Duration: 60000}
 	lines := []lyrics.Line{
 		{At: 0, End: 2 * time.Second, Text: "作词：周杰伦"},

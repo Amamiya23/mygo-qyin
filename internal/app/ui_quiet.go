@@ -15,7 +15,7 @@ import (
 // were, down the lyrics pane or in the middle of the stage, with who wrote
 // it and how many liked it, giving way as the singing comes back. A long quiet shows a few, one after another; a song without
 // lyrics shows them all along. A click on one opens the comments. The
-// listener may turn them off (settings.HotComments).
+// listener turns them on (settings.HotComments).
 
 const (
 	quietLeast = 8 * time.Second         // the shortest quiet a comment shows in
