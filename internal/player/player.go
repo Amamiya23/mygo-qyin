@@ -196,14 +196,9 @@ func (p *Player) Downloaded() (float64, bool) {
 	return p.stream.dl.Progress(), true
 }
 
-// UpNext returns the tracks after the current one, in play order.
-func (p *Player) UpNext(n int) []int {
-	var out []int
-	for i := p.at + 1; i < len(p.order) && len(out) < n; i++ {
-		out = append(out, p.order[i])
-	}
-	return out
-}
+// PlayOrder returns the queue's indices in play order, and where the
+// current track is among them, -1 for none.
+func (p *Player) PlayOrder() ([]int, int) { return p.order, p.at }
 
 func (p *Player) Next() {
 	if len(p.order) == 0 {

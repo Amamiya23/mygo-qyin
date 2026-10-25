@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -62,5 +63,32 @@ func TestNowPlayingClosesAsOneLayer(t *testing.T) {
 	tt.Frame()
 	if tt.HasText("待播清单") {
 		t.Error("now playing still shows after closing")
+	}
+}
+
+func TestQueueStaysAsATrackIsPlayed(t *testing.T) {
+	a := newTestApp()
+	var tracks []netease.Track
+	for i := range 12 {
+		tracks = append(tracks, netease.Track{ID: int64(i + 1), Name: fmt.Sprintf("歌%02d", i), Duration: 200000})
+	}
+	a.pl.Cue(tracks)
+	a.nowPlaying, a.npPane = true, paneQueue
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	tt.Frame()
+	if err := tt.Click("歌05"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Frame()
+	if got := a.pl.Current().Name; got != "歌05" {
+		t.Fatalf("playing %q, want 歌05", got)
+	}
+	// The tracks before it are still listed, as they were.
+	for _, s := range []string{"歌01", "歌04", "歌06", "歌09"} {
+		if !tt.HasText(s) {
+			t.Errorf("missing %q in %q", s, tt.Texts())
+		}
 	}
 }

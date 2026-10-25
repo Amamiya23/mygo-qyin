@@ -75,6 +75,8 @@ type app struct {
 	lyricGlide  lyricGlide
 	lyricAt     int
 	lyricTrack  int64
+	queueList   ui.ListState
+	queueAt     int // the row of the queue pane last scrolled to, -1 while it is hidden
 
 	scrub      float64
 	scrubbing  bool
@@ -134,6 +136,7 @@ func Run() error {
 		loadingPl: map[int64]bool{},
 		plErr:     map[int64]string{},
 		lyricAt:   -1,
+		queueAt:   -1,
 	}
 	mygo.App.SetName("网易云音乐")
 	mygo.App.WhenReady(func() {

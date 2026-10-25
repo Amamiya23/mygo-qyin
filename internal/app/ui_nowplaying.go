@@ -48,6 +48,7 @@ func (a *app) nowPlayingLayer(c *ui.Context, open, settled bool) {
 	if !open && settled || a.pl.Current() == nil {
 		// Closed: nothing to paint or click.
 		layer.Invisible()
+		a.queueAt = -1
 		return
 	}
 	if !open {
@@ -82,6 +83,9 @@ func (a *app) nowPlayingView(c *ui.Context) {
 
 func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32) {
 	pl := a.pl
+	if a.npPane != paneQueue {
+		a.queueAt = -1
+	}
 	{
 		// The top strip drags the window; the chevron closes the view.
 		ui.Row(c).Height(topBar(c)).Justify(ui.Center).AlignItems(ui.Center).DragWindow().Children(func() {
@@ -484,37 +488,46 @@ func (g *lyricGlide) step(c *ui.Context, s *ui.ScrollState) float32 {
 	return float32(lag)
 }
 
+// queuePane lists the whole queue in play order, the track playing marked
+// among the others: a click plays one there, and the list stays as it is.
 func (a *app) queuePane(c *ui.Context) {
 	pl := a.pl
-	next := pl.UpNext(80)
-	if len(next) == 0 {
-		ui.Column(c).Grow(1).Center().Children(func() {
-			ui.Text(c, "播放队列已到末尾").FontSize(15).TextColor(white.Alpha(0.5))
-		})
-		return
-	}
-	ui.Scroll(c.Key("queue")).Grow(1).Padding(8, 0, 40, 0).Gap(2).Children(func() {
-		for _, i := range next {
-			tr := &pl.Queue()[i]
-			row := ui.ButtonBase(c.Key(tr.ID)).Height(58).PaddingX(10).Gap(14).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name)
-			if row.Hovered() {
-				row.Background(white.Alpha(0.08))
-			}
-			if !tr.Playable() {
-				row.Opacity(0.4)
-			}
-			row.Children(func() {
-				a.cover(c, tr.Album.PicURL, 96, 42, 7)
-				ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
-					ui.Text(c, tr.Name).FontSize(14).FontWeight(600).SingleLine()
-					ui.Text(c, tr.ArtistNames()).FontSize(12.5).TextColor(white.Alpha(0.55)).SingleLine()
-				})
-				ui.Text(c, clock(tr.Length())).FontSize(12).FontFeatures("tnum").TextColor(white.Alpha(0.4))
-			})
-			if row.Clicked() && tr.Playable() {
-				i := i
-				row.OnClick(func() { pl.Jump(i) })
-			}
+	order, at := pl.PlayOrder()
+	// Opened, it shows the track playing at its top; after, it follows it
+	// as little as keeps it in view.
+	if at >= 0 && at != a.queueAt {
+		if a.queueAt < 0 {
+			a.queueList.ScrollTo(at, ui.Start)
+		} else {
+			a.queueList.ScrollIntoView(at)
 		}
-	})
+		a.queueAt = at
+	}
+	a.queueList.Key = func(row int) any { return order[row] }
+	ui.List(c.Key("queue"), &a.queueList, len(order), func(r int) {
+		i := order[r]
+		tr := &pl.Queue()[i]
+		playing := r == at
+		row := ui.ButtonBase(c.Key(i)).Height(58).PaddingX(10).Gap(14).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name)
+		switch {
+		case playing:
+			row.Background(white.Alpha(0.12))
+		case row.Hovered():
+			row.Background(white.Alpha(0.08))
+		}
+		if !tr.Playable() {
+			row.Opacity(0.4)
+		}
+		row.Children(func() {
+			a.cover(c, tr.Album.PicURL, 96, 42, 7)
+			ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
+				ui.Text(c, tr.Name).FontSize(14).FontWeight(600).SingleLine()
+				ui.Text(c, tr.ArtistNames()).FontSize(12.5).TextColor(white.Alpha(0.55)).SingleLine()
+			})
+			ui.Text(c, clock(tr.Length())).FontSize(12).FontFeatures("tnum").TextColor(white.Alpha(0.4))
+		})
+		if row.Clicked() && tr.Playable() && !playing {
+			pl.Jump(i)
+		}
+	}).Grow(1).Padding(8, 0, 40, 0).Gap(2)
 }
