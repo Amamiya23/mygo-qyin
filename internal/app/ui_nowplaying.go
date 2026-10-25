@@ -73,26 +73,37 @@ func (a *app) nowPlayingView(c *ui.Context) {
 
 	root := ui.Box(c.Key("now-playing")).Absolute().Top(0).Left(0).Right(0).Bottom(0).
 		Background(ui.Hex("#0b0b0d")).TextColor(white)
+	// The pointer is over the view whenever it is in the window.
+	pointerIn := root.Hovered()
 	root.Children(func() {
 		a.backdrop(c, art, tint)
 		// Over the backdrop, which is positioned too: positioned elements
 		// paint over those in the flow.
-		ui.Column(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Children(func() { a.nowPlayingBody(c, tr, art, accent, w, h) })
+		ui.Column(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Children(func() { a.nowPlayingBody(c, tr, art, accent, w, h, pointerIn) })
 	})
 }
 
-func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32) {
+func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32, pointerIn bool) {
 	pl := a.pl
 	a.commentsFor(tr)
 	if a.npPane != paneQueue {
 		a.queueAt = -1
 	}
 	{
-		// The top strip drags the window; the chevron closes the view.
+		// The top strip drags the window; the chevron closes the view,
+		// showing only while the pointer is in the window.
 		ui.Row(c).Height(topBar(c)).Justify(ui.Center).AlignItems(ui.Center).DragWindow().Children(func() {
-			if iconButton(c.Key("close"), iconDown, 22, white.Alpha(0.7), "关闭").Clicked() {
-				a.nowPlaying = false
+			reveal := ui.Box(c.Key("close-reveal"))
+			pose := ui.Pose{Fade: 1}
+			if pointerIn {
+				pose = ui.Pose{}
 			}
+			reveal.AnimatePose(pose, ui.Animation{Duration: 200 * time.Millisecond})
+			reveal.Children(func() {
+				if iconButton(c.Key("close"), iconDown, 22, white.Alpha(0.7), "关闭").Clicked() {
+					a.nowPlaying = false
+				}
+			})
 		})
 		if a.npPane == paneStage {
 			// The stage takes the whole view: the lyrics are the show, the
