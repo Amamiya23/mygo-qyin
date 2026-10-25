@@ -101,9 +101,9 @@ func (a *app) back() {
 
 func (a *app) sidebar(c *ui.Context) {
 	p := a.pal
-	bar := c.TitleBar()
-	ui.Column(c).Fill().Padding(max(bar.Height, 28)+14, 14, 14, 14).Gap(4).Children(func() {
-		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(max(bar.Height, 28) + 8).DragWindow()
+	bar := topBar(c)
+	ui.Column(c).Fill().Padding(bar+4, 14, 14, 14).Gap(4).Children(func() {
+		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(bar).DragWindow()
 
 		// The search field.
 		field := ui.Row(c).Height(32).PaddingX(10).Gap(7).Radius(9).AlignItems(ui.Center).Margin(0, 0, 14, 0)
@@ -195,7 +195,14 @@ const pageGap = 12
 // insets returns the room the bars over a page take at its top and its
 // bottom: pages pad their content by it, and scroll under the bars.
 func (a *app) insets(c *ui.Context) (top, bottom float32) {
-	return max(c.TitleBar().Height, 28) + 16, playerBarHeight
+	return topBar(c) + 6, playerBarHeight
+}
+
+// topBar returns the height of the strip along the top of the window, as
+// tall as the window buttons and the room above and below them, which
+// what sits in it centers on.
+func topBar(c *ui.Context) float32 {
+	return max(c.TitleBar().Height, 40)
 }
 
 // startMark marks where a page's content starts, first in what scrolls:
@@ -238,7 +245,7 @@ func (a *app) pageTop(c *ui.Context) {
 		Material(glass.ScrollEdge{Hard: true, Background: a.pal.bg})
 	edge.Opacity(edgeShown(edge, a.underTop))
 	if len(a.history) > 0 {
-		ui.Row(c).Absolute().Top(0).Left(20).Height(top).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Absolute().Top(0).Left(20).Height(topBar(c)).AlignItems(ui.Center).Children(func() {
 			if iconButton(c.Key("back"), iconBack, 18, a.pal.muted, "返回").Clicked() {
 				a.back()
 			}

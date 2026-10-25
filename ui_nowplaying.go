@@ -79,10 +79,9 @@ func (a *app) nowPlayingView(c *ui.Context) {
 
 func (a *app) nowPlayingBody(c *ui.Context, tr *Track, art *artwork, accent ui.Color, w, h float32) {
 	pl := a.pl
-	bar := c.TitleBar()
 	{
 		// The top strip drags the window; the chevron closes the view.
-		ui.Row(c).Height(max(bar.Height, 28) + 20).Justify(ui.Center).AlignItems(ui.Center).DragWindow().Children(func() {
+		ui.Row(c).Height(topBar(c)).Justify(ui.Center).AlignItems(ui.Center).DragWindow().Children(func() {
 			if iconButton(c.Key("close"), iconDown, 22, white.Alpha(0.7), "关闭").Clicked() {
 				a.nowPlaying = false
 			}
@@ -90,7 +89,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *Track, art *artwork, accent ui.C
 		if a.npPane == paneStage {
 			// The stage takes the whole view: the lyrics are the show, the
 			// controls a slim bar at the foot.
-			ui.Row(c).Absolute().Top(max(bar.Height, 28) + 20).Right(48).Gap(6).Children(func() { a.paneTabs(c) })
+			ui.Row(c).Absolute().Top(topBar(c)).Right(48).Gap(6).Children(func() { a.paneTabs(c) })
 			a.stage(c, tr, accent)
 			a.stageBar(c, tr, art)
 			return

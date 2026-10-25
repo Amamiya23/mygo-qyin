@@ -131,16 +131,19 @@ func main() {
 		a.settings.applyAppearance()
 		a.npPane = a.lyricsPaneChosen()
 		a.win = mygo.NewWindow(mygo.WindowOptions{
-			Title:           "网易云音乐",
-			Width:           1180,
-			Height:          780,
-			MinWidth:        880,
-			MinHeight:       580,
-			StateKey:        "main",
-			TitleBarStyle:   mygo.TitleBarHidden,
-			Vibrancy:        mygo.VibrancySidebar,
-			BackgroundColor: "light-dark(#ffffff, #141416)",
-			Content:         ui.View(a.view),
+			Title:         "网易云音乐",
+			Width:         1180,
+			Height:        780,
+			MinWidth:      880,
+			MinHeight:     580,
+			StateKey:      "main",
+			TitleBarStyle: mygo.TitleBarHidden,
+			// Inset from the corner, within the sidebar, as macOS 26's
+			// apps with a sidebar place them.
+			TrafficLightPosition: &mygo.Point{X: 20, Y: 20},
+			Vibrancy:             mygo.VibrancySidebar,
+			BackgroundColor:      "light-dark(#ffffff, #141416)",
+			Content:              ui.View(a.view),
 		})
 		a.art = newArtCache(a.post)
 		a.pl = newPlayer(a.post)
