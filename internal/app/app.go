@@ -109,6 +109,7 @@ type app struct {
 	settings    settings
 	settingsWin *mygo.Window
 	cacheUsed   int64 // the bytes the song cache takes, -1 until measured
+	updates     bool  // the update plugin is used (useUpdater)
 
 	restored     bool   // playback picked up where it was left
 	savedSession string // the session as last kept
@@ -155,7 +156,8 @@ func Run() error {
 		queueAt:   -1,
 		cacheUsed: -1,
 	}
-	mygo.App.SetName("网易云音乐")
+	moveOldData()
+	a.useUpdater()
 	mygo.App.WhenReady(func() {
 		a.settings = loadSettings()
 		a.settings.applyAppearance()
@@ -170,7 +172,7 @@ func Run() error {
 		a.volume = a.settings.Volume
 		a.pl.SetVolume(a.volume)
 		a.win = mygo.NewWindow(mygo.WindowOptions{
-			Title:         "网易云音乐",
+			Title:         mygo.App.Name(),
 			Width:         1180,
 			Height:        780,
 			MinWidth:      880,

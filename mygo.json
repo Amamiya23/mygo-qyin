@@ -3,7 +3,13 @@
   "identifier": "dev.egoist.cloudmusic",
   "version": "0.1.0",
   "out": "build",
+  "updates": {
+    "publicKey": "WzJsOGNIuf6mcEqo5ff8jub+NoQQOEk4JXreLPYjgyQ=",
+    "github": "egoist/mygo-cloudmusic"
+  },
   "macos": {
-    "icon": "icon/AppIcon.icon"
+    "icon": "icon/AppIcon.icon",
+    "signingIdentity": "Developer ID Application: xinyu zeng (GJE9R5VE87)",
+    "notarize": { "keychainProfile": "notary" }
   }
 }

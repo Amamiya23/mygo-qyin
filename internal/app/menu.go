@@ -2,8 +2,9 @@ package app
 
 import "github.com/egoist/mygo"
 
-// setMenu gives the app its menu bar, in Chinese, with the settings in
-// the app menu and the player's controls in a menu of their own.
+// setMenu gives the app its menu bar, in Chinese and named as the app
+// is, with the settings in the app menu and the player's controls in a
+// menu of their own.
 func (a *app) setMenu() {
 	run := func(fn func()) func(*mygo.MenuItem, *mygo.Window) {
 		return func(*mygo.MenuItem, *mygo.Window) {
@@ -11,19 +12,21 @@ func (a *app) setMenu() {
 			a.redraw()
 		}
 	}
+	name := mygo.App.Name()
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
-		{Label: "网易云音乐", Submenu: []*mygo.MenuItem{
-			{Role: mygo.RoleAbout, Label: "关于网易云音乐"},
+		{Label: name, Submenu: []*mygo.MenuItem{
+			{Role: mygo.RoleAbout, Label: "关于" + name},
+			{Label: "检查更新…", Click: run(checkForUpdates)},
 			mygo.Separator(),
 			{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: run(a.openSettings)},
 			mygo.Separator(),
 			{Role: mygo.RoleServices, Label: "服务"},
 			mygo.Separator(),
-			{Role: mygo.RoleHide, Label: "隐藏网易云音乐"},
+			{Role: mygo.RoleHide, Label: "隐藏" + name},
 			{Role: mygo.RoleHideOthers, Label: "隐藏其他"},
 			{Role: mygo.RoleUnhide, Label: "全部显示"},
 			mygo.Separator(),
-			{Role: mygo.RoleQuit, Label: "退出网易云音乐"},
+			{Role: mygo.RoleQuit, Label: "退出" + name},
 		}},
 		{Label: "文件", Submenu: []*mygo.MenuItem{
 			{Label: "新建歌单…", Accelerator: "CmdOrCtrl+N", Click: run(func() {
@@ -61,7 +64,7 @@ func (a *app) setMenu() {
 			{Role: mygo.RoleZoom, Label: "缩放"},
 			{Role: mygo.RoleClose, Label: "关闭"},
 			mygo.Separator(),
-			{Label: "网易云音乐", Accelerator: "CmdOrCtrl+0", Click: run(a.showMain)},
+			{Label: name, Accelerator: "CmdOrCtrl+0", Click: run(a.showMain)},
 			{Role: mygo.RoleFront, Label: "前置全部窗口"},
 		}},
 	}))

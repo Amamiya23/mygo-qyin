@@ -48,7 +48,7 @@ func newNotch(a *app) *notch {
 	n.winW, n.winH = notchOpenW+60, 240
 	n.place()
 	n.win = mygo.NewWindow(mygo.WindowOptions{
-		Title:         "网易云音乐迷你播放器",
+		Title:         mygo.App.Name() + "迷你播放器",
 		Panel:         true,
 		Hidden:        true,
 		Frameless:     true,
@@ -382,7 +382,7 @@ func (n *notch) idle(c *ui.Context, open, left float32) {
 			ui.Icon(c, iconNote).Size(18, 18).TextColor(white)
 		})
 		ui.Column(c).Grow(1).Gap(2).Children(func() {
-			ui.Text(c, "网易云音乐").FontSize(14).FontWeight(700)
+			ui.Text(c, mygo.App.Name()).FontSize(14).FontWeight(700)
 			ui.Text(c, "未在播放").FontSize(12).TextColor(white.Alpha(0.5))
 		})
 		b := ui.ButtonBase(c.Key("open")).Padding(6, 14).Radius(999).Background(white.Alpha(0.14)).FocusRing(false)
