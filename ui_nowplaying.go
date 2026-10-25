@@ -11,25 +11,42 @@ var white = ui.RGB(255, 255, 255)
 
 var npSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 450 * time.Millisecond, Bounce: 0.08}}
 
-// nowPlayingLayer holds Now Playing over the whole window, rising into
-// view as it opens and sinking away as it closes. The layer animates
-// itself, staying on top all the way, rather than leaving as an exit
-// transition would, under the rest of the window: that would show it going
-// over the sidebar's material while the page above it hid it at once.
-func (a *app) nowPlayingLayer(c *ui.Context) {
-	open := a.nowPlaying && a.pl.current() != nil
-	target := float32(0)
-	if open {
-		target = 1
+// npSettle is how long Now Playing takes to come or go, its spring at rest.
+const npSettle = 600 * time.Millisecond
+
+// npState tracks Now Playing opening and closing, and reports whether it is
+// open and whether it has come to rest, open or closed. Call it once a
+// build, before the window's content.
+func (a *app) npState(c *ui.Context) (open, settled bool) {
+	open = a.nowPlaying && a.pl.current() != nil
+	now := c.Now()
+	if open != a.npOpen {
+		a.npOpen, a.npChangedAt = open, now
+		// A build once it is at rest: to stop painting what it covers, or
+		// itself once gone.
+		c.After(npSettle)
 	}
+	return open, now.Sub(a.npChangedAt) >= npSettle
+}
+
+// nowPlayingLayer holds Now Playing over the whole window, rising into
+// view as it opens and sinking away as it closes. The layer moves itself,
+// staying on top all the way, rather than leaving as an exit transition
+// would, under the rest of the window: that would show it going over the
+// sidebar's material while the page above it hid it at once. Its pose
+// moves it in frames that only paint, building nothing.
+func (a *app) nowPlayingLayer(c *ui.Context, open, settled bool) {
 	layer := ui.Box(c.Key("now-playing-layer")).Absolute().Top(0).Left(0).Right(0).Bottom(0)
-	shown := layer.AnimateTo("shown", target, npSpring)
-	if !open && shown < 0.01 || a.pl.current() == nil {
+	pose := ui.Pose{Y: 60, Fade: 1}
+	if open {
+		pose = ui.Pose{}
+	}
+	layer.AnimatePose(pose, npSpring)
+	if !open && settled || a.pl.current() == nil {
 		// Closed: nothing to paint or click.
 		layer.Invisible()
 		return
 	}
-	layer.Opacity(min(1, max(0, shown))).Translate(0, (1-shown)*60)
 	if !open {
 		// On its way out, the window under it takes the clicks.
 		layer.PassThrough()
@@ -51,7 +68,7 @@ func (a *app) nowPlayingView(c *ui.Context) {
 	accent := tint.Mix(white, 0.45)
 
 	root := ui.Box(c.Key("now-playing")).Absolute().Top(0).Left(0).Right(0).Bottom(0).
-		Background(ui.Hex("#0b0b0d")).Clip().TextColor(white)
+		Background(ui.Hex("#0b0b0d")).TextColor(white)
 	root.Children(func() {
 		a.backdrop(c, art, tint)
 		// Over the backdrop, which is positioned too: positioned elements
@@ -201,35 +218,96 @@ func (a *app) paneTab(c *ui.Context, i int, label string) {
 	}
 }
 
-// backdrop paints the cover, blurred, in two layers turning slowly against
-// each other, darkened so what is over it reads.
+// backdrop paints the cover's colors behind Now Playing, as NetEase's own
+// player does: a deep gradient of its main color, lighter at the top,
+// with the cover itself, blurred, faintly through it. It stays still, so
+// it is painted once a song, into a small canvas an eighth of the window
+// across, which shows scaled up as smooth as it is: what moves over it
+// then draws one image under it.
 func (a *app) backdrop(c *ui.Context, art *artwork, tint ui.Color) {
 	ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough().Draw(func(p *ui.Painter, r ui.Rect) {
-		p.Fill(r, tint.Mix(ui.RGB(0, 0, 0), 0.55), 0)
-		if art == nil || art.backdrop == nil {
-			return
+		cw, ch := int(r.W/8)+1, int(r.H/8)+1
+		bd := &a.backdropCache
+		if bd.canvas != nil {
+			if w, h := bd.canvas.Size(); w != cw || h != ch {
+				bd.canvas = nil
+			}
 		}
-		t := float64(p.Now().UnixMilli()%240000) / 240000 * 2 * math.Pi
-		side := float32(math.Hypot(float64(r.W), float64(r.H))) * 1.25
-		layer := func(angle float32, scale float32, dx, dy float32, alpha float32) {
-			s := side * scale
-			cx, cy := r.X+r.W/2+dx, r.Y+r.H/2+dy
-			p.Transform(ui.Rotation(angle), cx, cy, func() {
-				p.ImageRegion(art.backdrop, ui.Rect{W: 48, H: 48}, ui.Rect{X: cx - s/2, Y: cy - s/2, W: s, H: s},
-					ui.ImageOptions{Tint: white.Alpha(alpha)})
+		if bd.canvas == nil || bd.art != art || bd.tint != tint {
+			if bd.canvas == nil {
+				bd.canvas = ui.NewCanvas(cw, ch)
+			}
+			bd.art, bd.tint = art, tint
+			bd.canvas.Draw(p, func(cp *ui.Painter) {
+				drawBackdrop(cp, ui.Rect{W: float32(cw), H: float32(ch)}, art, tint)
 			})
 		}
-		layer(float32(t*180/math.Pi), 1, 0, 0, 1)
-		layer(-float32(t*180/math.Pi)*1.5+90, 0.8, r.W*0.18*float32(math.Cos(t*2)), r.H*0.15*float32(math.Sin(t*3)), 0.55)
-		// Darker toward the edges and the foot, where the controls are.
-		p.Fill(r, ui.RGBA(0, 0, 0, 0.32), 0)
-		p.FillGradient(r, ui.LinearGradient{
-			Angle: 180,
-			Stops: []ui.GradientStop{{Color: ui.RGBA(0, 0, 0, 0), At: 0.4}, {Color: ui.RGBA(0, 0, 0, 0.35), At: 1}},
-		}, 0)
-		// The drift is slow: a frame every 50 ms shows it smooth.
-		p.After(50 * time.Millisecond)
+		p.Image(bd.canvas.Bitmap(), r, ui.FillBox)
 	})
+}
+
+// backdropCache is the backdrop as last painted.
+type backdropCache struct {
+	canvas *ui.Canvas
+	art    *artwork
+	tint   ui.Color
+}
+
+// backdropColors returns the top and the foot of the backdrop's gradient
+// for a cover of tint: its hue, deep and rich, at the same depth whatever
+// the cover, so that white reads over it, as NetEase's player paints it.
+// A gray cover stays gray.
+func backdropColors(tint ui.Color) (top, foot ui.Color) {
+	h, s, _ := hsv(float64(tint.R)/255, float64(tint.G)/255, float64(tint.B)/255)
+	if s > 0.12 {
+		s = min(max(s*1.3, 0.45), 0.66)
+	}
+	return hsvColor(h, s, 0.35), hsvColor(h, min(s*1.05, 0.7), 0.24)
+}
+
+// hsvColor is the color of hue h (degrees), saturation s and value v.
+func hsvColor(h, s, v float64) ui.Color {
+	c := v * s
+	x := c * (1 - math.Abs(math.Mod(h/60, 2)-1))
+	var r, g, b float64
+	switch {
+	case h < 60:
+		r, g = c, x
+	case h < 120:
+		r, g = x, c
+	case h < 180:
+		g, b = c, x
+	case h < 240:
+		g, b = x, c
+	case h < 300:
+		r, b = x, c
+	default:
+		r, b = c, x
+	}
+	m := v - c
+	return ui.RGB(uint8((r+m)*255+0.5), uint8((g+m)*255+0.5), uint8((b+m)*255+0.5))
+}
+
+// drawBackdrop paints the backdrop in r.
+func drawBackdrop(p *ui.Painter, r ui.Rect, art *artwork, tint ui.Color) {
+	top, foot := backdropColors(tint)
+	p.FillGradient(r, ui.LinearGradient{Angle: 180, Oklab: true, Stops: []ui.GradientStop{
+		{Color: top, At: 0}, {Color: foot, At: 1},
+	}}, 0)
+	if art != nil && art.backdrop != nil {
+		// The cover, blurred, as a faint wash of its own colors.
+		p.ImageRegion(art.backdrop, ui.Rect{W: 48, H: 48}, coverRect(r, 48, 48), ui.ImageOptions{Tint: white.Alpha(0.1)})
+	}
+	// Darker toward the foot, under the controls.
+	p.FillGradient(r, ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
+		{Color: ui.RGBA(0, 0, 0, 0), At: 0.55}, {Color: ui.RGBA(0, 0, 0, 0.18), At: 1},
+	}}, 0)
+}
+
+// coverRect returns where an image of w×h goes to cover r, centered.
+func coverRect(r ui.Rect, w, h float32) ui.Rect {
+	s := max(r.W/w, r.H/h)
+	return ui.Rect{X: r.X + (r.W-w*s)/2, Y: r.Y + (r.H-h*s)/2, W: w * s, H: h * s}
 }
 
 func (a *app) lyricsPane(c *ui.Context, tr *Track, h float32) {
@@ -287,7 +365,8 @@ func (a *app) lyricsPane(c *ui.Context, tr *Track, h float32) {
 						}
 					})
 					if pl.playing {
-						c.AnimationFrame()
+						// Words brighten smoothly enough at 25 frames a second.
+						c.After(40 * time.Millisecond)
 					}
 				} else {
 					ui.Text(c, l.Text).FontSize(30).FontWeight(800).LineHeight(1.25).LetterSpacing(-0.4).TextColor(white.Alpha(alpha))

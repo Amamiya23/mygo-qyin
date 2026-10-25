@@ -68,8 +68,11 @@ func (a *app) scrubber(c *ui.Context, st *scrubState, track, fill ui.Color, heig
 			p.Shadow(ui.Rect{X: r.X + r.W*frac - k/2, Y: r.Y + (r.H-k)/2, W: k, H: k}, k/2, 0, 1, 3, 0, ui.RGBA(0, 0, 0, 0.3))
 			p.Fill(ui.Rect{X: r.X + r.W*frac - k/2, Y: r.Y + (r.H-k)/2, W: k, H: k}, fill, k/2)
 		}
-		if pl.playing && !st.active {
-			p.AnimationFrame()
+		if pl.playing && !st.active && dur > 0 {
+			// Again when the fill has moved a pixel of the screen, which
+			// takes a good part of a second, rather than every frame.
+			perPixel := dur / float64(r.W*p.Scale())
+			p.After(max(16*time.Millisecond, secs(perPixel)))
 		}
 	})
 	return s

@@ -30,9 +30,19 @@ func (a *app) view(c *ui.Context) {
 		// pointer focused, which would take Space as a click; on the
 		// window, it would come after.
 		root.OnShortcut(0, ui.KeySpace, a.pl.togglePlay)
+		// And where nothing has the focus, as once Now Playing covers the
+		// button that had it.
+		c.OnShortcut(0, ui.KeySpace, a.pl.togglePlay)
 	}
+	npOpen, npSettled := a.npState(c)
 	root.Children(func() {
-		ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
+		page := ui.Row(c).Fill().AlignItems(ui.Stretch)
+		if npOpen && npSettled {
+			// Covered by Now Playing: kept, with its scrolling and state, but
+			// not painted, so that nothing in it asks for frames.
+			page.Invisible()
+		}
+		page.Children(func() {
 			side := ui.Column(c).Width(sidebarWidth)
 			if !c.Vibrancy() {
 				side.Background(p.sidebar)
@@ -46,7 +56,7 @@ func (a *app) view(c *ui.Context) {
 				a.playerBar(c)
 			})
 		})
-		a.nowPlayingLayer(c)
+		a.nowPlayingLayer(c, npOpen, npSettled)
 	})
 	a.loginDialog(c)
 	if a.toast != "" {

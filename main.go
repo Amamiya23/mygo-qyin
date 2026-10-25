@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -60,7 +61,9 @@ type app struct {
 	searchBox ui.Handle
 
 	nowPlaying  bool
-	npPane      int // 0: lyrics, 1: up next
+	npOpen      bool      // Now Playing as it last showed: open or not
+	npChangedAt time.Time // when it last opened or closed
+	npPane      int       // 0: lyrics, 1: up next
 	lyricScroll ui.ScrollState
 	lyricAt     int
 	lyricTrack  int64
@@ -76,6 +79,7 @@ type app struct {
 	underTop, underBottom bool
 	barScrub              scrubState
 	npScrub               scrubState
+	backdropCache         backdropCache // the backdrop of Now Playing, as last painted
 	sig                   playerSig
 	quitting              bool
 

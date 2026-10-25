@@ -180,7 +180,7 @@ func (a *app) loginDialog(c *ui.Context) {
 		ui.Text(c, title).FontSize(20).FontWeight(700)
 		ui.Text(c, sub).FontSize(13).TextColor(p.muted).TextAlign(ui.Center).Margin(0, 0, 14, 0)
 
-		ui.Box(c).Size(212, 212).Radius(16).Background(ui.RGB(255, 255, 255)).Border(1, p.hairline).Clip().Children(func() {
+		ui.Box(c).Size(212, 212).Radius(16).Background(ui.RGB(255, 255, 255)).Border(1, p.hairline).Children(func() {
 			if l.code != nil {
 				code := l.code
 				opacity := float32(1)

@@ -134,3 +134,48 @@ func TestStageFrames(t *testing.T) {
 	defer f.Close()
 	png.Encode(f, grid)
 }
+
+// With NM_FRAMES set, saves Now Playing with a real cover, to look at its
+// backdrop.
+func TestBackdropFrame(t *testing.T) {
+	dir := os.Getenv("NM_FRAMES")
+	if dir == "" {
+		t.Skip()
+	}
+	hits, err := Search("春日影 MyGO", 1)
+	if err != nil || len(hits) == 0 {
+		t.Fatal(err)
+	}
+	tr := hits[0]
+	a := newTestApp()
+	a.settings = defaultSettings()
+	for _, size := range []int{600, 120, 96} {
+		img, err := fetchImage(sized(tr.Album.PicURL, size))
+		if err != nil {
+			t.Fatal(err)
+		}
+		art := &artwork{bmp: ui.NewBitmap(img), tint: dominantColor(img)}
+		top, foot := backdropColors(art.tint)
+		t.Logf("tint %v, backdrop %v to %v", art.tint, top, foot)
+		a.art.art[sized(tr.Album.PicURL, size)] = art
+		if size == 600 {
+			bd := *art
+			bd.backdrop = ui.NewBitmap(blurImage(img))
+			a.art.art[sized(tr.Album.PicURL, size)+"#backdrop"] = &bd
+		}
+	}
+	a.pl.queue, a.pl.order, a.pl.at = []Track{tr}, []int{0}, 0
+	a.pl.track = &a.pl.queue[0]
+	a.pl.lyricsLoaded = true
+	a.pl.lyrics = buildLyrics("[00:00.00]作词: 織田あすか\n[00:01.00]作曲: 藤田淳平(Elements Garden)\n[00:02.00]编曲: 藤田淳平(Elements Garden)\n[00:15.00]悴んだ心 ふるえる眼差し\n[00:20.00]世界で 僕は ひとりぼっちだった\n[00:25.00]散ることしか知らない春は\n[00:30.00]毎年 冷たくあしらう",
+		"[00:15.00]内心满是憔悴 眼神颤抖不止\n[00:20.00]我在这世界孤独一人\n[00:25.00]在不断凋零的春季中\n[00:30.00]每年都只感受到冰冷", "")
+	a.pl.pending = 2500 * time.Millisecond
+	a.nowPlaying = true
+	tt := ui.NewTester(a.view, 1000, 680)
+	tt.SetDark(true)
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	f, _ := os.Create(filepath.Join(dir, "backdrop.png"))
+	defer f.Close()
+	png.Encode(f, tt.Image())
+}

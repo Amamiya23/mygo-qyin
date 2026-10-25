@@ -114,7 +114,7 @@ func (a *app) playlistCard(c *ui.Context, pl *Playlist) {
 	card := ui.ButtonBase(c).Column().Gap(10).AlignItems(ui.Stretch).FocusRing(false).Label(pl.Name)
 	hovered := card.Hovered()
 	card.Children(func() {
-		art := ui.Box(c).AspectRatio(1).Radius(10).Clip()
+		art := ui.Box(c).AspectRatio(1).Radius(10)
 		lift := ui.Pose{}
 		if hovered {
 			lift = ui.Pose{Y: -3}
@@ -124,7 +124,7 @@ func (a *app) playlistCard(c *ui.Context, pl *Playlist) {
 		}
 		art.AnimatePose(lift, ui.Snappy)
 		art.Children(func() {
-			a.coverFill(c, pl.Cover(), 400)
+			a.coverFill(c, pl.Cover(), 400, 10)
 			if pl.PlayCount > 0 {
 				ui.Row(c).Absolute().Top(8).Right(8).Padding(2, 7).Radius(999).Gap(3).AlignItems(ui.Center).
 					Background(ui.RGBA(0, 0, 0, 0.35)).TextColor(ui.RGB(255, 255, 255)).Children(func() {
@@ -144,14 +144,16 @@ func (a *app) playlistCard(c *ui.Context, pl *Playlist) {
 	}
 }
 
-// coverFill fills its parent with a cover.
-func (a *app) coverFill(c *ui.Context, url string, px int) {
+// coverFill fills its parent with a cover, its corners rounded by radius.
+// The cover rounds itself rather than its parent clipping it: a clip moved
+// by a transform, as a card lifting under the pointer, is drawn on the CPU.
+func (a *app) coverFill(c *ui.Context, url string, px int, radius float32) {
 	art := a.art.get(sized(url, px), false)
 	if art == nil || art.bmp == nil {
-		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Background(a.pal.hover)
+		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(radius).Background(a.pal.hover)
 		return
 	}
-	ui.Image(c, art.bmp).Absolute().Top(0).Left(0).Right(0).Bottom(0).Fit(ui.Cover)
+	ui.Image(c, art.bmp).Absolute().Top(0).Left(0).Right(0).Bottom(0).Fit(ui.Cover).Radius(radius)
 }
 
 // coverPlayButton plays a playlist from its card, without opening it.
@@ -184,8 +186,8 @@ func (a *app) chartCard(c *ui.Context, pl *Playlist) {
 	}
 	card.Background(card.AnimateColor("bg", bg, ui.Animation{Duration: 140 * time.Millisecond}))
 	card.Children(func() {
-		ui.Box(c).Size(84, 84).Radius(9).Clip().Shadow(0, 3, 10, -2, p.cardShade).Children(func() {
-			a.coverFill(c, pl.Cover(), 200)
+		ui.Box(c).Size(84, 84).Radius(9).Shadow(0, 3, 10, -2, p.cardShade).Children(func() {
+			a.coverFill(c, pl.Cover(), 200, 9)
 		})
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(5).Children(func() {
 			ui.Row(c).Gap(6).AlignItems(ui.Baseline).Children(func() {
@@ -221,8 +223,8 @@ func (a *app) playlistPage(c *ui.Context) {
 func (a *app) playlistHeader(c *ui.Context, pl *Playlist) {
 	p := a.pal
 	ui.Row(c).Gap(28).AlignItems(ui.End).Padding(0, 0, 26, 0).Children(func() {
-		ui.Box(c).Size(212, 212).Radius(14).Clip().Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
-			a.coverFill(c, pl.Cover(), 600)
+		ui.Box(c).Size(212, 212).Radius(14).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
+			a.coverFill(c, pl.Cover(), 600, 14)
 		})
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
 			kind := "歌单"

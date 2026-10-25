@@ -98,3 +98,11 @@ func TestSpreadWords(t *testing.T) {
 		t.Errorf("times %+v", w)
 	}
 }
+
+func TestPlayEmptyQueue(t *testing.T) {
+	p := &player{at: -1}
+	p.playQueue(nil, 0) // an empty playlist's play button
+	if p.current() != nil {
+		t.Error("playing from an empty queue")
+	}
+}

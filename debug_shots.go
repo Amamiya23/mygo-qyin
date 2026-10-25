@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -28,6 +30,53 @@ func init() {
 				mygo.RunOnMain(func() { fn(); a.redraw() })
 			}
 			mygo.RunOnMain(func() { a.win.Show(); a.win.Focus() })
+			if os.Getenv("NM_SCENE") == "perf" {
+				// Muted, marks on stderr where each part begins, for the
+				// frame log of MYGO_FRAME_STATS.
+				mark := func(s string) { println("mark", time.Now().Format("15:04:05.000"), s) }
+				// Above other windows: a covered window draws no frames.
+				mygo.RunOnMain(func() { a.win.SetAlwaysOnTop(true); a.win.Show() })
+				for range 40 {
+					var n int
+					mygo.RunOnMain(func() { n = len(a.daily) })
+					if n > 0 {
+						break
+					}
+					time.Sleep(250 * time.Millisecond)
+				}
+				step(0, func() { a.volume = 0; a.pl.setVolume(0); a.pl.playQueue(a.daily, 0) })
+				time.Sleep(4 * time.Second)
+				for round := range 2 {
+					if round == 0 {
+						// A CPU profile of the opening, for go tool pprof.
+						if f, err := os.Create(filepath.Join(dir, "open.pprof")); err == nil {
+							pprof.StartCPUProfile(f)
+							go func() {
+								time.Sleep(1500 * time.Millisecond)
+								pprof.StopCPUProfile()
+								f.Close()
+							}()
+						}
+					}
+					mark(fmt.Sprint("open", round))
+					step(0, func() { a.nowPlaying, a.npPane = true, paneLyrics })
+					time.Sleep(3 * time.Second)
+					mark(fmt.Sprint("close", round))
+					step(0, func() { a.nowPlaying = false })
+					time.Sleep(2 * time.Second)
+				}
+				for round := range 2 {
+					mark(fmt.Sprint("stage", round))
+					step(0, func() { a.nowPlaying, a.npPane = true, paneStage })
+					time.Sleep(4 * time.Second)
+					mark(fmt.Sprint("shut", round))
+					step(0, func() { a.nowPlaying = false })
+					time.Sleep(2 * time.Second)
+				}
+				mark("end")
+				mygo.RunOnMain(mygo.App.Quit)
+				return
+			}
 			if os.Getenv("NM_SCENE") == "np" {
 				time.Sleep(5 * time.Second)
 				shot("q-home", a.win)

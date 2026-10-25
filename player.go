@@ -114,6 +114,10 @@ func (p *player) ended() {
 
 // playQueue replaces the queue with tracks and plays the one at start.
 func (p *player) playQueue(tracks []Track, start int) {
+	if len(tracks) == 0 {
+		return
+	}
+	start = min(max(start, 0), len(tracks)-1)
 	p.queue = append([]Track(nil), tracks...)
 	p.order = make([]int, len(p.queue))
 	for i := range p.order {

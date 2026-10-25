@@ -297,7 +297,7 @@ func (n *notch) expanded(c *ui.Context, tr *Track, open, left float32) {
 	col.Translate(0, (1-open)*-10)
 	col.Children(func() {
 		ui.Row(c).Gap(14).AlignItems(ui.Center).Children(func() {
-			cov := ui.ButtonBase(c.Key("cover")).Size(60, 60).Radius(12).Clip().FocusRing(false).Label("打开正在播放")
+			cov := ui.ButtonBase(c.Key("cover")).Size(60, 60).Radius(12).FocusRing(false).Label("打开正在播放")
 			lift := ui.Pose{}
 			if cov.Hovered() {
 				lift.Scale = 1.05
@@ -305,9 +305,9 @@ func (n *notch) expanded(c *ui.Context, tr *Track, open, left float32) {
 			cov.AnimatePose(lift, ui.Snappy)
 			cov.Children(func() {
 				if art != nil && art.bmp != nil {
-					ui.Image(c, art.bmp).Fill().Fit(ui.Cover)
+					ui.Image(c, art.bmp).Fill().Fit(ui.Cover).Radius(12)
 				} else {
-					ui.Box(c).Fill().Background(white.Alpha(0.12))
+					ui.Box(c).Fill().Radius(12).Background(white.Alpha(0.12))
 				}
 			})
 			if cov.Clicked() {

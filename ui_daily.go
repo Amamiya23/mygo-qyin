@@ -14,12 +14,13 @@ func (a *app) dailyArt(c *ui.Context, now time.Time, size float32) {
 	if len(a.daily) > 0 {
 		art = a.art.get(sized(a.daily[0].Album.PicURL, 600), true)
 	}
-	ui.Box(c).Size(size, size).Radius(size*0.07).Clip().Background(ui.Hex("#3a3a40")).
+	radius := size * 0.07
+	ui.Box(c).Size(size, size).Radius(radius).Background(ui.Hex("#3a3a40")).
 		Shadow(0, 18, 40, -10, a.pal.cardShade).Children(func() {
 		if art != nil && art.backdrop != nil {
-			ui.Image(c, art.backdrop).Absolute().Top(0).Left(0).Right(0).Bottom(0).Fit(ui.Cover)
+			ui.Image(c, art.backdrop).Absolute().Top(0).Left(0).Right(0).Bottom(0).Fit(ui.Cover).Radius(radius)
 		}
-		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).
+		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(radius).
 			LinearGradient(ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
 				{Color: ui.RGBA(0, 0, 0, 0), At: 0.35},
 				{Color: ui.RGBA(0, 0, 0, 0.4), At: 1},
@@ -39,7 +40,7 @@ func (a *app) dailyCard(c *ui.Context, now time.Time) {
 		return
 	}
 	art := a.art.get(sized(songs[0].Album.PicURL, 600), true)
-	card := ui.ButtonBase(c.Key("daily")).Height(196).Radius(20).Clip().FocusRing(false).Label("每日推荐").
+	card := ui.ButtonBase(c.Key("daily")).Height(196).Radius(20).FocusRing(false).Label("每日推荐").
 		Background(ui.Hex("#2a2a30")).TextColor(white)
 	hovered := card.Hovered()
 	lift := ui.Pose{}
@@ -50,9 +51,9 @@ func (a *app) dailyCard(c *ui.Context, now time.Time) {
 	card.Shadow(0, 14, 34, -14, a.pal.cardShade)
 	card.Children(func() {
 		if art != nil && art.backdrop != nil {
-			ui.Image(c, art.backdrop).Absolute().Top(0).Left(0).Right(0).Bottom(0).Fit(ui.Cover)
+			ui.Image(c, art.backdrop).Absolute().Top(0).Left(0).Right(0).Bottom(0).Fit(ui.Cover).Radius(20)
 		}
-		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).
+		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(20).
 			LinearGradient(ui.LinearGradient{Angle: 90, Stops: []ui.GradientStop{
 				{Color: ui.RGBA(0, 0, 0, 0.45), At: 0},
 				{Color: ui.RGBA(0, 0, 0, 0.12), At: 1},
@@ -81,14 +82,14 @@ func (a *app) dailyCard(c *ui.Context, now time.Time) {
 			}
 			ui.Row(c).Children(func() {
 				for i := range min(4, len(songs)) {
-					cov := ui.Box(c.Key(i)).Size(108, 108).Radius(12).Clip().Margin(0, 0, 0, map0(i, -46)).
+					cov := ui.Box(c.Key(i)).Size(108, 108).Radius(12).Margin(0, 0, 0, map0(i, -46)).
 						Shadow(-6, 10, 24, -6, ui.RGBA(0, 0, 0, 0.45))
 					fan := ui.Pose{Rotate: float32(i-1) * 4, Y: float32(i%2) * 6}
 					if hovered {
 						fan = ui.Pose{Rotate: float32(i-1) * 7, Y: float32(i%2)*6 - 4, X: float32(i-2) * 6}
 					}
 					cov.AnimatePose(fan, ui.Animation{Spring: ui.SpringOptions{Duration: 500 * time.Millisecond, Bounce: 0.3}})
-					cov.Children(func() { a.coverFill(c, songs[i].Album.PicURL, 240) })
+					cov.Children(func() { a.coverFill(c, songs[i].Album.PicURL, 240, 12) })
 				}
 			})
 		})

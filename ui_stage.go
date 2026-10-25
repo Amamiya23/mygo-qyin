@@ -94,13 +94,13 @@ func (a *app) stage(c *ui.Context, tr *Track, accent ui.Color) {
 		return
 	}
 	pos := pl.position()
-	if pl.playing {
-		c.AnimationFrame()
-	}
 	cur := lyricIndex(lines, pos)
+	if pl.playing {
+		stageNextFrame(c, lines, cur, pos)
+	}
 	f := min(64, max(36, w*0.045))
 
-	ui.Box(c.Key("stage")).Grow(1).Clip().Children(func() {
+	ui.Box(c.Key("stage")).Grow(1).Children(func() {
 		// The line before goes as the new one comes.
 		if cur > 0 {
 			gone := float32((pos - lines[cur].At).Seconds()) / 0.4
@@ -128,6 +128,41 @@ func (a *app) stage(c *ui.Context, tr *Track, accent ui.Color) {
 			}
 		})
 	})
+}
+
+// stageNextFrame asks for the next frame of the stage as soon as it
+// changes: at once while a word springs in or its glow changes, a few
+// times a second while words only drift, and else when the next word is
+// due. Most of a song is the slow kind.
+func stageNextFrame(c *ui.Context, lines []LyricLine, cur int, pos time.Duration) {
+	if cur < 0 {
+		if len(lines) > 0 {
+			c.After(min(100*time.Millisecond, lines[0].At-pos))
+		}
+		return
+	}
+	const lookahead = 80 * time.Millisecond
+	next, drifting := time.Duration(-1), false
+	for i := max(cur-1, 0); i <= min(cur+1, len(lines)-1); i++ {
+		for _, w := range lines[i].Words {
+			start, end := w.Start-lookahead, max(w.End, w.Start+150*time.Millisecond)
+			switch {
+			case pos >= start && pos < max(start+700*time.Millisecond, end+900*time.Millisecond):
+				// Springing in, filling, or its glow fading.
+				c.AnimationFrame()
+				return
+			case pos >= end && pos < end+5*time.Second:
+				drifting = true
+			case pos < start && (next < 0 || start-pos < next):
+				next = start - pos
+			}
+		}
+	}
+	wait := 100 * time.Millisecond // the drift, and the breathing of a break
+	if !drifting && next > 0 {
+		wait = min(next, 250*time.Millisecond)
+	}
+	c.After(wait)
 }
 
 // stageLine shows the words of l as they are at pos, the whole line at

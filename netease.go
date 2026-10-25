@@ -197,20 +197,28 @@ func DailySongs() ([]Track, error) {
 	}
 	// They come without privileges: the songs' details have them.
 	songs := res.Data.DailySongs
+	detailPrivileges(songs)
+	return songs, nil
+}
+
+// detailPrivileges gives songs the privileges their details carry for the
+// listener, which are right where other lists have none, or wrong ones.
+func detailPrivileges(songs []Track) {
 	ids := make([]int64, len(songs))
 	for i := range songs {
 		ids[i] = songs[i].ID
 	}
-	if details, err := SongDetails(ids); err == nil {
-		var privileges []Privilege
-		for _, d := range details {
-			if d.Privilege != nil {
-				privileges = append(privileges, *d.Privilege)
-			}
-		}
-		withPrivileges(songs, privileges)
+	details, err := SongDetails(ids)
+	if err != nil {
+		return
 	}
-	return songs, nil
+	var privileges []Privilege
+	for _, d := range details {
+		if d.Privilege != nil {
+			privileges = append(privileges, *d.Privilege)
+		}
+	}
+	withPrivileges(songs, privileges)
 }
 
 // Charts returns the charts, each with its top three songs.
@@ -291,8 +299,13 @@ func Search(query string, limit int) ([]Track, error) {
 		} `json:"result"`
 	}
 	q := url.Values{"s": {query}, "type": {"1"}, "limit": {strconv.Itoa(limit)}, "offset": {"0"}}
-	err := get("/api/cloudsearch/pc", q, &res)
-	return res.Result.Songs, err
+	if err := get("/api/cloudsearch/pc", q, &res); err != nil {
+		return nil, err
+	}
+	// Search marks whole catalogues as taken down that the listener may
+	// play, as YOASOBI's for a subscriber: the songs' details say right.
+	detailPrivileges(res.Result.Songs)
+	return res.Result.Songs, nil
 }
 
 var errUnavailable = errors.New("this song isn't available to stream")
