@@ -1,7 +1,7 @@
 import { For } from 'solid-js'
 
 // The app's icon, drawn from the layers in icon/AppIcon.icon: a record on
-// a warm card, its red label and tonearm. The card follows the theme.
+// a red card, its red label and white tonearm. The card follows the theme.
 export function AppIcon(props: { size?: number; class?: string }) {
   const grooves = Array.from({ length: 24 }, (_, i) => 126 + i * 7)
   return (
@@ -25,6 +25,10 @@ export function AppIcon(props: { size?: number; class?: string }) {
         <linearGradient id="icon-red" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stop-color="#FF5B5B" />
           <stop offset="1" stop-color="#E3122C" />
+        </linearGradient>
+        <linearGradient id="icon-arm" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#FFFFFF" />
+          <stop offset="1" stop-color="#E6E3E5" />
         </linearGradient>
         <linearGradient id="icon-sheen" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stop-color="#fff" stop-opacity="0" />
@@ -54,20 +58,20 @@ export function AppIcon(props: { size?: number; class?: string }) {
       <circle cx="470" cy="548" r="74.1" fill="none" stroke="#fff" stroke-opacity="0.28" stroke-width="3" />
       <circle cx="470" cy="548" r="15.6" fill="#FFF6F2" />
       <g transform="rotate(110.59 772 252)">
-        <rect x="688" y="228" width="60" height="48" rx="14" fill="url(#icon-red)" />
-        <rect x="772" y="240" width="407.97" height="24" rx="12" fill="url(#icon-red)" />
+        <rect x="688" y="228" width="60" height="48" rx="14" fill="url(#icon-arm)" />
+        <rect x="772" y="240" width="407.97" height="24" rx="12" fill="url(#icon-arm)" />
         <rect
           x="1159.97"
           y="226"
           width="84"
           height="52"
           rx="13"
-          fill="url(#icon-red)"
+          fill="url(#icon-arm)"
           transform="rotate(28 1179.97 252)"
         />
       </g>
-      <circle cx="772" cy="252" r="54" fill="url(#icon-red)" />
-      <circle cx="772" cy="252" r="20" fill="#FFE1DE" />
+      <circle cx="772" cy="252" r="54" fill="url(#icon-arm)" />
+      <circle cx="772" cy="252" r="20" fill="#D9D5D8" />
     </svg>
   )
 }

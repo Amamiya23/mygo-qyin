@@ -1,8 +1,8 @@
 // Command icon draws the app icons: the layers of AppIcon.icon, the Icon
 // Composer document that macOS 26 and later render in Liquid Glass, and
 // resources/icon.png, the same icon as macOS draws it, on the grid of older
-// macOS icons, for older macOS and Windows; and from AppIcon-dev.icon, red
-// where the app's is cream, resources/icon-dev.png, the icon of mygo dev
+// macOS icons, for older macOS and Windows; and from AppIcon-dev.icon, cream
+// where the app's is red, resources/icon-dev.png, the icon of mygo dev
 // builds.
 //
 // Run it from the repository root on a Mac with Xcode 26 or later:
@@ -35,10 +35,10 @@ var icons = []struct {
 	document, output   string
 	top, bottom, pivot string
 }{
-	// Cream, with a red tonearm to match the label.
-	{"icon/AppIcon.icon", "resources/icon.png", "#FF5B5B", "#E3122C", "#FFE1DE"},
-	// Red, with a white one.
-	{"icon/AppIcon-dev.icon", "resources/icon-dev.png", "#FFFFFF", "#E6E3E5", "#D9D5D8"},
+	// Red, with a white tonearm.
+	{"icon/AppIcon.icon", "resources/icon.png", "#FFFFFF", "#E6E3E5", "#D9D5D8"},
+	// Cream, with a red one to match the label.
+	{"icon/AppIcon-dev.icon", "resources/icon-dev.png", "#FF5B5B", "#E3122C", "#FFE1DE"},
 }
 
 // A record on Icon Composer's 1024-point full-bleed canvas, and the
