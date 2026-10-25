@@ -43,6 +43,14 @@ function RootDocument(props: { children: JSX.Element }) {
       <head>
         <script innerHTML={themeScript} />
         <HydrationScript />
+        {/* Analytics, only on the built site, so visits to the dev server aren't counted. */}
+        {import.meta.env.PROD && (
+          <script
+            defer
+            src="https://u.egoist.dev/script.js"
+            data-website-id="e2a744e5-3326-41e2-8ff3-1a5e80bcc4ac"
+          />
+        )}
       </head>
       <body>
         <HeadContent />
