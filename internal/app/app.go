@@ -47,6 +47,8 @@ type app struct {
 	toast        string         // a message to show once
 
 	daily       []netease.Track
+	dailySpin   spinState // the record on the daily card
+	dailyBars   barState  // the bars on its play button
 	featured    []netease.Playlist
 	charts      []netease.Playlist
 	homeErr     string
