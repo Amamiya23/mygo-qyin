@@ -2,15 +2,12 @@ import { createFileRoute } from '@tanstack/solid-router'
 import { For, Show, createSignal, onMount } from 'solid-js'
 import { Layout } from '../components/Layout'
 import { GitHubMark, Icon } from '../components/Icon'
-import { releaseApi, releases, repo, site } from '../site'
+import { release, repo, site } from '../site'
 
 export const Route = createFileRoute('/download')({
   head: () => ({ meta: [{ title: `下载 · ${site.name}` }] }),
   component: Download,
 })
-
-type Asset = { name: string; size: number; browser_download_url: string }
-type Release = { tag_name: string; published_at: string; assets: Asset[] }
 
 type OS = 'mac' | 'windows' | 'linux'
 
@@ -58,6 +55,9 @@ const platforms: { os: OS; name: string; note: string; builds: Build[] }[] = [
 const installSh = `curl -fsSL ${repo}/releases/latest/download/install.sh | sh`
 const installPs = `irm ${repo}/releases/latest/download/install.ps1 | iex`
 
+// A build's asset; a build the release has none of links to the release.
+const asset = (b: Build) => release.assets.find((a) => b.match(a.name))
+
 function detectOS(): OS | undefined {
   const ua = navigator.userAgent
   if (/iPhone|iPad|Android/.test(ua)) return undefined
@@ -76,19 +76,10 @@ function day(iso: string) {
 }
 
 function Download() {
-  // The page is rendered at build time; the latest release, and the
-  // system of the visitor, come once it runs in the browser. Until then,
-  // and if GitHub doesn't answer, the links go to the release's page.
-  const [release, setRelease] = createSignal<Release>()
+  // The page is rendered at build time; the system of the visitor comes
+  // once it runs in the browser.
   const [os, setOS] = createSignal<OS>()
-  onMount(() => {
-    setOS(detectOS())
-    fetch(releaseApi)
-      .then((r) => (r.ok ? r.json() : undefined))
-      .then((r: Release | undefined) => r?.assets && setRelease(r))
-      .catch(() => {})
-  })
-  const asset = (b: Build) => release()?.assets.find((a) => b.match(a.name))
+  onMount(() => setOS(detectOS()))
 
   return (
     <Layout>
@@ -103,16 +94,14 @@ function Download() {
             免费，以 AGPL-3.0 开源。装好之后，{site.name}会自己检查更新，新版本在下次打开时生效。
           </p>
           <p class="fine download-version">
-            <Show when={release()} fallback="最新版本">
-              {(r) => `版本 ${r().tag_name.replace(/^v/, '')} · 发布于 ${day(r().published_at)}`}
-            </Show>
+            版本 {release.tag_name.replace(/^v/, '')} · 发布于 {day(release.published_at)}
           </p>
         </div>
 
         <div class="platforms">
           <For each={platforms}>
             {(p) => (
-              <article class="platform" classList={{ mine: os() === p.os }}>
+              <article class="platform">
                 <div class="platform-head">
                   <h2>{p.name}</h2>
                   <Show when={os() === p.os}>
@@ -126,7 +115,7 @@ function Download() {
                       <a
                         class="build"
                         classList={{ primary: b.primary }}
-                        href={asset(b)?.browser_download_url ?? releases}
+                        href={asset(b)?.browser_download_url ?? `${repo}/releases/tag/${release.tag_name}`}
                       >
                         <Icon name="download" size={16} />
                         <span class="build-label">{b.label}</span>

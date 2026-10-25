@@ -1,7 +1,11 @@
 export const repo = 'https://github.com/egoist/mygo-cloudmusic'
-export const releases = `${repo}/releases/latest`
-// The latest release, with its installers, from GitHub's API.
-export const releaseApi = 'https://api.github.com/repos/egoist/mygo-cloudmusic/releases/latest'
+
+export type Asset = { name: string; size: number; browser_download_url: string }
+export type Release = { tag_name: string; published_at: string; assets: Asset[] }
+
+declare const __RELEASE__: Release
+// The latest release, as it was when the site was built (see vite.config.ts).
+export const release = __RELEASE__
 export const mygo = 'https://mygo.egoist.dev'
 
 export const site = {

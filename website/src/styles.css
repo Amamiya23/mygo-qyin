@@ -1182,11 +1182,6 @@ main {
     0 10px 30px -22px var(--shadow);
   transition: box-shadow 0.4s var(--ease);
 }
-.platform.mine {
-  box-shadow:
-    0 0 0 1.5px var(--accent),
-    0 10px 30px -22px var(--shadow);
-}
 .platform-head {
   display: flex;
   align-items: center;
