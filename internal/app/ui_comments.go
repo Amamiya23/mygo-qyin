@@ -78,10 +78,74 @@ func (a *app) loadComments() {
 
 // commentsTab names the comments' pane, with how many there are.
 func (a *app) commentsTab() string {
-	if cs := &a.comments; cs.loaded && cs.total > 0 {
-		return "评论 " + count(cs.total)
+	if n := a.commentCount(); n > 0 {
+		return "评论 " + count(n)
 	}
 	return "评论"
+}
+
+// commentCount is the count the comments' tab shows: the last song's
+// while the next one's loads, so that it rolls from one to the other.
+func (a *app) commentCount() int {
+	switch cs := &a.comments; {
+	case cs.loaded:
+		return cs.total
+	case cs.err != "":
+		return 0
+	}
+	return a.tabCount.n
+}
+
+// rollState is a count as it rolls from one value to another.
+type rollState struct {
+	n    int
+	up   bool       // whether it went up, last it changed
+	exit *ui.Motion // where the characters shown go as it changes
+}
+
+// rollLine is how far a character rolls, about a line of the tab's text.
+const rollLine = 16
+
+// rollCount shows n as text, each character in a slot of its own, as
+// the wheels of a counter: one that changes rolls out as the next rolls
+// in, upward as n grows and downward as it shrinks, the others staying.
+func rollCount(c *ui.Context, st *rollState, n int, text string, fg ui.Color) {
+	if n != st.n {
+		st.up = n > st.n
+		dir := float32(1)
+		if !st.up {
+			dir = -1
+		}
+		if st.exit != nil {
+			// The characters shown leave from this frame on, which first
+			// knows the way.
+			st.exit.Y = -dir * rollLine
+		}
+		st.n, st.exit = n, &ui.Motion{}
+	}
+	dir := float32(1)
+	if !st.up {
+		dir = -1
+	}
+	chars := []rune(text)
+	// Clipped to its line, a character leaves out of sight.
+	ui.Row(c).ClipY().Children(func() {
+		for i, ch := range chars {
+			// Slots go by their place from the right, as the wheels of a
+			// counter do: the units are always the last.
+			k := len(chars) - 1 - i
+			roll := ui.Animation{Spring: ui.SpringOptions{Duration: 420 * time.Millisecond, Bounce: 0.15}, Delay: time.Duration(k) * 30 * time.Millisecond}
+			slot := ui.Box(c.Key(k)).Transition(ui.ElementTransition{
+				Animation: &roll, Size: true,
+				Enter: &ui.Motion{Y: dir * rollLine, Collapse: true},
+				Exit:  &ui.Motion{Collapse: true},
+			})
+			slot.Children(func() {
+				ui.Text(c.Key(ch), string(ch)).FontSize(13).FontWeight(600).FontFeatures("tnum").TextColor(fg).
+					Transition(ui.ElementTransition{Animation: &roll, Colors: true, Enter: &ui.Motion{Y: dir * rollLine}, Exit: st.exit})
+			})
+		}
+	})
 }
 
 // count formats a count as people in China read it, to a tenth of a 万.

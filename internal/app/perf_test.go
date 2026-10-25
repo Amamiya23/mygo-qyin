@@ -67,3 +67,24 @@ func TestNowPlayingFrameBudget(t *testing.T) {
 		t.Errorf("the stage between lines: %d frames a second", n)
 	}
 }
+
+// Another song's backdrop fades in over the last one's, which is then let
+// go, so that the backdrop stops asking for frames.
+func TestBackdropFadeEnds(t *testing.T) {
+	a, tt, _ := coverApp(t)
+	a.art.art[netease.Sized("a", 600)+"#backdrop"] = &artwork{tint: ui.RGB(200, 40, 40)}
+	a.art.art[netease.Sized("b", 600)+"#backdrop"] = &artwork{tint: ui.RGB(40, 40, 200)}
+	q := a.pl.Queue()
+	q[1].Album.PicURL, q[2].Album.PicURL = "a", "b"
+	tt.Frame()
+	a.pl.Next()
+	tt.Frame()
+	if a.backdropCache.before == nil {
+		t.Fatal("the backdrop changed songs without fading")
+	}
+	tt.Advance(backdropFade + 100*time.Millisecond)
+	tt.Frame()
+	if a.backdropCache.before != nil {
+		t.Error("the last song's backdrop still fades after the fade")
+	}
+}

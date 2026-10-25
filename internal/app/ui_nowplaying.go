@@ -75,9 +75,16 @@ func (a *app) nowPlayingView(c *ui.Context) {
 	tr := pl.Current()
 	w, h := c.Size()
 	art := a.art.get(netease.Sized(tr.Album.PicURL, 600), true)
+	// The colors stay the last song's while its cover loads, rather than
+	// going gray between the two.
+	shown := art
+	if art == nil && tr.Album.PicURL != "" {
+		shown = a.npArt
+	}
+	a.npArt = shown
 	tint := ui.RGB(120, 120, 130)
-	if art != nil && !art.failed {
-		tint = art.tint
+	if shown != nil && !shown.failed {
+		tint = shown.tint
 	}
 	accent := tint.Mix(white, 0.45)
 
@@ -86,7 +93,7 @@ func (a *app) nowPlayingView(c *ui.Context) {
 	// The pointer is over the view whenever it is in the window.
 	pointerIn := root.Hovered()
 	root.Children(func() {
-		a.backdrop(c, art, tint)
+		a.backdrop(c, shown, tint)
 		// Over the backdrop, which is positioned too: positioned elements
 		// paint over those in the flow.
 		ui.Column(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Children(func() { a.nowPlayingBody(c, tr, art, accent, w, h, pointerIn) })
@@ -287,7 +294,7 @@ func (a *app) stageBar(c *ui.Context, tr *netease.Track, art *artwork, accent ui
 }
 
 func (a *app) paneTab(c *ui.Context, i int, label string) {
-	b := ui.ButtonBase(c.Key(i)).Padding(6, 14).Radius(999).FocusRing(false)
+	b := ui.ButtonBase(c.Key(i)).Padding(6, 14).Radius(999).FocusRing(false).Label(label)
 	bg, fg := ui.Transparent, white.Alpha(0.55)
 	if a.npPane == i {
 		bg, fg = white.Alpha(0.14), white
@@ -295,7 +302,19 @@ func (a *app) paneTab(c *ui.Context, i int, label string) {
 		bg = white.Alpha(0.06)
 	}
 	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
-	b.Children(func() { ui.Text(c, label).FontSize(13).FontWeight(600).TextColor(fg) })
+	b.Children(func() {
+		if i != paneComments {
+			ui.Text(c, label).FontSize(13).FontWeight(600).TextColor(fg)
+			return
+		}
+		// The count rolls as it changes, from one song's to the next.
+		n, text := a.commentCount(), ""
+		if n > 0 {
+			text = " " + count(n)
+		}
+		ui.Text(c, "评论").FontSize(13).FontWeight(600).TextColor(fg)
+		rollCount(c, &a.tabCount, n, text, fg)
+	})
 	if b.Clicked() {
 		a.npPane = i
 		if (i == paneLyrics || i == paneStage) && a.settings.LyricsStage != (i == paneStage) {

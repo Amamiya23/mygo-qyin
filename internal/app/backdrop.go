@@ -25,6 +25,9 @@ import (
 // window across on the GPU, thirty times a second while the music plays;
 // the CPU paints it still. Paused, the fog glides to a stop, and the
 // canvas stays as it is.
+//
+// Another song's backdrop fades in over the last one's, which stays as it
+// was, in a canvas of its own, until it is gone.
 
 // fogSource paints the fog: noise of five octaves, warped by noise of
 // its own so that it billows rather than slides, rising with Time, Fog
@@ -100,10 +103,15 @@ var fogShader = sync.OnceValue(func() *shader.Shader { return shader.MustCompile
 // backdropFrame is how often the fog is painted while it moves.
 const backdropFrame = time.Second / 30
 
+// backdropFade is how long another song's backdrop takes to fade in.
+const backdropFade = 700 * time.Millisecond
+
 // backdropCache is the backdrop as last painted, and where the fog's
 // drift and its pulse are.
 type backdropCache struct {
 	canvas *ui.Canvas
+	before *ui.Canvas // the song before's, fading out over it
+	fadeAt time.Time  // when it began to
 	art    *artwork
 	tint   ui.Color
 	fog    bool
@@ -130,10 +138,14 @@ func (a *app) backdrop(c *ui.Context, art *artwork, tint ui.Color) {
 		bd := &a.backdropCache
 		if bd.canvas != nil {
 			if w, h := bd.canvas.Size(); w != cw || h != ch {
-				bd.canvas = nil
+				bd.canvas, bd.before = nil, nil
 			}
 		}
 		now := p.Now()
+		if bd.canvas != nil && (bd.art != art || bd.tint != tint) {
+			// Another song: the last one's stays as it was, fading out.
+			bd.canvas, bd.before, bd.fadeAt = bd.before, bd.canvas, now
+		}
 		moving := fog && gpu && !still
 		lv, live := pl.Levels()
 		moved := bd.step(now, pl.Playing() && moving, lv, live && moving)
@@ -154,6 +166,16 @@ func (a *app) backdrop(c *ui.Context, art *artwork, tint ui.Color) {
 			})
 		}
 		p.Image(bd.canvas.Bitmap(), r, ui.FillBox)
+		if bd.before != nil {
+			if k := float32(now.Sub(bd.fadeAt)) / float32(backdropFade); k < 1 {
+				// Eased out, as it fades.
+				k = 1 - (1-k)*(1-k)*(1-k)
+				p.ImageRegion(bd.before.Bitmap(), ui.Rect{}, r, ui.ImageOptions{Tint: white.Alpha(1 - k)})
+				p.AnimationFrame()
+			} else {
+				bd.before = nil
+			}
+		}
 		if moved {
 			p.After(backdropFrame)
 		}

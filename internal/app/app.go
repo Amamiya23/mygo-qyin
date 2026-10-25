@@ -87,6 +87,7 @@ type app struct {
 	queueList   ui.ListState
 	queueAt     int // the row of the queue pane last scrolled to, -1 while it is hidden
 	comments    commentState
+	tabCount    rollState // the count on the comments' tab, as it rolls
 
 	fmMode        int    // the FM mode chosen, in fmModes
 	radioStarting string // the radio asked for its first songs, or ""
@@ -104,6 +105,7 @@ type app struct {
 	barScrub              scrubState
 	npScrub               scrubState
 	backdropCache         backdropCache // the backdrop of Now Playing, as last painted
+	npArt                 *artwork      // the cover whose colors Now Playing shows
 	npCoverState          coverState    // the cover of Now Playing, as it is tilted and flicked
 	quiet                 quietState    // the quiet parts of the song playing, for its hot comments
 	sig                   playerSig

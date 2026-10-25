@@ -16,8 +16,10 @@ import (
 // card held up. Dragged or swiped across, it swings as it goes, and flung
 // far enough it flies off: to the left for the next song, to the right
 // for the one before, and the new cover comes in from the other side. A
-// fling too weak springs back. Asked for less motion, it neither tilts nor
-// swings.
+// fling too weak springs back. Another song played by the buttons, the
+// keys or the queue slides in the same way, the cover before sliding off.
+// Asked for less motion, it neither tilts nor swings, and a song coming
+// fades in over the one going.
 
 // coverState is the cover as the pointer and the trackpad move it.
 type coverState struct {
@@ -30,6 +32,11 @@ type coverState struct {
 	swipe   float32
 	swipeAt time.Time
 	decided bool
+	// The song the cover shows, where it is in the play order, and where
+	// its cover goes as another comes (exit).
+	track int64
+	at    int
+	exit  *ui.Motion
 }
 
 type coverKey struct {
@@ -72,6 +79,9 @@ var glareShader = sync.OnceValue(func() *shader.Shader { return shader.MustCompi
 // coverSwing is how the cover goes to rest, or off.
 var coverSwing = ui.Animation{Spring: ui.SpringOptions{Duration: 480 * time.Millisecond, Bounce: 0.18}}
 
+// coverSlide is how a cover slides in, or off, as the song changes.
+var coverSlide = ui.Animation{Spring: ui.SpringOptions{Duration: 520 * time.Millisecond, Bounce: 0.12}}
+
 // swipeRest is how long a swipe is still before it is let go, for a
 // trackpad that sends no momentum after it.
 const swipeRest = 140 * time.Millisecond
@@ -91,6 +101,24 @@ func (a *app) npCover(c *ui.Context, tr *netease.Track, art *artwork, size float
 		// A new cover's first frame: it shows where it comes in from.
 		cs.off, cs.enter = ui.Point{X: cs.enter}, 0
 	}
+	// Another song, not flung to, comes in from the side it is on in the
+	// play order, and the cover before goes off the other way.
+	var enter *ui.Motion
+	if order, at := pl.PlayOrder(); cs.track != tr.ID {
+		if cs.exit != nil && !entering {
+			dir := float32(stepDir(cs.at, at, len(order)))
+			// Its copy leaves from this frame on, which first knows the way.
+			cs.exit.X = -dir * size * 0.5
+			enter = &ui.Motion{X: dir * size * 0.5, Scale: 0.92}
+		}
+		cs.track, cs.at, cs.exit = tr.ID, at, &ui.Motion{Scale: 0.92}
+	}
+	exit := cs.exit
+	if cs.flung != 0 {
+		// Flown off already.
+		exit = nil
+	}
+	wrap.Transition(ui.ElementTransition{Animation: &coverSlide, Colors: true, Enter: enter, Exit: exit})
 	wrap.Draggable(&cs.off, ui.DraggableOptions{
 		Axis: ui.Horizontal,
 		Snap: func(p ui.Point) ui.Point {
@@ -225,6 +253,20 @@ func (a *app) letSwipeGo(size float32, fling func(int)) {
 		cs.off = ui.Point{}
 	}
 	cs.swipe, cs.decided = 0, true
+}
+
+// stepDir tells which way the play order went from from to to, of n
+// songs: 1 on, -1 back, around its end as Next and Prev go.
+func stepDir(from, to, n int) int {
+	switch {
+	case n > 2 && from == n-1 && to == 0:
+		return 1
+	case n > 2 && from == 0 && to == n-1:
+		return -1
+	case to < from:
+		return -1
+	}
+	return 1
 }
 
 // rubber holds a swipe's travel back past where it would fling, as a
