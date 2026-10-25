@@ -3,7 +3,7 @@
 <linearGradient id="l" x1="0" y1="0" x2="0" y2="1">
 <stop offset="0" stop-color="#FF5B5B"/><stop offset="1" stop-color="#E3122C"/></linearGradient>
 </defs>
-<circle cx="470" cy="548" r="107.4" fill="url(#l)"/>
-<circle cx="470" cy="548" r="74.1" fill="none" stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="3"/>
-<circle cx="470" cy="548" r="15.6" fill="#FFF6F2"/>
+<circle cx="330" cy="712" r="200.48" fill="url(#l)"/>
+<circle cx="330" cy="712" r="138.32" fill="none" stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="3"/>
+<circle cx="330" cy="712" r="29.12" fill="#FFF6F2"/>
 </svg>

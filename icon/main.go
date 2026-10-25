@@ -41,12 +41,13 @@ var icons = []struct {
 	{"icon/AppIcon-dev.icon", "resources/icon-dev.png", "#FF5B5B", "#E3122C", "#FFE1DE"},
 }
 
-// A record on Icon Composer's 1024-point full-bleed canvas, and the
+// A record on Icon Composer's 1024-point full-bleed canvas, seen close up:
+// larger than the canvas, it runs off the left and bottom edges. And the
 // tonearm over it, from its pivot to the headshell resting on the grooves.
 var (
-	rec   = struct{ cx, cy, r float64 }{470, 548, 300}
-	pivot = image.Pt(772, 252)
-	head  = image.Pt(618, 662)
+	rec   = struct{ cx, cy, r float64 }{330, 712, 560}
+	pivot = image.Pt(820, 214)
+	head  = image.Pt(585, 520)
 )
 
 func main() {
@@ -85,13 +86,13 @@ func armSVG(top, bottom, cap string) string {
 <stop offset="0" stop-color="%[11]s"/><stop offset="1" stop-color="%[12]s"/></linearGradient>
 </defs>
 <g transform="rotate(%[3]s %[1]d %[2]d)">
-<rect x="%[4]d" y="%[5]d" width="60" height="48" rx="14" fill="url(#m)"/>
-<rect x="%[1]d" y="%[6]d" width="%[7]s" height="24" rx="12" fill="url(#m)"/>
-<rect x="%[8]s" y="%[9]d" width="84" height="52" rx="13" fill="url(#m)" transform="rotate(28 %[10]s %[2]d)"/>
+<rect x="%[4]d" y="%[5]d" width="64" height="52" rx="15" fill="url(#m)"/>
+<rect x="%[1]d" y="%[6]d" width="%[7]s" height="34" rx="17" fill="url(#m)"/>
+<rect x="%[8]s" y="%[9]d" width="92" height="56" rx="14" fill="url(#m)" transform="rotate(28 %[10]s %[2]d)"/>
 </g>
-<circle cx="%[1]d" cy="%[2]d" r="54" fill="url(#m)"/>
-<circle cx="%[1]d" cy="%[2]d" r="20" fill="%[13]s"/>`,
-		p.X, p.Y, n(angle), p.X-84, p.Y-24, p.Y-12, n(length-30), n(end-20), p.Y-26, n(end), top, bottom, cap))
+<circle cx="%[1]d" cy="%[2]d" r="72" fill="url(#m)"/>
+<circle cx="%[1]d" cy="%[2]d" r="27" fill="%[13]s"/>`,
+		p.X, p.Y, n(angle), p.X-104, p.Y-26, p.Y-17, n(length-30), n(end-22), p.Y-28, n(end), top, bottom, cap))
 }
 
 func recordSVG() string {
