@@ -1,6 +1,7 @@
 package app
 
 import (
+	"runtime"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -26,6 +27,7 @@ type notch struct {
 	screenY    float32
 
 	open       bool // the pointer is over it: it shows the player
+	hello      bool // it shows itself, turned off, with a way to keep it
 	enteredAt  time.Time
 	lastInside time.Time
 	passing    bool // clicks pass through to what is under the window
@@ -38,8 +40,9 @@ type notch struct {
 }
 
 const (
-	notchOpenW = 468
-	notchIdleW = 330
+	notchOpenW  = 468
+	notchIdleW  = 330
+	notchHelloW = 340
 )
 
 func newNotch(a *app) *notch {
@@ -114,6 +117,9 @@ func (n *notch) place() {
 // setEnabled shows the notch player, or hides it for good, as the
 // settings say.
 func (n *notch) setEnabled(on bool) {
+	if n.win == nil {
+		return // as in tests
+	}
 	if on == n.win.IsVisible() {
 		n.win.Invalidate()
 		return
@@ -124,8 +130,71 @@ func (n *notch) setEnabled(on bool) {
 		n.poll()
 		return
 	}
-	n.open = false
+	n.open, n.hello = false, false
 	n.win.Hide()
+}
+
+// greet shows the notch once, as the first song plays, to a listener who
+// never turned it on: it grows out of the housing, or the top of a screen
+// without one, with the song and a way to keep it, and goes back in.
+func (n *notch) greet() {
+	s := &n.a.settings
+	if runtime.GOOS != "darwin" || s.Notch || s.NotchGreeted {
+		return
+	}
+	s.NotchGreeted = true
+	s.save()
+	n.hello = true
+	if n.win == nil {
+		return // as in tests
+	}
+	n.win.ShowInactive()
+	pinToTop(n.win.NativeHandle(), float64(n.winW), float64(n.winH))
+	n.poll()
+	n.byeSoon(7 * time.Second)
+}
+
+// byeSoon ends the greeting after d, unless the pointer is on it then.
+func (n *notch) byeSoon(d time.Duration) {
+	time.AfterFunc(d, func() {
+		mygo.RunOnMain(func() {
+			switch {
+			case !n.hello:
+			case n.open:
+				n.byeSoon(2 * time.Second)
+			default:
+				n.bye()
+			}
+		})
+	})
+}
+
+// bye ends the greeting: the notch goes back into the housing and, still
+// turned off, hides there.
+func (n *notch) bye() {
+	n.hello = false
+	n.win.Invalidate()
+	if n.a.settings.Notch {
+		return
+	}
+	n.open = false
+	n.passing = true
+	n.win.SetIgnoreMouseEvents(true)
+	time.AfterFunc(time.Second, func() {
+		mygo.RunOnMain(func() {
+			if !n.hello && !n.a.settings.Notch {
+				n.win.Hide()
+			}
+		})
+	})
+}
+
+// keep turns the notch player on, from its greeting.
+func (n *notch) keep() {
+	n.hello = false
+	n.a.settings.Notch = true
+	n.a.settings.save()
+	n.setEnabled(true)
 }
 
 // target returns the size the shape goes to.
@@ -137,11 +206,13 @@ func (n *notch) target() (w, h float32) {
 		return notchIdleW, n.h0 + 72
 	case n.open:
 		return notchOpenW, n.h0 + 178
+	case n.hello && tr != nil:
+		return notchHelloW, n.h0 + 58
 	case !n.real && !s.NotchVirtual:
 		// Over a menu bar without a notch, it would hide the menus and
 		// icons there: nothing shows until the pointer asks for it.
 		return 0, 0
-	case tr != nil && s.NotchActivity:
+	case tr != nil && s.NotchActivity && s.Notch:
 		// Wings just wide enough for the cover and the levels, so they
 		// hide no more of the menu bar than they must.
 		return n.w0 + 2*max(0, n.h0-12) + 20, n.h0
@@ -153,7 +224,7 @@ func (n *notch) target() (w, h float32) {
 // poll follows the pointer, which the window cannot always see: it lets
 // clicks through where it draws nothing, and opens while over it.
 func (n *notch) poll() {
-	if !n.a.settings.Notch {
+	if !n.a.settings.Notch && !n.hello {
 		return
 	}
 	pt := mygo.Screen.CursorScreenPoint()
@@ -162,7 +233,7 @@ func (n *notch) poll() {
 	px, py := float32(pt.X), float32(pt.Y)
 	slack := float32(6)
 	inside := px >= x-slack && px <= x+w+slack && py >= n.screenY-slack && py <= n.screenY+h+slack
-	if !n.real && !n.a.settings.NotchVirtual && !n.open {
+	if !n.real && !n.a.settings.NotchVirtual && !n.open && !n.hello {
 		// Without a notch, the pointer pressed against the top edge of
 		// the screen, about its middle, opens it.
 		cx := n.screenX + n.winW/2
@@ -255,6 +326,7 @@ func (n *notch) view(c *ui.Context) {
 		opened = 1
 	}
 	open := stage.AnimateTo("open", opened, spring)
+	hello := stage.AnimateTo("hello", b2f(n.hello), spring)
 	foot := 10 + 18*open
 	flare := 6 + 8*open
 	cx := n.winW / 2
@@ -276,9 +348,10 @@ func (n *notch) view(c *ui.Context) {
 				n.idle(c, open, (w-notchIdleW)/2)
 				return
 			}
-			if a.settings.NotchActivity {
+			if a.settings.NotchActivity || !a.settings.Notch {
 				n.compact(c, tr, 1-open)
 			}
+			n.helloRow(c, hello*(1-open), (w-notchHelloW)/2)
 			if open > 0.02 {
 				n.expanded(c, tr, open, (w-notchOpenW)/2)
 			}
@@ -370,6 +443,32 @@ func (n *notch) expanded(c *ui.Context, tr *netease.Track, open, left float32) {
 	})
 }
 
+// helloRow says, under the housing, what the notch is, while it greets.
+func (n *notch) helloRow(c *ui.Context, shown, left float32) {
+	if shown < 0.02 {
+		return
+	}
+	a := n.a
+	row := ui.Row(c).Absolute().Top(n.h0+2).Left(left).Width(notchHelloW).Padding(6, 14, 14, 20).Gap(12).AlignItems(ui.Center).
+		Opacity(max(0, shown*1.4-0.4))
+	row.Translate(0, (1-shown)*-8)
+	row.Children(func() {
+		title, hint := "刘海里也能控制播放", "指针停在这里，即可暂停、切歌"
+		if !n.real {
+			title, hint = "屏幕顶部也能控制播放", "指针移到顶部中央，即可暂停、切歌"
+		}
+		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+			ui.Text(c, title).FontSize(13.5).FontWeight(700).SingleLine()
+			ui.Text(c, hint).FontSize(11.5).TextColor(white.Alpha(0.55)).SingleLine()
+		})
+		b := ui.ButtonBase(c.Key("keep")).Padding(6, 14).Radius(999).Background(a.pal.accent).FocusRing(false).Label("开启刘海播放器")
+		b.Children(func() { ui.Text(c, "开启").FontSize(12.5).FontWeight(600) })
+		if b.Clicked() {
+			n.keep()
+		}
+	})
+}
+
 // idle is the notch with nothing to play: it opens on a way to the app.
 func (n *notch) idle(c *ui.Context, open, left float32) {
 	if open < 0.02 {
@@ -405,6 +504,9 @@ func (a *app) syncWindows() {
 	if sig != a.sig {
 		a.sig = sig
 		a.redraw()
+		if sig.playing && !sig.loading && a.notch != nil {
+			a.notch.greet()
+		}
 	}
 }
 

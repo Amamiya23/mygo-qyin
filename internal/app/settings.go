@@ -20,6 +20,9 @@ type settings struct {
 	// NotchVirtual keeps a notch of the app's own showing at the top of a
 	// display without one; else it shows only while the pointer asks.
 	NotchVirtual bool `json:"notchVirtual"`
+	// NotchGreeted says the notch showed itself, once, as the first song
+	// played (greet).
+	NotchGreeted bool `json:"notchGreeted"`
 	// Quality is the level of the streams: standard, higher, exhigh,
 	// lossless or hires.
 	Quality string `json:"quality"`
