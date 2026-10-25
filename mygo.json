@@ -11,5 +11,10 @@
     "icon": "icon/AppIcon.icon",
     "signingIdentity": "Developer ID Application: xinyu zeng (GJE9R5VE87)",
     "notarize": { "keychainProfile": "notary" }
+  },
+  "linux": {
+    "comment": "第三方网易云音乐桌面客户端",
+    "categories": ["AudioVideo", "Audio", "Player"],
+    "webview": false
   }
 }
