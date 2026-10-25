@@ -63,16 +63,8 @@ func (a *app) signedIn(prof *netease.Profile) {
 	if prof == nil {
 		return
 	}
-	uid := prof.UserID
-	a.loadLiked(uid)
-	go func() {
-		made, saved, err := netease.UserPlaylists(uid)
-		a.post(func() {
-			if err == nil && a.profile != nil && a.profile.UserID == uid {
-				a.mine, a.saved = made, saved
-			}
-		})
-	}()
+	a.loadLiked(prof.UserID)
+	a.loadMine(prof.UserID)
 }
 
 func (a *app) openLogin() {
@@ -282,13 +274,19 @@ func (a *app) accountRow(c *ui.Context) {
 	})
 }
 
-// myPlaylists lists the listener's playlists in the sidebar.
-func (a *app) myPlaylists(c *ui.Context, title string, lists []netease.Playlist) {
+// myPlaylists lists the listener's playlists in the sidebar: those they
+// made, if mine, with a button to make one and a menu to rename them.
+func (a *app) myPlaylists(c *ui.Context, title string, lists []netease.Playlist, mine bool) {
 	if len(lists) == 0 {
 		return
 	}
 	p := a.pal
-	ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(p.faint).Margin(18, 10, 6, 10)
+	ui.Row(c.Key(title)).AlignItems(ui.Center).Margin(18, 4, 6, 10).Children(func() {
+		ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(p.faint).Grow(1)
+		if mine && iconButton(c.Key("new"), iconPlus, 13, p.faint, "新建歌单").Clicked() {
+			a.newPlaylist(nil)
+		}
+	})
 	for i := range lists {
 		pl := &lists[i]
 		selected := a.route.page == pagePlaylist && a.route.playlist == pl.ID && !a.nowPlaying
@@ -303,6 +301,17 @@ func (a *app) myPlaylists(c *ui.Context, title string, lists []netease.Playlist)
 			a.cover(c, pl.Cover(), 80, 22, 5)
 			ui.Text(c, pl.Name).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
 		})
+		if mine && pl.SpecialType != 5 {
+			b.ContextMenu(func(m *ui.Menu) {
+				if m.Item("重命名…").Chosen() {
+					a.startRename(pl)
+				}
+				m.Separator()
+				if m.Item("删除歌单…").Chosen() {
+					a.confirmDelete(pl)
+				}
+			})
+		}
 		if b.Clicked() {
 			a.open(route{page: pagePlaylist, playlist: pl.ID})
 		}

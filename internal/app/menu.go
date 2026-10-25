@@ -25,6 +25,13 @@ func (a *app) setMenu() {
 			mygo.Separator(),
 			{Role: mygo.RoleQuit, Label: "退出网易云音乐"},
 		}},
+		{Label: "文件", Submenu: []*mygo.MenuItem{
+			{Label: "新建歌单…", Accelerator: "CmdOrCtrl+N", Click: run(func() {
+				a.showMain()
+				a.nowPlaying = false
+				a.newPlaylist(nil)
+			})},
+		}},
 		{Label: "编辑", Submenu: []*mygo.MenuItem{
 			{Role: mygo.RoleUndo, Label: "撤销"},
 			{Role: mygo.RoleRedo, Label: "重做"},

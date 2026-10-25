@@ -497,7 +497,7 @@ func (a *app) queuePane(c *ui.Context) {
 		tr := &pl.Queue()[i]
 		playing := r == at
 		row := ui.ButtonBase(c.Key(i)).Height(58).PaddingX(10).Gap(14).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
-			ContextMenu(songItems(tr))
+			ContextMenu(a.songItems(tr, 0))
 		switch {
 		case playing:
 			row.Background(white.Alpha(0.12))

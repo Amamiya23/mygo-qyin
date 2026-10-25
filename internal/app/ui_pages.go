@@ -280,6 +280,18 @@ func (a *app) playlistHeader(c *ui.Context, pl *netease.Playlist) {
 					}
 					a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
 				}
+				if mine := a.editable(pl.ID); mine != nil {
+					more := iconButton(c.Key("more"), iconMore, 18, p.muted, "更多")
+					more.Menu(func(m *ui.Menu) {
+						if m.Item("重命名…").Chosen() {
+							a.startRename(mine)
+						}
+						m.Separator()
+						if m.Item("删除歌单…").Chosen() {
+							a.confirmDelete(mine)
+						}
+					})
+				}
 				switch {
 				case pl.SpecialType != 5:
 				case a.pl.Radio() == heartRadio:
@@ -329,6 +341,11 @@ func (a *app) searchPage(c *ui.Context) {
 func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, header func(c *ui.Context)) {
 	p := a.pal
 	cur := a.pl.Current()
+	// A song's menu can take it out of the playlist it is listed in.
+	var pid int64
+	if a.route.page == pagePlaylist {
+		pid = a.route.playlist
+	}
 	w, _ := c.Size()
 	wide := w-sidebarWidth > 820
 	top, bottom := a.insets(c)
@@ -350,7 +367,7 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 		tr := &tracks[i]
 		playing := cur != nil && cur.ID == tr.ID
 		row := ui.ButtonBase(c.Key(tr.ID)).Height(54).PaddingX(12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
-			ContextMenu(songItems(tr))
+			ContextMenu(a.songItems(tr, pid))
 		hovered := row.Hovered()
 		bg := ui.Transparent
 		switch {

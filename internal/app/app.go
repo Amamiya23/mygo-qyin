@@ -44,6 +44,8 @@ type app struct {
 	mine, saved  []netease.Playlist // the listener's playlists: made, and saved
 	recPlaylists []netease.Playlist // the day's playlists picked for the listener
 	login        loginState
+	naming       nameDialog     // the name of a playlist asked for
+	deleting     deleteDialog   // whether to delete a playlist, asked
 	liked        map[int64]bool // the songs the listener likes
 	toast        string         // a message to show once
 

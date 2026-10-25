@@ -127,7 +127,9 @@ func pillButton(c *ui.Context, icon *ui.SVG, label string, bg, fg ui.Color) ui.E
 	}
 	b.AnimatePose(pose, ui.Snappy)
 	b.Children(func() {
-		ui.Icon(c, icon).Size(14, 14)
+		if icon != nil {
+			ui.Icon(c, icon).Size(14, 14)
+		}
 		ui.Text(c, label).FontSize(14).FontWeight(600).SingleLine()
 	})
 	return b

@@ -64,6 +64,8 @@ func (a *app) view(c *ui.Context) {
 		a.nowPlayingLayer(c, npOpen, npSettled)
 	})
 	a.loginDialog(c)
+	a.playlistNameDialog(c)
+	a.deletePlaylistDialog(c)
 	if a.toast != "" {
 		c.Toast(a.toast)
 		a.toast = ""
@@ -171,8 +173,8 @@ func (a *app) sidebar(c *ui.Context) {
 			if a.searched != "" {
 				a.navItem(c, iconSearch, "搜索结果", route{page: pageSearch})
 			}
-			a.myPlaylists(c, "我的歌单", a.mine)
-			a.myPlaylists(c, "收藏的歌单", a.saved)
+			a.myPlaylists(c, "我的歌单", a.mine, true)
+			a.myPlaylists(c, "收藏的歌单", a.saved, false)
 		})
 
 		// What plays, as a card at the foot of the sidebar, over who listens.
