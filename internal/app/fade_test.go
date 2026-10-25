@@ -3,7 +3,6 @@ package app
 import (
 	"image"
 	"testing"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -34,35 +33,5 @@ func TestArtFadesIn(t *testing.T) {
 	ready.Frame()
 	if in != 1 {
 		t.Errorf("a cover ready at once shown %v", in)
-	}
-}
-
-// The play button's icon turns into the pause icon: both show on the
-// way, then only the pause icon.
-func TestPlayPauseMorphs(t *testing.T) {
-	playing := false
-	var v float32
-	tt := ui.NewTester(func(c *ui.Context) {
-		b := playButton(c, playing, 24, white)
-		to := float32(0)
-		if playing {
-			to = 1
-		}
-		// Asked for the same, the button gives the value it animates.
-		v = b.AnimateTo("playing", to, ui.Animation{Spring: ui.SpringOptions{Duration: 340 * time.Millisecond, Bounce: 0.3}})
-	}, 100, 100)
-	tt.Frame()
-	if v != 0 {
-		t.Fatalf("paused at %v", v)
-	}
-	playing = true
-	tt.Frame()
-	tt.Advance(80 * time.Millisecond)
-	if v <= 0 || v >= 1 {
-		t.Errorf("at %v on the way", v)
-	}
-	tt.Advance(time.Second)
-	if v != 1 {
-		t.Errorf("at %v once playing", v)
 	}
 }

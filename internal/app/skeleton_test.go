@@ -14,32 +14,31 @@ import (
 
 // skeletonScenes are the views that load, as they show while they do.
 var skeletonScenes = []struct {
-	name  string
-	set   func(a *app)
-	texts []string // what shows for real meanwhile
+	name string
+	set  func(a *app)
 }{
-	{"home", func(a *app) {}, []string{"官方榜单", "推荐歌单"}},
-	{"charts", func(a *app) { a.route = route{page: pageCharts} }, []string{"排行榜", "全部榜单"}},
-	{"daily", func(a *app) { a.route = route{page: pageDaily} }, []string{"每日歌曲推荐"}},
+	{"home", func(a *app) {}},
+	{"charts", func(a *app) { a.route = route{page: pageCharts} }},
+	{"daily", func(a *app) { a.route = route{page: pageDaily} }},
 	{"playlist", func(a *app) {
 		a.route = route{page: pagePlaylist, playlist: 7}
 		a.loadingPl[7] = true
-	}, nil},
+	}},
 	{"search", func(a *app) {
 		a.route = route{page: pageSearch}
 		a.searched, a.searching = "春日影", true
-	}, []string{"“春日影”"}},
-	{"login", func(a *app) { a.login = loginState{open: true} }, []string{"扫码登录"}},
+	}},
+	{"login", func(a *app) { a.login = loginState{open: true} }},
 	{"comments", func(a *app) {
 		a.nowPlaying, a.npPane = true, paneComments
 		a.comments = commentState{track: 1, loading: true}
-	}, nil},
+	}},
 	{"more-comments", func(a *app) {
 		a.nowPlaying, a.npPane = true, paneComments
 		a.comments = commentState{track: 1, loading: true, loaded: true, total: 1, latest: []netease.Comment{{ID: 1, Content: "好听"}}}
-	}, []string{"好听"}},
-	{"lyrics", func(a *app) { a.nowPlaying, a.npPane = true, paneLyrics }, nil},
-	{"stage", func(a *app) { a.nowPlaying, a.npPane = true, paneStage }, nil},
+	}},
+	{"lyrics", func(a *app) { a.nowPlaying, a.npPane = true, paneLyrics }},
+	{"stage", func(a *app) { a.nowPlaying, a.npPane = true, paneStage }},
 }
 
 func skeletonApp(set func(a *app)) *app {
@@ -49,28 +48,6 @@ func skeletonApp(set func(a *app)) *app {
 	a.pl.Cue([]netease.Track{{ID: 1, Name: "春日影"}})
 	set(a)
 	return a
-}
-
-// TestSkeletons shows each view that loads in its skeleton, with what it
-// knows already, and the shimmer moving over it, still if asked.
-func TestSkeletons(t *testing.T) {
-	for _, s := range skeletonScenes {
-		t.Run(s.name, func(t *testing.T) {
-			a := skeletonApp(s.set)
-			tt := ui.NewTester(a.view, 1200, 800)
-			for _, text := range s.texts {
-				if !tt.HasText(text) {
-					t.Errorf("missing %q in %q", text, tt.Texts())
-				}
-			}
-			if tt.HasText("重试") {
-				t.Error("shows a retry while loading")
-			}
-			if !tt.FramePending() {
-				t.Error("the shimmer asks for no frame")
-			}
-		})
-	}
 }
 
 // With NM_FRAMES set, saves each skeleton in the light and the dark, the

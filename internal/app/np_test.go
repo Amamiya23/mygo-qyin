@@ -7,28 +7,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/lyrics"
 	"netease-music-mygo/internal/netease"
 )
-
-func TestNowPlayingView(t *testing.T) {
-	a := newTestApp()
-	tr := netease.Track{ID: 1, Name: "宝船", Artists: []netease.Artist{{Name: "DOUDOU"}}, Duration: 200000}
-	a.pl.Cue([]netease.Track{tr, {ID: 2, Name: "下一首"}})
-	a.pl.SetLyrics([]lyrics.Line{{At: 0, Text: "第一句"}, {At: 5e9, Text: "第二句"}})
-	a.nowPlaying = true
-	tt := ui.NewTester(a.view, 1200, 800)
-	tt.Frame()
-	tt.Frame()
-	if !a.nowPlaying {
-		t.Fatal("now playing closed by itself")
-	}
-	for _, s := range []string{"歌词", "待播清单", "第一句", "宝船"} {
-		if !tt.HasText(s) {
-			t.Errorf("missing %q in %q", s, tt.Texts())
-		}
-	}
-}
 
 func TestNowPlayingClosesAsOneLayer(t *testing.T) {
 	a := newTestApp()

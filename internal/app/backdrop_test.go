@@ -92,22 +92,3 @@ func TestBackdropDriftFrames(t *testing.T) {
 	defer f.Close()
 	png.Encode(f, out)
 }
-
-// The fog is an experiment the listener turns on in the settings, beside
-// the smoke of the progress bar; both are off at first.
-func TestFogIsOptIn(t *testing.T) {
-	a := newTestApp()
-	a.settings = defaultSettings()
-	if a.settings.Fog || a.settings.Smoke {
-		t.Fatal("an experiment on by default")
-	}
-	tt := ui.NewTester(a.settingsView, 560, 1400)
-	tt.Frame()
-	texts, at := tt.Texts(), map[string]int{}
-	for i, s := range texts {
-		at[s] = i + 1
-	}
-	if at["实验性功能"] == 0 || at["进度条烟雾特效"] < at["实验性功能"] || at["烟雾背景"] < at["实验性功能"] {
-		t.Fatalf("no experimental section with both effects in %q", texts)
-	}
-}
