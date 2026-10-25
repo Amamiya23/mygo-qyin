@@ -34,6 +34,7 @@ type app struct {
 
 	route   route
 	history []route
+	forward []route // the pages gone back from, the last first to go to
 
 	profile      *Profile
 	mine, saved  []Playlist // the listener's playlists: made, and saved

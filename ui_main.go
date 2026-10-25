@@ -67,6 +67,12 @@ func (a *app) view(c *ui.Context) {
 }
 
 func (a *app) shortcuts(c *ui.Context) {
+	// The side buttons of a mouse, the keys of keyboards that have them
+	// and swipes between pages, and the keys of Music.
+	c.OnShortcut(0, ui.KeyBack, a.back)
+	c.OnShortcut(0, ui.KeyForward, a.goForward)
+	c.OnShortcut(ui.Cmd, ui.KeyBracketLeft, a.back)
+	c.OnShortcut(ui.Cmd, ui.KeyBracketRight, a.goForward)
 	c.OnShortcut(ui.Cmd, ui.KeyF, func() {
 		a.nowPlaying = false
 		a.searchBox.Focus(c)
@@ -81,22 +87,47 @@ func (a *app) open(r route) {
 	if r == a.route {
 		return
 	}
-	a.history = append(a.history, a.route)
-	a.route = r
+	a.history, a.forward = append(a.history, a.route), nil
 	a.nowPlaying = false
+	a.show(r)
+}
+
+// show shows the page of r.
+func (a *app) show(r route) {
+	a.route = r
+	a.trackList = ui.ListState{}
 	if r.page == pagePlaylist {
-		a.trackList = ui.ListState{}
 		a.loadPlaylist(r.playlist, false)
 	}
 }
 
+// back goes to the page before, as the back button of a mouse does, or
+// closes Now Playing, which covers the pages.
 func (a *app) back() {
+	if a.nowPlaying {
+		a.nowPlaying = false
+		return
+	}
 	if len(a.history) == 0 {
 		return
 	}
-	a.route = a.history[len(a.history)-1]
+	a.forward = append(a.forward, a.route)
+	r := a.history[len(a.history)-1]
 	a.history = a.history[:len(a.history)-1]
-	a.trackList = ui.ListState{}
+	a.show(r)
+}
+
+// goForward goes to the page back left, as the forward button of a mouse
+// does.
+func (a *app) goForward() {
+	if len(a.forward) == 0 {
+		return
+	}
+	a.history = append(a.history, a.route)
+	r := a.forward[len(a.forward)-1]
+	a.forward = a.forward[:len(a.forward)-1]
+	a.nowPlaying = false
+	a.show(r)
 }
 
 func (a *app) sidebar(c *ui.Context) {
@@ -244,10 +275,17 @@ func (a *app) pageTop(c *ui.Context) {
 	edge := ui.Box(c.Key("top-edge")).Absolute().Top(0).Left(0).Right(0).Height(top).DragWindow().
 		Material(glass.ScrollEdge{Hard: true, Background: a.pal.bg})
 	edge.Opacity(edgeShown(edge, a.underTop))
-	if len(a.history) > 0 {
+	if len(a.history) > 0 || len(a.forward) > 0 {
 		ui.Row(c).Absolute().Top(0).Left(20).Height(topBar(c)).AlignItems(ui.Center).Children(func() {
-			if iconButton(c.Key("back"), iconBack, 18, a.pal.muted, "返回").Clicked() {
+			back := iconButton(c.Key("back"), iconBack, 18, a.pal.muted, "返回").Disabled(len(a.history) == 0)
+			if len(a.history) == 0 {
+				back.Opacity(0.35)
+			}
+			if back.Clicked() {
 				a.back()
+			}
+			if len(a.forward) > 0 && iconButton(c.Key("forward"), iconForward, 18, a.pal.muted, "前进").Clicked() {
+				a.goForward()
 			}
 		})
 	}
@@ -346,7 +384,7 @@ func firstPlayable(tracks []Track) int {
 }
 
 func (a *app) search(q string) {
-	a.history = append(a.history, a.route)
+	a.history, a.forward = append(a.history, a.route), nil
 	a.route = route{page: pageSearch}
 	a.trackList = ui.ListState{}
 	a.nowPlaying = false
