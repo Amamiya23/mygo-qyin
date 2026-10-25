@@ -119,9 +119,12 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 		}
 
 		side := float32(math.Min(float64(w)*0.36, 440))
-		coverSize := min(side, h-360)
+		// The cover leaves room above it for the pane's tabs.
+		coverSize := min(side, h-404)
 		ui.Row(c).Grow(1).Padding(0, 72, 44, 72).Gap(72).AlignItems(ui.Stretch).Children(func() {
+			var coverTop float32
 			ui.Column(c).Width(side).Justify(ui.Center).Gap(0).Children(func() {
+				coverTop = ui.Box(c.Key("cover-top")).Height(0).LayoutBounds().Y
 				a.npCover(c, tr, art, coverSize)
 
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(36, 0, 18, 0).Children(func() {
@@ -155,8 +158,23 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 				})
 			})
 
-			ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
-				reveal(ui.Row(c.Key("tabs")).Gap(6).Margin(0, 0, 8, 0), pointerIn).Children(func() { a.paneTabs(c) })
+			pane := ui.Column(c.Key("pane")).Grow(1).Basis(0).MinWidth(0)
+			pane.Children(func() {
+				// The pane starts level with the cover beside it. Its tabs come
+				// and go with the pointer, so they sit above it, out of the flow,
+				// never over it.
+				tabs := ui.Row(c.Key("tabs")).Absolute().Left(0).Gap(6)
+				b, tb := pane.LayoutBounds(), tabs.LayoutBounds()
+				if b.H > 0 && tb.H > 0 && coverTop > 0 {
+					if top := max(coverTop-b.Y, tb.H+8); top != a.npPaneTop {
+						a.npPaneTop = top
+						c.AnimationFrame()
+					}
+				} else {
+					c.AnimationFrame() // not laid out yet: the next frame places it
+				}
+				reveal(tabs.Top(a.npPaneTop-8-tb.H), pointerIn).Children(func() { a.paneTabs(c) })
+				ui.Box(c).Height(a.npPaneTop)
 				switch a.npPane {
 				case paneLyrics:
 					a.lyricsPane(c, tr, h)
