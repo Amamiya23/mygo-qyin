@@ -70,6 +70,14 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *Track, art *artwork, accent ui.C
 				a.nowPlaying = false
 			}
 		})
+		if a.npPane == paneStage {
+			// The stage takes the whole view: the lyrics are the show, the
+			// controls a slim bar at the foot.
+			ui.Row(c).Absolute().Top(max(bar.Height, 28) + 20).Right(48).Gap(6).Children(func() { a.paneTabs(c) })
+			a.stage(c, tr, accent)
+			a.stageBar(c, tr, art)
+			return
+		}
 
 		side := float32(math.Min(float64(w)*0.36, 440))
 		coverSize := min(side, h-360)
@@ -117,11 +125,8 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *Track, art *artwork, accent ui.C
 			})
 
 			ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
-				ui.Row(c).Gap(6).Margin(0, 0, 8, 0).Children(func() {
-					a.paneTab(c, 0, "歌词")
-					a.paneTab(c, 1, "待播清单")
-				})
-				if a.npPane == 0 {
+				ui.Row(c).Gap(6).Margin(0, 0, 8, 0).Children(func() { a.paneTabs(c) })
+				if a.npPane == paneLyrics {
 					a.lyricsPane(c, tr, h)
 				} else {
 					a.queuePane(c)
@@ -129,6 +134,52 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *Track, art *artwork, accent ui.C
 			})
 		})
 	}
+}
+
+// lyricsPaneChosen is the pane of lyrics the listener chose last.
+func (a *app) lyricsPaneChosen() int {
+	if a.settings.LyricsStage {
+		return paneStage
+	}
+	return paneLyrics
+}
+
+// The panes of Now Playing.
+const (
+	paneLyrics = iota
+	paneQueue
+	paneStage
+)
+
+func (a *app) paneTabs(c *ui.Context) {
+	a.paneTab(c, paneLyrics, "歌词")
+	a.paneTab(c, paneStage, "律动")
+	a.paneTab(c, paneQueue, "待播清单")
+}
+
+// stageBar is the slim bar along the foot of the stage: what plays, where
+// it is, and the controls.
+func (a *app) stageBar(c *ui.Context, tr *Track, art *artwork) {
+	pl := a.pl
+	ui.Column(c).Padding(0, 48, 28, 48).Gap(10).Children(func() {
+		a.scrubber(c.Key("stage-scrub"), &a.npScrub, white.Alpha(0.18), white.Alpha(0.9), 14)
+		ui.Row(c).Gap(14).AlignItems(ui.Center).Children(func() {
+			ui.Row(c).Grow(1).Basis(0).MinWidth(0).Gap(12).AlignItems(ui.Center).Children(func() {
+				if art != nil && art.bmp != nil {
+					ui.Image(c, art.bmp).Size(44, 44).Fit(ui.Cover).Radius(8)
+				}
+				ui.Column(c).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+					ui.Text(c, tr.Name).FontSize(14).FontWeight(700).SingleLine()
+					ui.Text(c, tr.ArtistNames()).FontSize(12).TextColor(white.Alpha(0.55)).SingleLine()
+				})
+				a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6))
+			})
+			a.transport(c, white, white.Alpha(0.45), white, 22)
+			ui.Row(c).Grow(1).Basis(0).MinWidth(0).Justify(ui.End).Children(func() {
+				ui.Text(c, clock(pl.position())+" / "+clock(pl.duration())).FontSize(11.5).FontFeatures("tnum").TextColor(white.Alpha(0.5))
+			})
+		})
+	})
 }
 
 func (a *app) paneTab(c *ui.Context, i int, label string) {
@@ -143,6 +194,10 @@ func (a *app) paneTab(c *ui.Context, i int, label string) {
 	b.Children(func() { ui.Text(c, label).FontSize(13).FontWeight(600).TextColor(fg) })
 	if b.Clicked() {
 		a.npPane = i
+		if i != paneQueue && a.settings.LyricsStage != (i == paneStage) {
+			a.settings.LyricsStage = i == paneStage
+			a.settings.save()
+		}
 	}
 }
 
@@ -223,7 +278,20 @@ func (a *app) lyricsPane(c *ui.Context, tr *Track, h float32) {
 			}
 			line.TransformOrigin(0, 0.5).AnimatePose(ui.Pose{Scale: scale}, ui.Animation{Spring: ui.SpringOptions{Duration: 600 * time.Millisecond, Bounce: 0.1}})
 			line.Children(func() {
-				ui.Text(c, l.Text).FontSize(30).FontWeight(800).LineHeight(1.25).LetterSpacing(-0.4).TextColor(white.Alpha(alpha))
+				if on && len(l.Words) > 0 {
+					// The line sung lights up word by word as it is sung.
+					ui.RichText(c.Key("words")).FontSize(30).FontWeight(800).LineHeight(1.25).LetterSpacing(-0.4).Children(func() {
+						for wi, wd := range l.Words {
+							lit := clamp01(float32((pos - wd.Start).Seconds() / max(0.05, (wd.End-wd.Start).Seconds())))
+							ui.Text(c.Key(wi), wd.Text).TextColor(white.Alpha(alpha * (0.38 + 0.62*lit)))
+						}
+					})
+					if pl.playing {
+						c.AnimationFrame()
+					}
+				} else {
+					ui.Text(c, l.Text).FontSize(30).FontWeight(800).LineHeight(1.25).LetterSpacing(-0.4).TextColor(white.Alpha(alpha))
+				}
 				if l.Translation != "" {
 					ui.Text(c, l.Translation).FontSize(17).FontWeight(600).TextColor(white.Alpha(alpha * 0.7))
 				}

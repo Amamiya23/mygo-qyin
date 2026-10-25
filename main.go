@@ -125,6 +125,7 @@ func main() {
 	mygo.App.WhenReady(func() {
 		a.settings = loadSettings()
 		a.settings.applyAppearance()
+		a.npPane = a.lyricsPaneChosen()
 		a.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:           "网易云音乐",
 			Width:           1180,

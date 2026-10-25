@@ -227,10 +227,10 @@ func (a *app) playerBar(c *ui.Context) {
 				lyr = p.accent
 			}
 			if iconButton(c.Key("lyrics"), iconLyrics, 16, lyr, "歌词").Clicked() && tr != nil {
-				a.nowPlaying, a.npPane = true, 0
+				a.nowPlaying, a.npPane = true, a.lyricsPaneChosen()
 			}
 			if iconButton(c.Key("queue"), iconQueue, 16, p.muted, "播放队列").Clicked() && tr != nil {
-				a.nowPlaying, a.npPane = true, 1
+				a.nowPlaying, a.npPane = true, paneQueue
 			}
 			a.volumeSlider(c, p.text.Alpha(0.75), p.press, 92)
 		})

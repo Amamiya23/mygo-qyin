@@ -23,6 +23,9 @@ type settings struct {
 	Quality string `json:"quality"`
 	// Appearance is light, dark, or system to follow the system.
 	Appearance string `json:"appearance"`
+	// LyricsStage shows lyrics on the stage, Folia's style, in Now
+	// Playing, rather than scrolling.
+	LyricsStage bool `json:"lyricsStage"`
 	// Volume is where the volume was left, from 0 to 1.
 	Volume float64 `json:"volume"`
 

@@ -303,12 +303,14 @@ func (p *player) loadSkipping(at, skipped int) {
 	}()
 
 	go func() {
-		lrc, trans, err := Lyrics(t.ID)
+		lrc, trans, yrc, err := Lyrics(t.ID)
+		var lines []LyricLine
+		if err == nil {
+			lines = buildLyrics(lrc, trans, yrc)
+		}
 		p.post(func() {
 			if gen == p.gen {
-				if err == nil {
-					p.lyrics = mergeLyrics(lrc, trans)
-				}
+				p.lyrics = lines
 				p.lyricsLoaded = true
 			}
 		})

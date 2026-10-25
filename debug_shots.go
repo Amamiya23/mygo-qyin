@@ -70,7 +70,7 @@ func init() {
 			step(0, func() { a.nowPlaying = true })
 			time.Sleep(4 * time.Second)
 			shot("6-now-playing", a.win)
-			step(0, func() { a.npPane = 1 })
+			step(0, func() { a.npPane = paneQueue })
 			time.Sleep(2 * time.Second)
 			shot("7-queue", a.win)
 			step(0, func() { a.search("周杰伦") })
