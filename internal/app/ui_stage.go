@@ -87,48 +87,60 @@ func (a *app) stage(c *ui.Context, tr *netease.Track, accent ui.Color) {
 	lines, loaded := pl.Lyrics()
 	w, h := c.Size()
 	f := min(64, max(36, w*0.045))
+	box := ui.Box(c.Key("stage")).Grow(1)
+	// In a quiet part a hot comment takes the middle, the lyrics nearly
+	// gone under it (ui_quiet.go).
+	dim, quiet := a.quietShown(c, box, tr, lines, loaded)
 	if len(lines) == 0 {
-		ui.Column(c).Grow(1).Center().Children(func() {
-			if !loaded {
-				stageSkeleton(c, npShimmer(c), f, w)
-				return
-			}
-			ui.Text(c, "纯音乐，请欣赏").FontSize(28).FontWeight(800).TextColor(white.Alpha(0.4))
+		box.Children(func() {
+			quietUnder(ui.Column(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Center(), dim).Children(func() {
+				if !loaded {
+					stageSkeleton(c, npShimmer(c), f, w)
+					return
+				}
+				ui.Text(c, "纯音乐，请欣赏").FontSize(28).FontWeight(800).TextColor(white.Alpha(0.4))
+			})
+			a.stageQuiet(c, dim, f, w)
 		})
 		return
 	}
 	pos := pl.Position()
 	cur := lyrics.Index(lines, pos)
-	if pl.Playing() {
+	// Under a hot comment there is nothing to move: the quiet asks for
+	// the frame where it ends.
+	if pl.Playing() && !(quiet && dim > 0.98) {
 		stageNextFrame(c, lines, cur, pos)
 	}
 
-	ui.Box(c.Key("stage")).Grow(1).Children(func() {
-		// The line before goes as the new one comes.
-		if cur > 0 {
-			gone := float32((pos - lines[cur].At).Seconds()) / 0.4
-			if gone < 1 {
-				a.stageLine(c, &lines[cur-1], pos, f, w, h, 1-easeOutCubic(gone), accent)
+	box.Children(func() {
+		defer a.stageQuiet(c, dim, f, w)
+		quietUnder(ui.Box(c.Key("sung")).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough(), dim).Children(func() {
+			// The line before goes as the new one comes.
+			if cur > 0 {
+				gone := float32((pos - lines[cur].At).Seconds()) / 0.4
+				if gone < 1 {
+					a.stageLine(c, &lines[cur-1], pos, f, w, h, 1-easeOutCubic(gone), accent)
+				}
 			}
-		}
-		switch {
-		case cur < 0:
-			a.interlude(c, pos, 0, lines[0].At)
-		case cur+1 < len(lines) && pos > lines[cur].End+time.Second && lines[cur+1].At-lines[cur].End > 4*time.Second:
-			// A long break before the next line.
-			a.interlude(c, pos, lines[cur].End, lines[cur+1].At)
-		default:
-			a.stageLine(c, &lines[cur], pos, f, w, h, 1, accent)
-		}
+			switch {
+			case cur < 0:
+				a.interlude(c, pos, 0, lines[0].At)
+			case cur+1 < len(lines) && pos > lines[cur].End+time.Second && lines[cur+1].At-lines[cur].End > 4*time.Second:
+				// A long break before the next line.
+				a.interlude(c, pos, lines[cur].End, lines[cur+1].At)
+			default:
+				a.stageLine(c, &lines[cur], pos, f, w, h, 1, accent)
+			}
 
-		// The translation, and the line coming next, along the foot.
-		ui.Column(c).Absolute().Left(0).Right(0).Bottom(24).AlignItems(ui.Center).Gap(8).PassThrough().Children(func() {
-			if cur >= 0 && lines[cur].Translation != "" {
-				ui.Text(c.Key("translation"), lines[cur].Translation).FontSize(18).FontWeight(600).TextColor(white.Alpha(0.72)).TextAlign(ui.Center)
-			}
-			if cur+1 < len(lines) {
-				ui.Text(c.Key("next"), lines[cur+1].Text).FontSize(14).TextColor(white.Alpha(0.32)).TextAlign(ui.Center).SingleLine()
-			}
+			// The translation, and the line coming next, along the foot.
+			ui.Column(c).Absolute().Left(0).Right(0).Bottom(24).AlignItems(ui.Center).Gap(8).PassThrough().Children(func() {
+				if cur >= 0 && lines[cur].Translation != "" {
+					ui.Text(c.Key("translation"), lines[cur].Translation).FontSize(18).FontWeight(600).TextColor(white.Alpha(0.72)).TextAlign(ui.Center)
+				}
+				if cur+1 < len(lines) {
+					ui.Text(c.Key("next"), lines[cur+1].Text).FontSize(14).TextColor(white.Alpha(0.32)).TextAlign(ui.Center).SingleLine()
+				}
+			})
 		})
 	})
 }

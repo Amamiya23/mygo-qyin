@@ -12,8 +12,8 @@ import (
 
 // Through the quiet parts of a song, its intro, an interlude or its outro,
 // the lyrics dim, and one of its hot comments (热评) rises in where they
-// were, with who wrote it and how many liked it, giving way as the singing
-// comes back. A long quiet shows a few, one after another; a song without
+// were, down the lyrics pane or in the middle of the stage, with who wrote
+// it and how many liked it, giving way as the singing comes back. A long quiet shows a few, one after another; a song without
 // lyrics shows them all along. A click on one opens the comments. The
 // listener may turn them off (settings.HotComments).
 
@@ -107,15 +107,44 @@ func (a *app) quietShown(c *ui.Context, el ui.Element, tr *netease.Track, lines 
 // quietFaded is how much of the lyrics shows under a hot comment.
 const quietFaded = 0.06
 
+// quietUnder fades e, the lyrics, under a hot comment as far in as dim,
+// and hides it once the comment is all in.
+func quietUnder(e ui.Element, dim float32) ui.Element {
+	if dim > 0.98 {
+		e.Invisible()
+	} else if dim > 0.01 {
+		e.Opacity(1 - (1-quietFaded)*dim)
+	}
+	return e
+}
+
 // quietCard shows the hot comment kept, top down the pane, as far in as
 // dim.
 func (a *app) quietCard(c *ui.Context, dim, top float32) {
+	a.hotCard(c, dim, 22, func(card ui.Element) { card.Absolute().Top(top).Left(0).Right(24) })
+}
+
+// stageQuiet shows the hot comment kept in the middle of the stage, w
+// wide, its lines sung at f, as far in as dim.
+func (a *app) stageQuiet(c *ui.Context, dim, f, w float32) {
+	if dim <= 0.01 || a.quiet.cm == nil {
+		return
+	}
+	ui.Column(c.Key("quiet-stage")).Absolute().Top(0).Left(0).Right(0).Bottom(0).Center().PassThrough().Children(func() {
+		a.hotCard(c, dim, min(34, max(24, f*0.55)), func(card ui.Element) { card.Width(min(760, w*0.6)) })
+	})
+}
+
+// hotCard shows the hot comment kept, its words at size, as far in as dim;
+// place puts it where it goes.
+func (a *app) hotCard(c *ui.Context, dim, size float32, place func(ui.Element)) {
 	cm := a.quiet.cm
 	if dim <= 0.01 || cm == nil {
 		return
 	}
-	card := ui.ButtonBase(c.Key("quiet")).Absolute().Top(top).Left(0).Right(24).Column().AlignItems(ui.Start).
+	card := ui.ButtonBase(c.Key("quiet")).Column().AlignItems(ui.Start).
 		Padding(16, 12).Gap(14).Radius(14).FocusRing(false).Label("查看评论")
+	place(card)
 	// Each comment rises in on its own as it takes the last one's place.
 	seen := ui.Local(card, "seen", func() int64 { return 0 })
 	if *seen != cm.ID {
@@ -132,7 +161,7 @@ func (a *app) quietCard(c *ui.Context, dim, top float32) {
 			ui.Icon(c, iconComment).Size(14, 14)
 			ui.Text(c, "热评").FontSize(12.5).FontWeight(700).LetterSpacing(0.6)
 		})
-		ui.Text(c, cm.Content).FontSize(22).FontWeight(600).LineHeight(1.5).TextColor(white.Alpha(0.92)).MaxLines(6)
+		ui.Text(c, cm.Content).FontSize(size).FontWeight(600).LineHeight(1.5).TextColor(white.Alpha(0.92)).MaxLines(6)
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			a.avatar(c, cm.User.AvatarURL, 22, white.Alpha(0.1))
 			ui.Text(c, cm.User.Nickname).FontSize(13).TextColor(white.Alpha(0.6)).SingleLine().Shrink(1).MinWidth(0)

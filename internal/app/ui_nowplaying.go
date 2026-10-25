@@ -296,11 +296,7 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 			col.Center()
 		}
 		dim, _ := a.quietShown(c, col, tr, lines, loaded)
-		if dim > 0.98 {
-			col.Invisible()
-		} else if dim > 0.01 {
-			col.Opacity(1 - (1-quietFaded)*dim)
-		}
+		quietUnder(col, dim)
 		col.Children(func() {
 			if !loaded {
 				lyricsSkeleton(c, npShimmer(c), h)

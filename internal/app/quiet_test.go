@@ -73,23 +73,25 @@ func TestQuietComment(t *testing.T) {
 	}
 }
 
-// In the quiet, the lyrics pane shows the hot comment, which opens the
-// comments.
+// In the quiet, the lyrics pane and the stage show the hot comment, which
+// opens the comments.
 func TestQuietCard(t *testing.T) {
-	a, _, _ := quietApp(5 * time.Second)
-	a.nowPlaying = true
-	tt := ui.NewTester(a.view, 1000, 640)
-	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
-	tt.Frame()
-	tt.Advance(time.Second)
-	tt.Frame()
-	if !tt.HasText("刮风这天，我试过握着你手") || !tt.HasText("热评") {
-		t.Fatalf("no hot comment in %q", tt.Texts())
-	}
-	if err := tt.Click("查看评论"); err != nil {
-		t.Fatal(err)
-	}
-	if a.npPane != paneComments {
-		t.Error("the comment did not open the comments")
+	for _, pane := range []int{paneLyrics, paneStage} {
+		a, _, _ := quietApp(5 * time.Second)
+		a.nowPlaying, a.npPane = true, pane
+		tt := ui.NewTester(a.view, 1000, 640)
+		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+		if !tt.HasText("刮风这天，我试过握着你手") || !tt.HasText("热评") {
+			t.Fatalf("pane %d: no hot comment in %q", pane, tt.Texts())
+		}
+		if err := tt.Click("查看评论"); err != nil {
+			t.Fatal(err)
+		}
+		if a.npPane != paneComments {
+			t.Errorf("pane %d: the comment did not open the comments", pane)
+		}
 	}
 }
