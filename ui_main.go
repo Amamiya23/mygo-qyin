@@ -23,7 +23,15 @@ func (a *app) view(c *ui.Context) {
 	if c.Vibrancy() {
 		c.Root().Background(ui.Transparent)
 	}
-	ui.Box(c).Fill().Children(func() {
+	root := ui.Box(c).Fill()
+	if !c.Focused(a.searchBox) {
+		// Space plays and pauses wherever the focus is, as in Music. On
+		// the container around everything, it comes before a button the
+		// pointer focused, which would take Space as a click; on the
+		// window, it would come after.
+		root.OnShortcut(0, ui.KeySpace, a.pl.togglePlay)
+	}
+	root.Children(func() {
 		ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 			side := ui.Column(c).Width(sidebarWidth)
 			if !c.Vibrancy() {
@@ -49,10 +57,6 @@ func (a *app) view(c *ui.Context) {
 }
 
 func (a *app) shortcuts(c *ui.Context) {
-	editing := c.Focused(a.searchBox)
-	if !editing {
-		c.OnShortcut(0, ui.KeySpace, a.pl.togglePlay)
-	}
 	c.OnShortcut(ui.Cmd, ui.KeyF, func() {
 		a.nowPlaying = false
 		a.searchBox.Focus(c)
