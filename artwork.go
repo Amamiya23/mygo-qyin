@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"image"
 	"image/color"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 
 	"github.com/egoist/mygo/ui"
+	"golang.org/x/image/webp"
 )
 
 // artwork is a cover, decoded and ready to draw, with what the player
@@ -85,8 +87,84 @@ func fetchImage(url string) (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
+	return decodeImage(b)
+}
+
+func decodeImage(b []byte) (image.Image, error) {
 	img, _, err := image.Decode(bytes.NewReader(b))
+	if err != nil {
+		// Some covers are animated WebP, whatever their name says, which
+		// the decoder cannot read: they show their first frame.
+		if still := firstWebPFrame(b); still != nil {
+			return webp.Decode(bytes.NewReader(still))
+		}
+	}
 	return img, err
+}
+
+// firstWebPFrame returns the first frame of an animated WebP as a still
+// WebP of its own, or nil if b is not one.
+func firstWebPFrame(b []byte) []byte {
+	if len(b) < 12 || string(b[:4]) != "RIFF" || string(b[8:12]) != "WEBP" {
+		return nil
+	}
+	chunk := func(b []byte) (name string, body, rest []byte, ok bool) {
+		if len(b) < 8 {
+			return "", nil, nil, false
+		}
+		n := int(binary.LittleEndian.Uint32(b[4:8]))
+		if n > len(b)-8 {
+			return "", nil, nil, false
+		}
+		end := min(len(b), 8+n+n&1)
+		return string(b[:4]), b[8 : 8+n], b[end:], true
+	}
+	riff := func(chunks ...[]byte) []byte {
+		body := []byte("WEBP")
+		for _, c := range chunks {
+			body = append(body, c...)
+		}
+		out := binary.LittleEndian.AppendUint32([]byte("RIFF"), uint32(len(body)))
+		return append(out, body...)
+	}
+	for rest := b[12:]; ; {
+		name, body, next, ok := chunk(rest)
+		if !ok {
+			return nil
+		}
+		rest = next
+		if name != "ANMF" || len(body) < 16 {
+			continue
+		}
+		// A frame: where it sits, its size, how long it shows, then its
+		// image as the chunks of a still WebP, its alpha first if any.
+		w, h := body[6:9], body[9:12]
+		frame := body[16:]
+		var alpha []byte
+		for len(frame) > 0 {
+			name, _, after, ok := chunk(frame)
+			if !ok {
+				return nil
+			}
+			whole := frame[:len(frame)-len(after)]
+			switch name {
+			case "ALPH":
+				alpha = whole
+			case "VP8L":
+				return riff(whole)
+			case "VP8 ":
+				if alpha == nil {
+					return riff(whole)
+				}
+				// Alpha needs the extended header, which carries the size.
+				vp8x := []byte{'V', 'P', '8', 'X', 10, 0, 0, 0, 0x10, 0, 0, 0}
+				vp8x = append(append(vp8x, w...), h...)
+				return riff(vp8x, alpha, whole)
+			}
+			frame = after
+		}
+		return nil
+	}
 }
 
 func fetchBytes(url string) ([]byte, error) {
