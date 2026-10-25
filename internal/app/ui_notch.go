@@ -29,6 +29,9 @@ type notch struct {
 	enteredAt  time.Time
 	lastInside time.Time
 	passing    bool // clicks pass through to what is under the window
+	watched    bool // the pointer's moves poll
+	active     bool // the app is active, when they go unseen over the menu bar
+	polling    bool // a poll is due
 
 	bars  barState
 	scrub scrubState
@@ -76,11 +79,13 @@ func newNotch(a *app) *notch {
 		n.place()
 		pinToTop(n.win.NativeHandle(), float64(n.winW), float64(n.winH))
 	})
-	go func() {
-		for range time.Tick(33 * time.Millisecond) {
-			mygo.RunOnMain(n.poll)
-		}
-	}()
+	// The pointer's moves wake the notch: it polls only while one may
+	// soon open or close it, and costs nothing at rest.
+	n.active = true
+	mygo.App.OnDidBecomeActive(func() { n.active = true; n.poll() })
+	mygo.App.OnDidResignActive(func() { n.active = false })
+	n.watched = watchPointer(n.poll)
+	n.poll()
 	return n
 }
 
@@ -116,6 +121,7 @@ func (n *notch) setEnabled(on bool) {
 	if on {
 		n.win.ShowInactive()
 		pinToTop(n.win.NativeHandle(), float64(n.winW), float64(n.winH))
+		n.poll()
 		return
 	}
 	n.open = false
@@ -184,6 +190,31 @@ func (n *notch) poll() {
 	if changed {
 		n.win.Invalidate()
 	}
+	n.pollAgain(inside)
+}
+
+// pollAgain polls again soon while the pointer is over the notch or it is
+// open, for the times it rests and leaves; and, more slowly, while the app
+// is active, when the pointer's moves outside its windows go unseen, or
+// when they are never seen. Otherwise the next move polls.
+func (n *notch) pollAgain(inside bool) {
+	var d time.Duration
+	switch {
+	case inside || n.open:
+		d = 33 * time.Millisecond
+	case n.active || !n.watched:
+		d = 100 * time.Millisecond
+	}
+	if d == 0 || n.polling {
+		return
+	}
+	n.polling = true
+	time.AfterFunc(d, func() {
+		mygo.RunOnMain(func() {
+			n.polling = false
+			n.poll()
+		})
+	})
 }
 
 // shape returns the outline of the housing grown to w×h: straight sides
