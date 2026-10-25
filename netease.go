@@ -1,0 +1,353 @@
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// The public NetEase Cloud Music API, as the web player calls it, without
+// an account: what anyone may listen to.
+
+const apiBase = "https://music.163.com"
+
+const userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+
+var httpClient = &http.Client{Timeout: 20 * time.Second}
+
+type Artist struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+type Album struct {
+	ID     int64  `json:"id"`
+	Name   string `json:"name"`
+	PicURL string `json:"picUrl"`
+}
+
+type Track struct {
+	ID       int64    `json:"id"`
+	Name     string   `json:"name"`
+	Artists  []Artist `json:"ar"`
+	Album    Album    `json:"al"`
+	Duration int64    `json:"dt"` // milliseconds
+	Fee      int      `json:"fee"`
+	Alias    []string `json:"alia"`
+	// Reason says why a daily recommendation was picked.
+	Reason string `json:"reason"`
+	// Privilege is what the listener may do with the track, if known.
+	Privilege *Privilege `json:"privilege"`
+}
+
+// Privilege is what NetEase lets the listener signed in, or nobody, do
+// with a track.
+type Privilege struct {
+	ID int64 `json:"id"`
+	St int   `json:"st"` // below 0: taken down
+	Pl int   `json:"pl"` // the best bit rate the listener may play; 0 for none
+}
+
+// withPrivileges gives tracks their privileges, matched by ID.
+func withPrivileges(tracks []Track, privileges []Privilege) {
+	byID := make(map[int64]*Privilege, len(privileges))
+	for i := range privileges {
+		byID[privileges[i].ID] = &privileges[i]
+	}
+	for i := range tracks {
+		if p := byID[tracks[i].ID]; p != nil {
+			tracks[i].Privilege = p
+		}
+	}
+}
+
+// ArtistNames joins the track's artists as the credits read.
+func (t *Track) ArtistNames() string {
+	names := make([]string, len(t.Artists))
+	for i, a := range t.Artists {
+		names[i] = a.Name
+	}
+	return strings.Join(names, ", ")
+}
+
+// Playable reports whether the listener can play the whole track: as their
+// privilege says, or else as its fee does for anyone, VIP songs (1) and
+// paid albums (4) giving only a preview.
+func (t *Track) Playable() bool {
+	if t.Privilege != nil {
+		return t.Privilege.St >= 0 && t.Privilege.Pl > 0
+	}
+	return t.Fee != 1 && t.Fee != 4
+}
+
+func (t *Track) Length() time.Duration { return time.Duration(t.Duration) * time.Millisecond }
+
+type Playlist struct {
+	ID          int64   `json:"id"`
+	Name        string  `json:"name"`
+	CoverURL    string  `json:"coverImgUrl"`
+	PicURL      string  `json:"picUrl"`
+	Description string  `json:"description"`
+	PlayCount   float64 `json:"playCount"`
+	TrackCount  int     `json:"trackCount"`
+	UpdateFreq  string  `json:"updateFrequency"`
+	Creator     struct {
+		Nickname string `json:"nickname"`
+	} `json:"creator"`
+	Tracks   []Track `json:"tracks"`
+	TrackIDs []struct {
+		ID int64 `json:"id"`
+	} `json:"trackIds"`
+	// Preview holds a chart's top songs, as its card shows them.
+	Preview []ChartLine `json:"-"`
+}
+
+// ChartLine is a song at the top of a chart: its name and its artist.
+type ChartLine struct {
+	First  string `json:"first"`
+	Second string `json:"second"`
+}
+
+func (p *Playlist) Cover() string {
+	if p.CoverURL != "" {
+		return p.CoverURL
+	}
+	return p.PicURL
+}
+
+type apiError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Msg     string `json:"msg"`
+}
+
+func get(path string, query url.Values, out any) error {
+	u := apiBase + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return err
+	}
+	return do(req, out)
+}
+
+func post(path string, form url.Values, out any) error {
+	req, err := http.NewRequest("POST", apiBase+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return do(req, out)
+}
+
+func do(req *http.Request, out any) error {
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Referer", apiBase+"/")
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	var status apiError
+	if err := json.Unmarshal(body, &status); err != nil {
+		return fmt.Errorf("netease: %s: %w", req.URL.Path, err)
+	}
+	if status.Code != 200 {
+		msg := status.Message
+		if msg == "" {
+			msg = status.Msg
+		}
+		return fmt.Errorf("netease: %s: code %d %s", req.URL.Path, status.Code, msg)
+	}
+	return json.Unmarshal(body, out)
+}
+
+// FeaturedPlaylists returns the playlists the home page recommends.
+func FeaturedPlaylists(limit int) ([]Playlist, error) {
+	var res struct {
+		Result []Playlist `json:"result"`
+	}
+	err := get("/api/personalized/playlist", url.Values{"limit": {strconv.Itoa(limit)}}, &res)
+	return res.Result, err
+}
+
+// DailySongs returns the day's recommended songs: chosen for the listener
+// once signed in, and what many listen to before.
+func DailySongs() ([]Track, error) {
+	var res struct {
+		Data struct {
+			DailySongs []Track `json:"dailySongs"`
+		} `json:"data"`
+	}
+	if err := get("/api/v3/discovery/recommend/songs", nil, &res); err != nil {
+		return nil, err
+	}
+	// They come without privileges: the songs' details have them.
+	songs := res.Data.DailySongs
+	ids := make([]int64, len(songs))
+	for i := range songs {
+		ids[i] = songs[i].ID
+	}
+	if details, err := SongDetails(ids); err == nil {
+		var privileges []Privilege
+		for _, d := range details {
+			if d.Privilege != nil {
+				privileges = append(privileges, *d.Privilege)
+			}
+		}
+		withPrivileges(songs, privileges)
+	}
+	return songs, nil
+}
+
+// Charts returns the charts, each with its top three songs.
+func Charts() ([]Playlist, error) {
+	var res struct {
+		List []struct {
+			Playlist
+			Tracks []ChartLine `json:"tracks"`
+		} `json:"list"`
+	}
+	if err := get("/api/toplist/detail", nil, &res); err != nil {
+		return nil, err
+	}
+	out := make([]Playlist, len(res.List))
+	for i, l := range res.List {
+		out[i] = l.Playlist
+		out[i].Tracks = nil
+		out[i].Preview = l.Tracks
+	}
+	return out, nil
+}
+
+// PlaylistDetail returns a playlist with up to 1000 of its tracks.
+func PlaylistDetail(id int64) (*Playlist, error) {
+	var res struct {
+		Playlist   Playlist    `json:"playlist"`
+		Privileges []Privilege `json:"privileges"`
+	}
+	q := url.Values{"id": {strconv.FormatInt(id, 10)}, "n": {"1000"}}
+	if err := get("/api/v6/playlist/detail", q, &res); err != nil {
+		return nil, err
+	}
+	p := &res.Playlist
+	withPrivileges(p.Tracks, res.Privileges)
+	// Long playlists list only their first tracks in full: the rest by id.
+	if len(p.Tracks) < len(p.TrackIDs) {
+		var ids []int64
+		for _, t := range p.TrackIDs[len(p.Tracks):min(len(p.TrackIDs), 1000)] {
+			ids = append(ids, t.ID)
+		}
+		more, err := SongDetails(ids)
+		if err == nil {
+			p.Tracks = append(p.Tracks, more...)
+		}
+	}
+	return p, nil
+}
+
+// SongDetails returns the tracks of ids, in their order.
+func SongDetails(ids []int64) ([]Track, error) {
+	var out []Track
+	for len(ids) > 0 {
+		batch := ids[:min(len(ids), 400)]
+		ids = ids[len(batch):]
+		c := make([]map[string]int64, len(batch))
+		for i, id := range batch {
+			c[i] = map[string]int64{"id": id}
+		}
+		b, _ := json.Marshal(c)
+		var res struct {
+			Songs      []Track     `json:"songs"`
+			Privileges []Privilege `json:"privileges"`
+		}
+		if err := post("/api/v3/song/detail", url.Values{"c": {string(b)}}, &res); err != nil {
+			return out, err
+		}
+		withPrivileges(res.Songs, res.Privileges)
+		out = append(out, res.Songs...)
+	}
+	return out, nil
+}
+
+// Search returns the songs matching a query.
+func Search(query string, limit int) ([]Track, error) {
+	var res struct {
+		Result struct {
+			Songs []Track `json:"songs"`
+		} `json:"result"`
+	}
+	q := url.Values{"s": {query}, "type": {"1"}, "limit": {strconv.Itoa(limit)}, "offset": {"0"}}
+	err := get("/api/cloudsearch/pc", q, &res)
+	return res.Result.Songs, err
+}
+
+var errUnavailable = errors.New("this song isn't available to stream")
+
+// SongURL returns where to stream a track's MP3 and its size in bytes, at
+// level (standard, higher or exhigh) or the best below it the listener may
+// play. It goes through
+// the eapi, which carries the session, so VIP songs play for subscribers.
+func SongURL(id int64, level string) (string, int64, error) {
+	var res struct {
+		Code int `json:"code"`
+		Data []struct {
+			URL           string          `json:"url"`
+			Size          int64           `json:"size"`
+			Type          string          `json:"type"`
+			FreeTrialInfo json.RawMessage `json:"freeTrialInfo"`
+		} `json:"data"`
+	}
+	data := map[string]any{"ids": fmt.Sprintf("[%d]", id), "level": level, "encodeType": "mp3"}
+	if err := eapiPost("/api/song/enhance/player/url/v1", data, &res); err != nil {
+		return "", 0, err
+	}
+	if len(res.Data) == 0 || res.Data[0].URL == "" {
+		return "", 0, errUnavailable
+	}
+	d := res.Data[0]
+	// A preview of a VIP song is no song.
+	if len(d.FreeTrialInfo) > 0 && string(d.FreeTrialInfo) != "null" {
+		return "", 0, errUnavailable
+	}
+	if d.Type != "" && !strings.EqualFold(d.Type, "mp3") {
+		return "", 0, fmt.Errorf("unsupported format %s", d.Type)
+	}
+	return strings.Replace(d.URL, "http://", "https://", 1), d.Size, nil
+}
+
+// Lyrics returns a track's timed lyrics, and their translation if any.
+func Lyrics(id int64) (lrc, translation string, err error) {
+	var res struct {
+		Lrc struct {
+			Lyric string `json:"lyric"`
+		} `json:"lrc"`
+		Tlyric struct {
+			Lyric string `json:"lyric"`
+		} `json:"tlyric"`
+	}
+	q := url.Values{"id": {strconv.FormatInt(id, 10)}, "lv": {"1"}, "tv": {"-1"}}
+	err = get("/api/song/lyric", q, &res)
+	return res.Lrc.Lyric, res.Tlyric.Lyric, err
+}
+
+// sized asks the image CDN for a picture of n×n pixels.
+func sized(pic string, n int) string {
+	if pic == "" {
+		return ""
+	}
+	pic = strings.Replace(pic, "http://", "https://", 1)
+	return fmt.Sprintf("%s?param=%dy%d", pic, n, n)
+}

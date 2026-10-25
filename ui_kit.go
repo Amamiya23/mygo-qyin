@@ -1,0 +1,192 @@
+package main
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+)
+
+// palette holds the app's colors, for the light and the dark appearance.
+type palette struct {
+	dark      bool
+	bg        ui.Color // the content's background
+	sidebar   ui.Color // under the sidebar where no material shows
+	text      ui.Color
+	muted     ui.Color
+	faint     ui.Color
+	hairline  ui.Color
+	hover     ui.Color
+	press     ui.Color
+	accent    ui.Color
+	onAccent  ui.Color
+	cardShade ui.Color
+}
+
+func paletteFor(t *ui.Theme) palette {
+	if t.Dark {
+		return palette{
+			dark:      true,
+			bg:        ui.Hex("#141416"),
+			sidebar:   ui.Hex("#1c1c1f"),
+			text:      ui.Hex("#f5f5f7"),
+			muted:     ui.RGBA(235, 235, 245, 0.56),
+			faint:     ui.RGBA(235, 235, 245, 0.3),
+			hairline:  ui.RGBA(255, 255, 255, 0.07),
+			hover:     ui.RGBA(255, 255, 255, 0.06),
+			press:     ui.RGBA(255, 255, 255, 0.1),
+			accent:    ui.Oklch(0.66, 0.2, 22),
+			onAccent:  ui.Hex("#ffffff"),
+			cardShade: ui.RGBA(0, 0, 0, 0.45),
+		}
+	}
+	return palette{
+		bg:        ui.Hex("#ffffff"),
+		sidebar:   ui.Hex("#f4f4f6"),
+		text:      ui.Hex("#1d1d1f"),
+		muted:     ui.RGBA(60, 60, 67, 0.62),
+		faint:     ui.RGBA(60, 60, 67, 0.32),
+		hairline:  ui.RGBA(0, 0, 0, 0.07),
+		hover:     ui.RGBA(0, 0, 0, 0.04),
+		press:     ui.RGBA(0, 0, 0, 0.08),
+		accent:    ui.Oklch(0.6, 0.21, 24),
+		onAccent:  ui.Hex("#ffffff"),
+		cardShade: ui.RGBA(0, 0, 0, 0.16),
+	}
+}
+
+// iconButton is a borderless button showing an icon, which a soft circle
+// marks under the pointer and which gives a little as it is pressed.
+func iconButton(c *ui.Context, icon *ui.SVG, size float32, color ui.Color, label string) ui.Element {
+	b := ui.ButtonBase(c).Size(size+16, size+16).Center().Radius(999).Label(label).TextColor(color)
+	bg := ui.Transparent
+	if b.Hovered() {
+		bg = ui.RGBA(128, 128, 128, 0.14)
+	}
+	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
+	pose := ui.Pose{}
+	if b.Pressed() {
+		pose.Scale = 0.88
+	}
+	b.AnimatePose(pose, ui.Snappy)
+	b.Children(func() { ui.Icon(c, icon).Size(size, size) })
+	return b
+}
+
+// pillButton is a rounded button with an icon and a label.
+func pillButton(c *ui.Context, icon *ui.SVG, label string, bg, fg ui.Color) ui.Element {
+	b := ui.ButtonBase(c).Height(36).PaddingX(18).Gap(8).Radius(999).AlignItems(ui.Center).TextColor(fg)
+	fill := bg
+	if b.Hovered() {
+		fill = bg.Mix(ui.RGB(255, 255, 255), 0.12)
+	}
+	b.Background(b.AnimateColor("bg", fill, ui.Animation{Duration: 120 * time.Millisecond}))
+	pose := ui.Pose{}
+	if b.Pressed() {
+		pose.Scale = 0.96
+	}
+	b.AnimatePose(pose, ui.Snappy)
+	b.Children(func() {
+		ui.Icon(c, icon).Size(14, 14)
+		ui.Text(c, label).FontSize(14).FontWeight(600).SingleLine()
+	})
+	return b
+}
+
+// cover shows an artwork, or a placeholder of the same size while it loads.
+func (a *app) cover(c *ui.Context, url string, px int, size, radius float32) ui.Element {
+	p := a.pal
+	art := a.art.get(sized(url, px), false)
+	if art == nil || art.bmp == nil {
+		return ui.Box(c).Size(size, size).Radius(radius).Background(p.hover).Center().Children(func() {
+			ui.Icon(c, iconNote).Size(size*0.3, size*0.3).TextColor(p.faint)
+		})
+	}
+	return ui.Image(c, art.bmp).Size(size, size).Fit(ui.Cover).Radius(radius)
+}
+
+// clock formats a duration as minutes and seconds.
+func clock(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	s := int(d.Round(time.Second) / time.Second)
+	return fmt.Sprintf("%d:%02d", s/60, s%60)
+}
+
+// plays formats a play count as people in China read it.
+func plays(n float64) string {
+	switch {
+	case n >= 1e8:
+		return fmt.Sprintf("%.1f亿", n/1e8)
+	case n >= 1e4:
+		return fmt.Sprintf("%.0f万", n/1e4)
+	default:
+		return fmt.Sprintf("%.0f", n)
+	}
+}
+
+// greeting returns what to say at this hour.
+func greeting(now time.Time) string {
+	switch h := now.Hour(); {
+	case h < 5:
+		return "夜深了"
+	case h < 11:
+		return "早上好"
+	case h < 13:
+		return "中午好"
+	case h < 18:
+		return "下午好"
+	default:
+		return "晚上好"
+	}
+}
+
+// bars draws n bars of an equalizer in r, from the levels of what plays,
+// smoothed in st between frames; idle bars rest low.
+type barState struct {
+	h    [nBands]float32
+	last time.Time
+}
+
+func (st *barState) step(now time.Time, target [nBands]float32, live bool) {
+	dt := float32(now.Sub(st.last).Seconds())
+	if st.last.IsZero() || dt > 0.2 {
+		dt = 0.016
+	}
+	st.last = now
+	for i := range st.h {
+		tg := target[i]
+		if !live {
+			tg = 0
+		}
+		k := float32(18) // rises fast
+		if tg < st.h[i] {
+			k = 6 // falls slowly
+		}
+		st.h[i] += (tg - st.h[i]) * min(1, k*dt)
+	}
+}
+
+// group returns the mean of bands [from, to).
+func (st *barState) group(from, to int) float32 {
+	var s float32
+	for i := from; i < to; i++ {
+		s += st.h[i]
+	}
+	return s / float32(to-from)
+}
+
+func drawBars(p *ui.Painter, r ui.Rect, st *barState, n int, color ui.Color, minH float32) {
+	gap := r.W / float32(n) * 0.38
+	w := (r.W - gap*float32(n-1)) / float32(n)
+	per := nBands / n
+	for i := range n {
+		// Shape the response: low bands are loud already.
+		v := st.group(i*per, (i+1)*per)
+		v = v * v * 1.15
+		h := max(minH, min(r.H, r.H*v))
+		x := r.X + float32(i)*(w+gap)
+		p.Fill(ui.Rect{X: x, Y: r.Y + (r.H-h)/2, W: w, H: h}, color, w/2)
+	}
+}
