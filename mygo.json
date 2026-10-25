@@ -2,5 +2,8 @@
   "name": "网易云音乐",
   "identifier": "com.example.neteasemusicmygo",
   "version": "0.1.0",
-  "out": "build"
+  "out": "build",
+  "macos": {
+    "icon": "icon/AppIcon.icon"
+  }
 }
