@@ -101,15 +101,9 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 	}
 	{
 		// The top strip drags the window; the chevron closes the view,
-		// showing only while the pointer is in the window.
+		// showing only while the pointer is in the window, as the pane tabs do.
 		ui.Row(c).Height(topBar(c)).Justify(ui.Center).AlignItems(ui.Center).DragWindow().Children(func() {
-			reveal := ui.Box(c.Key("close-reveal"))
-			pose := ui.Pose{Fade: 1}
-			if pointerIn {
-				pose = ui.Pose{}
-			}
-			reveal.AnimatePose(pose, ui.Animation{Duration: 200 * time.Millisecond})
-			reveal.Children(func() {
+			reveal(ui.Box(c.Key("close-reveal")), pointerIn).Children(func() {
 				if iconButton(c.Key("close"), iconDown, 22, white.Alpha(0.7), "关闭").Clicked() {
 					a.nowPlaying = false
 				}
@@ -118,7 +112,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 		if a.npPane == paneStage {
 			// The stage takes the whole view: the lyrics are the show, the
 			// controls a slim bar at the foot.
-			ui.Row(c).Absolute().Top(topBar(c)).Right(48).Gap(6).Children(func() { a.paneTabs(c) })
+			reveal(ui.Row(c.Key("tabs")).Absolute().Top(topBar(c)).Right(48).Gap(6), pointerIn).Children(func() { a.paneTabs(c) })
 			a.stage(c, tr, accent)
 			a.stageBar(c, tr, art, accent)
 			return
@@ -162,7 +156,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 			})
 
 			ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
-				ui.Row(c).Gap(6).Margin(0, 0, 8, 0).Children(func() { a.paneTabs(c) })
+				reveal(ui.Row(c.Key("tabs")).Gap(6).Margin(0, 0, 8, 0), pointerIn).Children(func() { a.paneTabs(c) })
 				switch a.npPane {
 				case paneLyrics:
 					a.lyricsPane(c, tr, h)
@@ -174,6 +168,16 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 			})
 		})
 	}
+}
+
+// reveal fades e in while the pointer is in the window, and out when it
+// leaves.
+func reveal(e ui.Element, shown bool) ui.Element {
+	pose := ui.Pose{Fade: 1}
+	if shown {
+		pose = ui.Pose{}
+	}
+	return e.AnimatePose(pose, ui.Animation{Duration: 200 * time.Millisecond})
 }
 
 // lyricsPaneChosen is the pane of lyrics the listener chose last.
