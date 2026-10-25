@@ -90,9 +90,6 @@ function Download() {
             <span>把音乐，</span>
             <span>装进桌面。</span>
           </h1>
-          <p class="lede">
-            免费，以 AGPL-3.0 开源。装好之后，{site.name}会自己检查更新，新版本在下次打开时生效。
-          </p>
           <p class="fine download-version">
             版本 {release.tag_name.replace(/^v/, '')} · 发布于 {day(release.published_at)}
           </p>
