@@ -96,6 +96,7 @@ type app struct {
 	barScrub              scrubState
 	npScrub               scrubState
 	backdropCache         backdropCache // the backdrop of Now Playing, as last painted
+	npCoverState          coverState    // the cover of Now Playing, as it is tilted and flicked
 	sig                   playerSig
 	quitting              bool
 

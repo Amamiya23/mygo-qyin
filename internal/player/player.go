@@ -373,6 +373,15 @@ func (p *Player) Prev() {
 		p.Seek(0)
 		return
 	}
+	p.PrevTrack()
+}
+
+// PrevTrack plays the track before this one, however far this one has
+// played, as flicking the cover back does.
+func (p *Player) PrevTrack() {
+	if len(p.order) == 0 {
+		return
+	}
 	at := p.at - 1
 	if at < 0 {
 		at = len(p.order) - 1

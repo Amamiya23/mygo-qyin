@@ -107,19 +107,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 		coverSize := min(side, h-360)
 		ui.Row(c).Grow(1).Padding(0, 72, 44, 72).Gap(72).AlignItems(ui.Stretch).Children(func() {
 			ui.Column(c).Width(side).Justify(ui.Center).Gap(0).Children(func() {
-				// The cover breathes: smaller while paused.
-				scale := float32(1)
-				if !pl.Playing() {
-					scale = 0.88
-				}
-				box := ui.Box(c.Key(tr.ID)).Size(coverSize, coverSize).AlignSelf(ui.Center).Radius(16).
-					Shadow(0, 30, 60, -12, ui.RGBA(0, 0, 0, 0.55))
-				box.AnimatePose(ui.Pose{Scale: scale}, ui.Animation{Spring: ui.SpringOptions{Duration: 600 * time.Millisecond, Bounce: 0.25}})
-				in := artIn(box, bitmap(art))
-				if in < 1 {
-					box.Background(white.Alpha(0.08))
-				}
-				box.Children(func() { artImage(c, bitmap(art), 16, in) })
+				a.npCover(c, tr, art, coverSize)
 
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(36, 0, 18, 0).Children(func() {
 					ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
