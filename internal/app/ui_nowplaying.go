@@ -264,13 +264,21 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 	pl := a.pl
 	lines, loaded := pl.Lyrics()
 	if len(lines) == 0 {
-		ui.Column(c).Grow(1).Center().Children(func() {
+		col := ui.Column(c).Grow(1).Center()
+		dim, _ := a.quietShown(c, col, tr, lines, loaded)
+		if dim > 0.98 {
+			col.Invisible()
+		} else if dim > 0.01 {
+			col.Opacity(1 - (1-quietFaded)*dim)
+		}
+		col.Children(func() {
 			if !loaded {
 				ui.Spinner(c)
 				return
 			}
 			ui.Text(c, "纯音乐，请欣赏").FontSize(24).FontWeight(700).TextColor(white.Alpha(0.4))
 		})
+		a.quietCard(c, dim, h*0.18)
 		return
 	}
 	pos := pl.Position()
@@ -286,6 +294,12 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 	lag := a.lyricGlide.step(c, &a.lyricScroll)
 
 	scroll := ui.Scroll(c.Key("lyrics")).Grow(1).TrackScroll(&a.lyricScroll).Padding(h*0.22, 8, h*0.5, 0)
+	dim, quiet := a.quietShown(c, scroll, tr, lines, loaded)
+	if dim > 0.98 {
+		// Under the hot comment, gone, not drawn faint.
+		scroll.Invisible()
+	}
+	defer a.quietCard(c, dim, h*0.18)
 	var active ui.Element
 	// The lines, held back by how far the glide to the line sung has still
 	// to go (lyricGlide).
@@ -299,6 +313,10 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 					alpha = 1
 				} else if line.Hovered() {
 					alpha = 0.55
+				}
+				if quiet {
+					// Nearly gone under a hot comment.
+					alpha *= quietFaded
 				}
 				if line.Hovered() {
 					line.Background(white.Alpha(0.06))

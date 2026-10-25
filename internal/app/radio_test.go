@@ -101,7 +101,7 @@ func TestSettingsPlayback(t *testing.T) {
 	a.cacheUsed = 300 << 20
 	tt := ui.NewTester(a.settingsView, 560, 1200)
 	tt.Frame()
-	for _, s := range []string{"音量均衡", "歌曲缓存", "清除缓存", "2 GB"} {
+	for _, s := range []string{"间奏时显示热评", "音量均衡", "歌曲缓存", "清除缓存", "2 GB"} {
 		if !tt.HasText(s) {
 			t.Errorf("missing %q in %q", s, tt.Texts())
 		}

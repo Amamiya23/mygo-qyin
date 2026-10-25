@@ -58,3 +58,45 @@ func TestSpreadWords(t *testing.T) {
 		t.Errorf("times %+v", w)
 	}
 }
+
+func TestQuiets(t *testing.T) {
+	s := time.Second
+	lines := []Line{
+		{At: 0, End: 2 * s, Text: "作词 : 林夕"},
+		{At: 2 * s, End: 4 * s, Text: "作曲：陈小霞"},
+		{At: 20 * s, End: 25 * s, Text: "一"},
+		{At: 26 * s, End: 30 * s, Text: "二"},
+		{At: 45 * s, End: 50 * s, Text: "三"},
+	}
+	got := Quiets(lines, 60*s, 8*s)
+	want := []Quiet{{0, 20 * s}, {30 * s, 45 * s}, {50 * s, 60 * s}}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("quiet %d: %v, want %v", i, got[i], want[i])
+		}
+	}
+	if q := Quiets(nil, 60*s, 8*s); len(q) != 0 {
+		t.Errorf("a song without lyrics: %v", q)
+	}
+}
+
+func TestIsCredit(t *testing.T) {
+	for text, want := range map[string]bool{
+		"作词 : 林夕":            true,
+		"作曲：陈小霞":             true,
+		"编曲: 藤田淳平(Elements)": true,
+		"Producer: 周杰伦":      true,
+		"我说：你好":              false,
+		"时间：是一把刀":            false,
+		"悴んだ心 ふるえる眼差し":       false,
+		"词：方文山":              true,
+		"曲终人散：空余叹":           false,
+	} {
+		if IsCredit(text) != want {
+			t.Errorf("%q: %v", text, !want)
+		}
+	}
+}

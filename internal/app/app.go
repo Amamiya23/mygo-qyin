@@ -97,6 +97,7 @@ type app struct {
 	npScrub               scrubState
 	backdropCache         backdropCache // the backdrop of Now Playing, as last painted
 	npCoverState          coverState    // the cover of Now Playing, as it is tilted and flicked
+	quiet                 quietState    // the quiet parts of the song playing, for its hot comments
 	sig                   playerSig
 	quitting              bool
 

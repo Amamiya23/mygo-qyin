@@ -214,3 +214,53 @@ func Index(lines []Line, pos time.Duration) int {
 	i := sort.Search(len(lines), func(i int) bool { return lines[i].At > pos })
 	return i - 1
 }
+
+// A Quiet is a stretch of a song with nothing sung: its intro, an
+// interlude, or its outro.
+type Quiet struct {
+	From, To time.Duration
+}
+
+// Quiets returns the stretches of a song length long, of at least least,
+// in which none of lines is sung. Credits, as 作词 and 作曲, are not sung.
+func Quiets(lines []Line, length, least time.Duration) []Quiet {
+	var out []Quiet
+	add := func(from, to time.Duration) {
+		if to-from >= least {
+			out = append(out, Quiet{from, to})
+		}
+	}
+	at := time.Duration(0)
+	sung := false
+	for _, l := range lines {
+		if IsCredit(l.Text) {
+			continue
+		}
+		add(at, l.At)
+		at, sung = max(at, l.End), true
+	}
+	if sung && length > 0 {
+		add(at, length)
+	}
+	return out
+}
+
+// creditNames are what credit lines begin with.
+var creditNames = []string{"作词", "作曲", "编曲", "制作", "监制", "混音", "录音", "母带", "和声", "吉他", "贝斯", "鼓", "键盘", "弦乐", "出品", "发行", "OP", "SP", "词", "曲", "Lyrics", "Music", "Composer", "Arranger", "Producer"}
+
+// IsCredit reports whether a line names who made the song, as "作词 :
+// 林夕", rather than being sung.
+func IsCredit(text string) bool {
+	i := strings.IndexAny(text, ":：")
+	if i <= 0 || utf8.RuneCountInString(text[:i]) > 12 {
+		return false
+	}
+	head := strings.TrimSpace(text[:i])
+	for _, n := range creditNames {
+		// A name of one character, as 词, is the whole of the head.
+		if head == n || utf8.RuneCountInString(n) > 1 && strings.HasPrefix(head, n) {
+			return true
+		}
+	}
+	return false
+}
