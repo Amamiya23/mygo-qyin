@@ -4,7 +4,8 @@ import { createSignal } from 'solid-js'
 export const track = {
   title: '春日影',
   artist: 'MyGO!!!!!',
-  duration: 258,
+  src: '/haruhikage.m4a',
+  duration: 281,
 }
 
 const [playing, setPlaying] = createSignal(false)
@@ -12,28 +13,43 @@ const [position, setPosition] = createSignal(62)
 const [liked, setLiked] = createSignal(false)
 export { playing, position, liked, setLiked }
 
+// Made on the first play, so the page doesn't download the song until then.
+let audio: HTMLAudioElement | undefined
 let frame = 0
-let last = 0
 
-function tick(now: number) {
-  const dt = Math.min((now - last) / 1000, 0.1)
-  last = now
-  let p = position() + dt
-  if (p >= track.duration) p = 0
-  setPosition(p)
+function element() {
+  if (audio) return audio
+  audio = new Audio(track.src)
+  audio.loop = true
+  audio.currentTime = position()
+  // The browser can pause it on its own, from the media keys or another tab.
+  audio.addEventListener('pause', () => {
+    setPlaying(false)
+    cancelAnimationFrame(frame)
+  })
+  return audio
+}
+
+// timeupdate only fires a few times a second, too coarse for the progress bar.
+function tick() {
+  if (audio) setPosition(audio.currentTime)
   frame = requestAnimationFrame(tick)
 }
 
 export function play() {
   if (playing()) return
   setPlaying(true)
-  last = performance.now()
-  frame = requestAnimationFrame(tick)
+  element()
+    .play()
+    .then(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(tick)
+    })
+    .catch(() => setPlaying(false))
 }
 
 export function pause() {
-  setPlaying(false)
-  cancelAnimationFrame(frame)
+  audio?.pause()
 }
 
 export function toggle() {
@@ -41,7 +57,9 @@ export function toggle() {
 }
 
 export function seek(fraction: number) {
-  setPosition(Math.max(0, Math.min(1, fraction)) * track.duration)
+  const p = Math.max(0, Math.min(1, fraction)) * track.duration
+  setPosition(p)
+  if (audio) audio.currentTime = p
 }
 
 export function clock(seconds: number) {
