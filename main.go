@@ -38,6 +38,8 @@ type app struct {
 	mine, saved  []Playlist // the listener's playlists: made, and saved
 	recPlaylists []Playlist // the day's playlists picked for the listener
 	login        loginState
+	liked        map[int64]bool // the songs the listener likes
+	toast        string         // a message to show once
 
 	daily       []Track
 	featured    []Playlist
@@ -81,8 +83,12 @@ type app struct {
 	settingsWin *mygo.Window
 }
 
-// post runs fn on the main thread and redraws both windows.
+// post runs fn on the main thread and redraws both windows. Without a
+// window, as in tests, it drops fn.
 func (a *app) post(fn func()) {
+	if a.win == nil {
+		return
+	}
 	a.win.Update(func() {
 		fn()
 		a.redraw()

@@ -9,10 +9,32 @@ import (
 
 var white = ui.RGB(255, 255, 255)
 
-var npMotion = ui.ElementTransition{
-	Animation: &ui.Animation{Spring: ui.SpringOptions{Duration: 450 * time.Millisecond, Bounce: 0.08}},
-	Enter:     &ui.Motion{Y: 60, Opacity: 0},
-	Exit:      &ui.Motion{Y: 60, Opacity: 0},
+var npSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 450 * time.Millisecond, Bounce: 0.08}}
+
+// nowPlayingLayer holds Now Playing over the whole window, rising into
+// view as it opens and sinking away as it closes. The layer animates
+// itself, staying on top all the way, rather than leaving as an exit
+// transition would, under the rest of the window: that would show it going
+// over the sidebar's material while the page above it hid it at once.
+func (a *app) nowPlayingLayer(c *ui.Context) {
+	open := a.nowPlaying && a.pl.current() != nil
+	target := float32(0)
+	if open {
+		target = 1
+	}
+	layer := ui.Box(c.Key("now-playing-layer")).Absolute().Top(0).Left(0).Right(0).Bottom(0)
+	shown := layer.AnimateTo("shown", target, npSpring)
+	if !open && shown < 0.01 || a.pl.current() == nil {
+		// Closed: nothing to paint or click.
+		layer.Invisible()
+		return
+	}
+	layer.Opacity(min(1, max(0, shown))).Translate(0, (1-shown)*60)
+	if !open {
+		// On its way out, the window under it takes the clicks.
+		layer.PassThrough()
+	}
+	layer.Children(func() { a.nowPlayingView(c) })
 }
 
 // nowPlayingView fills the window with what plays: its cover over a slow
@@ -29,7 +51,7 @@ func (a *app) nowPlayingView(c *ui.Context) {
 	accent := tint.Mix(white, 0.45)
 
 	root := ui.Box(c.Key("now-playing")).Absolute().Top(0).Left(0).Right(0).Bottom(0).
-		Background(ui.Hex("#0b0b0d")).Clip().Transition(npMotion).TextColor(white)
+		Background(ui.Hex("#0b0b0d")).Clip().TextColor(white)
 	root.Children(func() {
 		a.backdrop(c, art, tint)
 		// Over the backdrop, which is positioned too: positioned elements
@@ -69,9 +91,12 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *Track, art *artwork, accent ui.C
 					}
 				})
 
-				ui.Column(c).Gap(4).Margin(36, 0, 18, 0).Children(func() {
-					ui.Text(c, tr.Name).FontSize(22).FontWeight(700).LetterSpacing(-0.3).SingleLine()
-					ui.Text(c, tr.ArtistNames()+" — "+tr.Album.Name).FontSize(15).TextColor(white.Alpha(0.6)).SingleLine()
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(36, 0, 18, 0).Children(func() {
+					ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
+						ui.Text(c, tr.Name).FontSize(22).FontWeight(700).LetterSpacing(-0.3).SingleLine()
+						ui.Text(c, tr.ArtistNames()+" — "+tr.Album.Name).FontSize(15).TextColor(white.Alpha(0.6)).SingleLine()
+					})
+					a.likeButton(c.Key("like"), tr, 22, white.Alpha(0.7)).Margin(0, -8, 0, 0)
 				})
 				a.scrubber(c.Key("np-scrub"), &a.npScrub, white.Alpha(0.18), white.Alpha(0.9), 16)
 				ui.Row(c).Children(func() {

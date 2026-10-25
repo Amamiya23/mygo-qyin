@@ -97,6 +97,7 @@ type Playlist struct {
 	PlayCount   float64 `json:"playCount"`
 	TrackCount  int     `json:"trackCount"`
 	UpdateFreq  string  `json:"updateFrequency"`
+	SpecialType int     `json:"specialType"` // 5: the listener's liked songs
 	Creator     struct {
 		Nickname string `json:"nickname"`
 	} `json:"creator"`

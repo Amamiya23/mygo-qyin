@@ -354,6 +354,12 @@ func (a *app) trackRows(c *ui.Context, tracks []Track, covers bool, header func(
 			if wide {
 				ui.Text(c, tr.Album.Name).Grow(2).Basis(0).MinWidth(0).FontSize(12.5).TextColor(p.muted).SingleLine()
 			}
+			// A liked song's heart shows; the others' as the pointer is on them.
+			ui.Box(c).Size(32, 32).Center().Children(func() {
+				if a.liked[tr.ID] || hovered {
+					a.likeButton(c.Key("like"), tr, 15, p.muted)
+				}
+			})
 			ui.Text(c, clock(tr.Length())).FontSize(12.5).FontFeatures("tnum").TextColor(p.faint).Width(44).TextAlign(ui.End)
 		})
 		if row.Clicked() && tr.Playable() {

@@ -323,6 +323,7 @@ func (n *notch) expanded(c *ui.Context, tr *Track, open, left float32) {
 				}
 				ui.Text(c, sub).FontSize(12.5).TextColor(white.Alpha(0.55)).SingleLine()
 			})
+			a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6))
 			n.levels(c, tr, 26, 22, 5)
 		})
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {

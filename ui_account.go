@@ -44,7 +44,7 @@ func (a *app) boot() {
 // signedIn shows what is personal to prof, or to nobody.
 func (a *app) signedIn(prof *Profile) {
 	a.profile = prof
-	a.mine, a.saved, a.recPlaylists = nil, nil, nil
+	a.mine, a.saved, a.recPlaylists, a.liked = nil, nil, nil, nil
 	// What the listener may play changed: load the lists again.
 	a.playlists = map[int64]*Playlist{}
 	a.plErr = map[int64]string{}
@@ -59,6 +59,7 @@ func (a *app) signedIn(prof *Profile) {
 		return
 	}
 	uid := prof.UserID
+	a.loadLiked(uid)
 	go func() {
 		made, saved, err := UserPlaylists(uid)
 		a.post(func() {

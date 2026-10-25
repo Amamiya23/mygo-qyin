@@ -38,11 +38,13 @@ func (a *app) view(c *ui.Context) {
 				a.playerBar(c)
 			})
 		})
-		if a.nowPlaying && a.pl.current() != nil {
-			a.nowPlayingView(c)
-		}
+		a.nowPlayingLayer(c)
 	})
 	a.loginDialog(c)
+	if a.toast != "" {
+		c.Toast(a.toast)
+		a.toast = ""
+	}
 	a.syncWindows()
 }
 

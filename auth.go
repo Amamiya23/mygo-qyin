@@ -214,3 +214,34 @@ func RecommendedPlaylists() ([]Playlist, error) {
 	}
 	return out, nil
 }
+
+// LikedIDs returns the songs a listener likes, in no order.
+func LikedIDs(uid int64) ([]int64, error) {
+	var res struct {
+		Code int     `json:"code"`
+		IDs  []int64 `json:"ids"`
+	}
+	if err := eapiPost("/api/song/like/get", map[string]any{"uid": strconv.FormatInt(uid, 10)}, &res); err != nil {
+		return nil, err
+	}
+	if res.Code != 200 {
+		return nil, fmt.Errorf("netease: liked songs: code %d", res.Code)
+	}
+	return res.IDs, nil
+}
+
+// Like likes a song, adding it to the listener's liked songs, or unlikes it.
+func Like(id int64, like bool) error {
+	var res struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	data := map[string]any{"alg": "itembased", "trackId": strconv.FormatInt(id, 10), "like": strconv.FormatBool(like), "time": "3"}
+	if err := eapiPost("/api/radio/like", data, &res); err != nil {
+		return err
+	}
+	if res.Code != 200 {
+		return fmt.Errorf("netease: like: code %d %s", res.Code, res.Msg)
+	}
+	return nil
+}
