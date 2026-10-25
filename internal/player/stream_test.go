@@ -115,3 +115,42 @@ func TestFLACSeek(t *testing.T) {
 		}
 	}
 }
+
+// A FLAC whose metadata block is of a length with bit 2 set plays from its
+// first frame. The block's length was ORed into the 4 bytes of its header
+// rather than added to them, so most of NetEase's lossless songs started 4
+// bytes early, failed to decode and were skipped.
+func TestFLACMetadataLength(t *testing.T) {
+	b, err := os.ReadFile("testdata/seek.flac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := decodeAll(t, b)
+	start, err := flacDataStart(downloaded(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The last block's header is no longer the last: a padding block of 6
+	// bytes follows it.
+	off := int64(4)
+	for b[off]&0x80 == 0 {
+		off += 4 + (int64(b[off+1])<<16 | int64(b[off+2])<<8 | int64(b[off+3]))
+	}
+	padded := append([]byte(nil), b[:start]...)
+	padded[off] &^= 0x80
+	padded = append(padded, 0x81, 0, 0, 6, 0, 0, 0, 0, 0, 0)
+	padded = append(padded, b[start:]...)
+
+	s, err := openStream(downloaded(padded), 5000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]float32, 4096)
+	n, err := s.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := maxDiff(buf[:n], ref); d != 0 {
+		t.Errorf("off by up to %.4f", d)
+	}
+}

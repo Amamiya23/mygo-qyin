@@ -65,7 +65,7 @@ func flacDataStart(dl *download) (int64, error) {
 		}
 		h := dl.bytesAt(off)
 		last := h[0]&0x80 != 0
-		off += 4 + int64(h[1])<<16 | int64(h[2])<<8 | int64(h[3])
+		off += 4 + (int64(h[1])<<16 | int64(h[2])<<8 | int64(h[3]))
 		if last {
 			if dl.waitFor(off) < off {
 				return 0, io.ErrUnexpectedEOF
