@@ -143,9 +143,9 @@ func (a *app) sidebar(c *ui.Context) {
 	if c.TitleBar().Left > 0 {
 		top = topBar(c) + 4
 	}
-	ui.Column(c).Fill().Padding(top, 14, 14, 14).Gap(4).Children(func() {
-		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(top).DragWindow()
-
+	// Where nothing in it takes the press, the sidebar moves the window, as
+	// the title bar it reaches up into would.
+	ui.Column(c).Fill().Padding(top, 14, 14, 14).Gap(4).DragWindow().Children(func() {
 		// The search field.
 		field := ui.Row(c).Height(32).PaddingX(10).Gap(7).Radius(9).AlignItems(ui.Center).Margin(0, 0, 14, 0)
 		focused := c.Focused(a.searchBox)
