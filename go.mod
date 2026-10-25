@@ -6,7 +6,7 @@ tool github.com/egoist/mygo/cmd/mygo
 
 require (
 	github.com/ebitengine/purego v0.11.1
-	github.com/egoist/mygo v0.6.5-0.20261025215130-b343bbf780a4
+	github.com/egoist/mygo v0.6.5-0.20261025221832-bae6bfcee621
 	github.com/hajimehoshi/go-mp3 v0.3.4
 	github.com/mewkiz/flac v1.0.14
 	golang.org/x/image v0.46.0
