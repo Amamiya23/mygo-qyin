@@ -157,21 +157,123 @@ func (a *app) tickTimes(c *ui.Context) {
 	}
 }
 
+// volumeButton is the speaker, which opens the volume in a popover above
+// it, as an AppKit popover: a native slider standing up, the volume in
+// percent over it. The wheel over the speaker turns it up and down
+// without opening it.
+func (a *app) volumeButton(c *ui.Context, color ui.Color) {
+	b := iconButton(c.Key("volume-button"), volumeIcon(a.volume), 16, color, "音量")
+	if b.Clicked() {
+		a.volumeOpen = !a.volumeOpen
+	}
+	b.HandleInput(func(ev ui.InputEvent) bool { return a.scrollVolume(ev) })
+	pop := popoverColors(a.pal.dark)
+	ui.PopoverBase(c.Key("volume-popover"), b, &a.volumeOpen, func(panel ui.Element) {
+		const arrow = 7
+		panel.AttachTo(b, ui.AnchorTop, ui.AnchorBottom).Margin(0, 0, arrow+3, 0).Width(52).Padding(11, 0, 12, 0).
+			Radius(12).Background(pop.fill).Border(0.5, pop.edge).Shadow(0, 8, 24, -4, ui.RGBA(0, 0, 0, 0.2)).
+			AlignItems(ui.Center).Gap(8).Label("音量")
+		panel.Draw(func(p *ui.Painter, r ui.Rect) {
+			// The arrow pointing at the speaker, its sides edged as the
+			// panel is, over the panel's border.
+			cx, foot := r.X+r.W/2, r.Y+r.H
+			tip := (&ui.Path{}).MoveTo(cx-arrow-1, foot-0.75).LineTo(cx-1.2, foot+arrow-1.2).
+				QuadTo(cx, foot+arrow, cx+1.2, foot+arrow-1.2).LineTo(cx+arrow+1, foot-0.75).Close()
+			p.FillPath(tip, pop.fill)
+			edge := (&ui.Path{}).MoveTo(cx-arrow-1, foot).LineTo(cx-1.2, foot+arrow-1.2).
+				QuadTo(cx, foot+arrow, cx+1.2, foot+arrow-1.2).LineTo(cx+arrow+1, foot)
+			p.StrokePath(edge, 0.5, pop.edge)
+		})
+		ui.Textf(c, "%d%%", int(a.volume*100+0.5)).FontSize(11).FontWeight(500).FontFeatures("tnum").TextColor(a.pal.muted)
+		a.nativeVolumeSlider(c, pop)
+	})
+}
+
+// popover holds the colors of a popover as AppKit draws them.
+type popover struct {
+	fill, edge, track, knob ui.Color
+}
+
+func popoverColors(dark bool) popover {
+	if dark {
+		return popover{fill: ui.Hex("#2b2b2e"), edge: ui.RGBA(255, 255, 255, 0.14), track: ui.RGBA(255, 255, 255, 0.16), knob: ui.Hex("#ececec")}
+	}
+	return popover{fill: ui.Hex("#f6f6f6"), edge: ui.RGBA(0, 0, 0, 0.12), track: ui.RGBA(0, 0, 0, 0.12), knob: ui.Hex("#ffffff")}
+}
+
+// nativeVolumeSlider is a vertical slider as AppKit draws one: a thin
+// track, filled with the accent from the foot to a round knob.
+func (a *app) nativeVolumeSlider(c *ui.Context, pop popover) {
+	const knob, track = 20, 4
+	s := ui.SliderBase(c.Key("volume"), &a.volume, 0, 1).Vertical().Size(knob+8, 124).PaddingY(knob / 2).
+		Step(0.01).AutoFocus().FocusRing(false).Label("音量")
+	if s.Changed() {
+		a.pl.setVolume(a.volume)
+	}
+	s.HandleInput(func(ev ui.InputEvent) bool { return a.scrollVolume(ev) })
+	pressed := s.Pressed()
+	v := float32(a.volume)
+	accent := a.pal.accent
+	s.Draw(func(p *ui.Painter, r ui.Rect) {
+		top, foot := r.Y+knob/2, r.Y+r.H-knob/2
+		x := r.X + (r.W-track)/2
+		y := foot - (foot-top)*v
+		p.Fill(ui.Rect{X: x, Y: top - track/2, W: track, H: foot - top + track}, pop.track, track/2)
+		p.Fill(ui.Rect{X: x, Y: y, W: track, H: foot - y + track/2}, accent, track/2)
+		k := ui.Rect{X: r.X + (r.W-knob)/2, Y: y - knob/2, W: knob, H: knob}
+		p.Shadow(k, knob/2, 0, 0.5, 1.5, 0, ui.RGBA(0, 0, 0, 0.3))
+		p.Shadow(k, knob/2, 0, 1, 4, 0, ui.RGBA(0, 0, 0, 0.12))
+		fill := pop.knob
+		if pressed {
+			fill = fill.Mix(ui.RGB(0, 0, 0), 0.06)
+		}
+		p.Fill(k, fill, knob/2)
+		p.Stroke(k, ui.RGBA(0, 0, 0, 0.08), knob/2, 0.5)
+	})
+}
+
+// scrollVolume turns the volume up as the wheel or the fingers scroll up.
+func (a *app) scrollVolume(ev ui.InputEvent) bool {
+	if ev.Kind != ui.InputScroll {
+		return false
+	}
+	a.volume = min(1, max(0, a.volume-float64(ev.DY)/400))
+	a.pl.setVolume(a.volume)
+	return true
+}
+
+// volumeIcon is the speaker for volume v: silent, or with one or two waves.
+func volumeIcon(v float64) *ui.SVG {
+	switch {
+	case v == 0:
+		return iconMute
+	case v < 0.4:
+		return iconVolumeLow
+	default:
+		return iconVolume
+	}
+}
+
+// muteButton is the speaker, which mutes and unmutes.
+func (a *app) muteButton(c *ui.Context, color ui.Color) {
+	icon := iconVolume
+	if a.volume == 0 {
+		icon = iconMute
+	}
+	if iconButton(c.Key("mute"), icon, 16, color, "静音").Clicked() {
+		if a.volume > 0 {
+			a.mutedFrom, a.volume = a.volume, 0
+		} else {
+			a.volume = max(a.mutedFrom, 0.5)
+		}
+		a.pl.setVolume(a.volume)
+	}
+}
+
 // volumeSlider is a slim slider with the speaker before it, which mutes.
 func (a *app) volumeSlider(c *ui.Context, color, track ui.Color, width float32) {
 	ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-		icon := iconVolume
-		if a.volume == 0 {
-			icon = iconMute
-		}
-		if iconButton(c.Key("mute"), icon, 16, color, "静音").Clicked() {
-			if a.volume > 0 {
-				a.mutedFrom, a.volume = a.volume, 0
-			} else {
-				a.volume = max(a.mutedFrom, 0.5)
-			}
-			a.pl.setVolume(a.volume)
-		}
+		a.muteButton(c, color)
 		s := ui.SliderBase(c.Key("volume"), &a.volume, 0, 1).Width(width).Height(16).FocusRing(false).Label("音量")
 		if s.Changed() {
 			a.pl.setVolume(a.volume)
@@ -240,9 +342,13 @@ func (a *app) playerBar(c *ui.Context) {
 	edge := ui.Box(c.Key("bottom-edge")).Absolute().Left(0).Right(0).Bottom(0).Height(playerBarHeight).
 		Material(glass.ScrollEdge{Hard: true, Bottom: true, Background: p.bg})
 	edge.Opacity(edgeShown(edge, a.underBottom))
+	// The controls keep the middle, between sides that share what is left:
+	// narrower, the middle gives up to 140 DIPs, and what plays keeps room
+	// for its cover, some of its title and its heart.
+	const controls = 3*32 + 2*4 // lyrics, queue and the speaker
 	ui.Row(c).Absolute().Left(0).Right(0).Bottom(0).Height(playerBarHeight).PaddingX(20).Gap(20).AlignItems(ui.Center).Children(func() {
 		// What plays.
-		ui.Row(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
+		ui.Row(c).Grow(1).Basis(0).MinWidth(150).Children(func() {
 			if tr == nil {
 				ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 					ui.Box(c).Size(48, 48).Radius(8).Background(p.hover).Center().Children(func() {
@@ -255,7 +361,7 @@ func (a *app) playerBar(c *ui.Context) {
 			info := ui.ButtonBase(c.Key("info")).Gap(12).AlignItems(ui.Center).FocusRing(false).Shrink(1).MinWidth(0).Label("打开正在播放")
 			hovered := info.Hovered()
 			info.Children(func() {
-				ui.Box(c).Size(48, 48).Children(func() {
+				ui.Box(c).Size(48, 48).Shrink(0).Children(func() {
 					a.cover(c, tr.Album.PicURL, 120, 48, 8).Shadow(0, 2, 8, 0, p.cardShade)
 					if hovered {
 						ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(8).Center().
@@ -280,11 +386,11 @@ func (a *app) playerBar(c *ui.Context) {
 			if info.Clicked() {
 				a.nowPlaying = true
 			}
-			a.likeButton(c.Key("like"), tr, 16, p.muted).Margin(0, 0, 0, 4)
+			a.likeButton(c.Key("like"), tr, 16, p.muted).Margin(0, 0, 0, 4).Shrink(0)
 		})
 
 		// Controls over the progress.
-		ui.Column(c).Width(440).Shrink(1).Gap(0).AlignItems(ui.Stretch).Children(func() {
+		ui.Column(c).Width(440).Shrink(1).MinWidth(300).Gap(0).AlignItems(ui.Stretch).Children(func() {
 			a.transport(c, p.text, p.muted, p.accent, 18)
 			ui.Row(c).Gap(10).AlignItems(ui.Center).Margin(-4, 0, 0, 0).Children(func() {
 				ui.Text(c, clock(pl.position())).FontSize(10.5).FontFeatures("tnum").TextColor(p.faint).Width(34).TextAlign(ui.End)
@@ -294,7 +400,7 @@ func (a *app) playerBar(c *ui.Context) {
 		})
 
 		// Lyrics and volume.
-		ui.Row(c).Grow(1).Basis(0).MinWidth(0).Justify(ui.End).AlignItems(ui.Center).Gap(4).Children(func() {
+		ui.Row(c).Grow(1).Basis(0).MinWidth(controls).Justify(ui.End).AlignItems(ui.Center).Gap(4).Children(func() {
 			lyr := p.muted
 			if a.nowPlaying {
 				lyr = p.accent
@@ -305,7 +411,7 @@ func (a *app) playerBar(c *ui.Context) {
 			if iconButton(c.Key("queue"), iconQueue, 16, p.muted, "播放队列").Clicked() && tr != nil {
 				a.nowPlaying, a.npPane = true, paneQueue
 			}
-			a.volumeSlider(c, p.text.Alpha(0.75), p.press, 92)
+			a.volumeButton(c, p.text.Alpha(0.75))
 		})
 	})
 }

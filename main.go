@@ -68,10 +68,11 @@ type app struct {
 	lyricAt     int
 	lyricTrack  int64
 
-	scrub     float64
-	scrubbing bool
-	volume    float64
-	mutedFrom float64
+	scrub      float64
+	scrubbing  bool
+	volume     float64
+	volumeOpen bool // the volume popover of the player bar shows
+	mutedFrom  float64
 
 	rowBars barState
 	// underTop and underBottom say whether the page has content under its

@@ -2,6 +2,7 @@ package main
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 	"image/png"
 	"os"
@@ -242,4 +243,80 @@ func TestSmokeFrames(t *testing.T) {
 	shots("smoke-np", true)
 	a.nowPlaying = false
 	shots("smoke-bar", false)
+}
+
+// With NM_FRAMES set, saves the player bar at window widths from the
+// narrowest up.
+func TestPlayerBarWidths(t *testing.T) {
+	dir := os.Getenv("NM_FRAMES")
+	if dir == "" {
+		t.Skip()
+	}
+	a := newTestApp()
+	a.settings = defaultSettings()
+	tr := Track{ID: 7, Name: "那些你很冒险的梦 (Live)", Artists: []Artist{{Name: "林俊杰"}, {Name: "JJ Lin"}}, Duration: 199000}
+	a.pl.queue, a.pl.order, a.pl.at = []Track{tr}, []int{0}, 0
+	a.pl.track = &a.pl.queue[0]
+	a.pl.pending = 25 * time.Second
+	widths := []int{880, 1000, 1180}
+	var strip *image.RGBA
+	y := 0
+	for i, w := range widths {
+		tt := ui.NewTester(a.view, w, 600)
+		tt.Frame()
+		img := tt.Image()
+		s := float32(img.Bounds().Dx()) / float32(w)
+		bar := image.Rect(int(float32(sidebarWidth)*s), int(float32(600-playerBarHeight)*s), img.Bounds().Dx(), img.Bounds().Dy())
+		if i == 0 {
+			strip = image.NewRGBA(image.Rect(0, 0, int(float32(1180-sidebarWidth)*s), bar.Dy()*len(widths)))
+			draw.Draw(strip, strip.Bounds(), image.NewUniform(color.RGBA{60, 60, 60, 255}), image.Point{}, draw.Src)
+		}
+		draw.Draw(strip, image.Rect(0, y, bar.Dx(), y+bar.Dy()), img, bar.Min, draw.Src)
+		y += bar.Dy()
+	}
+	f, _ := os.Create(filepath.Join(dir, "bar-widths.png"))
+	defer f.Close()
+	png.Encode(f, strip)
+}
+
+// With NM_FRAMES set, saves the volume popover open, light and dark.
+func TestVolumePopoverFrames(t *testing.T) {
+	dir := os.Getenv("NM_FRAMES")
+	if dir == "" {
+		t.Skip()
+	}
+	for _, dark := range []bool{false, true} {
+		a := newTestApp()
+		a.settings = defaultSettings()
+		tr := Track{ID: 7, Name: "春日影", Artists: []Artist{{Name: "MyGO!!!!!"}}, Duration: 199000}
+		a.pl.queue, a.pl.order, a.pl.at = []Track{tr}, []int{0}, 0
+		a.pl.track = &a.pl.queue[0]
+		a.volume = 0.63
+		tt := ui.NewTester(a.view, 1000, 600)
+		tt.SetDark(dark)
+		tt.Frame()
+		r, ok := tt.Find("音量")
+		if !ok {
+			t.Fatal("no volume button")
+		}
+		tt.Click("音量")
+		tt.Advance(time.Second)
+		tt.Frame()
+		if !a.volumeOpen || !tt.HasText("63%") {
+			t.Fatalf("popover not open: %v %q", a.volumeOpen, tt.Texts())
+		}
+		img := tt.Image()
+		s := float32(img.Bounds().Dx()) / 1000
+		cx := int((r.X + r.W/2) * s)
+		crop := image.Rect(cx-int(70*s), int((r.Y-240)*s), cx+int(70*s), int((r.Y+r.H+6)*s))
+		out := image.NewRGBA(image.Rect(0, 0, crop.Dx(), crop.Dy()))
+		draw.Draw(out, out.Bounds(), img, crop.Min, draw.Src)
+		name := "volume-light.png"
+		if dark {
+			name = "volume-dark.png"
+		}
+		f, _ := os.Create(filepath.Join(dir, name))
+		png.Encode(f, out)
+		f.Close()
+	}
 }
