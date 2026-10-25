@@ -116,7 +116,7 @@ func (a *app) settingsView(c *ui.Context) {
 						i = k
 					}
 				}
-				if ui.Segmented(c.Key("appearance"), &i, "跟随系统", "浅色", "深色").Changed() {
+				if segmented(c.Key("appearance"), &i, "跟随系统", "浅色", "深色") {
 					s.Appearance = modes[i]
 					a.changed()
 				}

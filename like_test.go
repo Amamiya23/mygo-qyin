@@ -320,3 +320,36 @@ func TestVolumePopoverFrames(t *testing.T) {
 		f.Close()
 	}
 }
+
+// With NM_FRAMES set, saves the segmented control of the settings, light
+// and dark, at twice the scale.
+func TestSegmentedFrames(t *testing.T) {
+	dir := os.Getenv("NM_FRAMES")
+	if dir == "" {
+		t.Skip()
+	}
+	for _, dark := range []bool{false, true} {
+		a := newTestApp()
+		a.settings = defaultSettings()
+		a.settings.Appearance = "light"
+		tt := ui.NewTester(a.settingsView, 560, 640)
+		tt.SetScale(2)
+		tt.SetDark(dark)
+		tt.Frame()
+		r, ok := tt.Find("跟随系统")
+		if !ok {
+			t.Fatal("no segmented control")
+		}
+		img := tt.Image()
+		crop := image.Rect(int((r.X-30)*2), int((r.Y-14)*2), int((r.X+250)*2), int((r.Y+r.H+14)*2))
+		out := image.NewRGBA(image.Rect(0, 0, crop.Dx(), crop.Dy()))
+		draw.Draw(out, out.Bounds(), img, crop.Min, draw.Src)
+		name := "segmented-light.png"
+		if dark {
+			name = "segmented-dark.png"
+		}
+		f, _ := os.Create(filepath.Join(dir, name))
+		png.Encode(f, out)
+		f.Close()
+	}
+}
