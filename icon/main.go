@@ -1,14 +1,16 @@
-// Command icon draws the app icon: the layers of AppIcon.icon, the Icon
+// Command icon draws the app icons: the layers of AppIcon.icon, the Icon
 // Composer document that macOS 26 and later render in Liquid Glass, and
 // resources/icon.png, the same icon as macOS draws it, on the grid of older
-// macOS icons, for the .icns of dev builds and for Windows.
+// macOS icons, for older macOS and Windows; and from AppIcon-dev.icon, red
+// where the app's is cream, resources/icon-dev.png, the icon of mygo dev
+// builds.
 //
 // Run it from the repository root on a Mac with Xcode 26 or later:
 //
 //	go run ./icon
 //
-// icon.json, the document's fills, glass and dark-mode colors, is edited by
-// hand or in Icon Composer.
+// The icon.json of each document, its background, glass and dark-mode
+// colors, is edited by hand or in Icon Composer.
 package main
 
 import (
@@ -25,11 +27,19 @@ import (
 	"strings"
 )
 
-const (
-	document = "icon/AppIcon.icon"
-	output   = "resources/icon.png"
-	ictool   = "/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool"
-)
+const ictool = "/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool"
+
+// icons are the documents drawn, with the PNG rendered from each and the
+// colors of its tonearm: the gradient and the cap on its pivot.
+var icons = []struct {
+	document, output   string
+	top, bottom, pivot string
+}{
+	// Cream, with a red tonearm to match the label.
+	{"icon/AppIcon.icon", "resources/icon.png", "#FF5B5B", "#E3122C", "#FFE1DE"},
+	// Red, with a white one.
+	{"icon/AppIcon-dev.icon", "resources/icon-dev.png", "#FFFFFF", "#E6E3E5", "#D9D5D8"},
+}
 
 // A record on Icon Composer's 1024-point full-bleed canvas, and the
 // tonearm over it, from its pivot to the headshell resting on the grooves.
@@ -40,18 +50,20 @@ var (
 )
 
 func main() {
-	layers := map[string]string{
-		"arm.svg":    armSVG(),
-		"record.svg": recordSVG(),
-		"label.svg":  labelSVG(),
-	}
-	for name, s := range layers {
-		if err := os.WriteFile(filepath.Join(document, "Assets", name), []byte(s), 0o644); err != nil {
+	for _, ic := range icons {
+		layers := map[string]string{
+			"arm.svg":    armSVG(ic.top, ic.bottom, ic.pivot),
+			"record.svg": recordSVG(),
+			"label.svg":  labelSVG(),
+		}
+		for name, s := range layers {
+			if err := os.WriteFile(filepath.Join(ic.document, "Assets", name), []byte(s), 0o644); err != nil {
+				log.Fatal(err)
+			}
+		}
+		if err := render(ic.document, ic.output); err != nil {
 			log.Fatal(err)
 		}
-	}
-	if err := render(); err != nil {
-		log.Fatal(err)
 	}
 }
 
@@ -63,14 +75,14 @@ func n(v float64) string {
 	return strings.TrimSuffix(strings.TrimRight(fmt.Sprintf("%.2f", v), "0"), ".")
 }
 
-func armSVG() string {
+func armSVG(top, bottom, cap string) string {
 	p := pivot
 	length := math.Hypot(float64(head.X-p.X), float64(head.Y-p.Y))
 	angle := math.Atan2(float64(head.Y-p.Y), float64(head.X-p.X)) * 180 / math.Pi
 	end := float64(p.X) + length - 30
 	return svg(fmt.Sprintf(`<defs>
 <linearGradient id="m" x1="0" y1="0" x2="1" y2="1">
-<stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#E6E3E5"/></linearGradient>
+<stop offset="0" stop-color="%[11]s"/><stop offset="1" stop-color="%[12]s"/></linearGradient>
 </defs>
 <g transform="rotate(%[3]s %[1]d %[2]d)">
 <rect x="%[4]d" y="%[5]d" width="60" height="48" rx="14" fill="url(#m)"/>
@@ -78,8 +90,8 @@ func armSVG() string {
 <rect x="%[8]s" y="%[9]d" width="84" height="52" rx="13" fill="url(#m)" transform="rotate(28 %[10]s %[2]d)"/>
 </g>
 <circle cx="%[1]d" cy="%[2]d" r="54" fill="url(#m)"/>
-<circle cx="%[1]d" cy="%[2]d" r="20" fill="#D9D5D8"/>`,
-		p.X, p.Y, n(angle), p.X-84, p.Y-24, p.Y-12, n(length-30), n(end-20), p.Y-26, n(end)))
+<circle cx="%[1]d" cy="%[2]d" r="20" fill="%[13]s"/>`,
+		p.X, p.Y, n(angle), p.X-84, p.Y-24, p.Y-12, n(length-30), n(end-20), p.Y-26, n(end), top, bottom, cap))
 }
 
 func recordSVG() string {
@@ -132,10 +144,10 @@ func labelSVG() string {
 <circle cx="%[1]s" cy="%[2]s" r="%[5]s" fill="#FFF6F2"/>`, n(rec.cx), n(rec.cy), n(rec.r*0.358), n(rec.r*0.247), n(rec.r*0.052)))
 }
 
-// render has ictool draw the document as macOS does, and lays it on the
-// 1024-pixel grid of macOS icons: an 824-pixel body, centered, over a soft
-// shadow.
-func render() error {
+// render has ictool draw document as macOS does, and lays it on the
+// 1024-pixel grid of macOS icons at output: an 824-pixel body, centered,
+// over a soft shadow.
+func render(document, output string) error {
 	const canvas, body = 1024, 824
 	dir, err := os.MkdirTemp("", "icon")
 	if err != nil {
