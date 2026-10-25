@@ -96,7 +96,7 @@ func (a *app) dailyCard(c *ui.Context, now time.Time) {
 		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough().Draw(func(p *ui.Painter, r ui.Rect) {
 			spin := &a.dailySpin
 			if spin.step(p.Now(), turn) {
-				p.AnimationFrame()
+				p.AnimationFrameRate(dailyRate)
 			}
 			// Where the record turns: at the right, in its sleeve's stack.
 			cx := r.X + r.W - dailyPadX - 120
@@ -146,6 +146,13 @@ const (
 	sleeveSize  = 156
 	recordSize  = 146
 )
+
+// dailyRate is how many frames a second the daily card draws what moves
+// on it, its record turning and the bars on its play button: every frame
+// of a 120 Hz display, it redrew the whole card 120 times a second, for
+// motion that looks as smooth at half of that; at a quarter, the record's
+// label steps.
+const dailyRate = 60
 
 // recordOut is how far right of its sleeve's middle the record's is, as
 // far out as out.
@@ -198,9 +205,11 @@ func drawDailyBackdrop(p *ui.Painter, r ui.Rect, blurred *ui.Bitmap, deep, rich,
 		p.Shadow(ui.Rect{X: cx - 60, Y: cy - 60, W: 120, H: 120}, 60, 0, 0, 140, 30, glow.Alpha(0.32))
 		p.Shadow(ui.Rect{X: r.X + r.W*0.3, Y: r.Y - 80, W: r.W * 0.4, H: 40}, 20, 0, 0, 120, 0, white.Alpha(0.08))
 		// Grooves rippling out, fainter as they go, travelling a groove a
-		// turn.
+		// turn by whole pixels of the screen, which the rings are drawn
+		// at: the card around the record is drawn again only as they move
+		// one, not for each frame the record turns.
 		const gap = 18
-		off := angle / 360 * gap
+		off := float32(math.Round(float64(angle/360*gap*p.Scale()))) / p.Scale()
 		for rr := float32(recordSize/2+6) + off; rr < r.W; rr += gap {
 			a := 0.05 * (1 - (rr-recordSize/2)/(r.H*1.6))
 			if a <= 0.004 {
@@ -315,7 +324,7 @@ func (a *app) dailyPlayButton(c *ui.Context, songs []netease.Track, ours, playin
 				a.dailyBars.step(p.Now(), lv, live)
 				drawBars(p, r, &a.dailyBars, 4, accent, 2.5)
 				if live || a.dailyBars.group(0, player.Bands) > 0.01 {
-					p.AnimationFrame()
+					p.AnimationFrameRate(dailyRate)
 				}
 			})
 		} else {

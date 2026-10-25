@@ -63,6 +63,30 @@ func init() {
 				}
 				step(0, func() { a.volume = 0; a.pl.SetVolume(0); a.pl.PlayQueue(a.daily, 0) })
 				time.Sleep(4 * time.Second)
+				if os.Getenv("NM_DAILY") != "" {
+					// The home page, its daily card's record turning, for a
+					// while; then another page, without it, loaded first.
+					step(0, func() { a.open(route{page: pageCharts}) })
+					time.Sleep(6 * time.Second)
+					step(0, func() { a.open(route{page: pageHome}) })
+					time.Sleep(2 * time.Second)
+					if f, err := os.Create(filepath.Join(dir, "daily.pprof")); err == nil {
+						pprof.StartCPUProfile(f)
+						go func() {
+							time.Sleep(5 * time.Second)
+							pprof.StopCPUProfile()
+							f.Close()
+						}()
+					}
+					mark("home")
+					time.Sleep(10 * time.Second)
+					mark("charts")
+					step(0, func() { a.open(route{page: pageCharts}) })
+					time.Sleep(10 * time.Second)
+					mark("end")
+					mygo.RunOnMain(mygo.App.Quit)
+					return
+				}
 				if long := os.Getenv("NM_LONG"); long != "" {
 					// Each pane for a while, as one listens: a mark every 5 s.
 					// NM_LONG=stage shows only the stage.
