@@ -84,11 +84,6 @@ func (a *app) settingsView(c *ui.Context) {
 		})
 
 		group("播放", func() {
-			row("进度条烟雾特效", "播放时进度条化作拖着烟雾的光点，随音乐起伏；会多用一些电量", func() {
-				if ui.Switch(c.Key("smoke"), &s.Smoke).Label("进度条烟雾特效").Changed() {
-					a.changed()
-				}
-			})
 			row("音质", "无损与 Hi-Res 需要黑胶 VIP，没有时播放所能播放的最高音质；下一首歌曲开始生效", func() {
 				labels := make([]string, len(qualityLevels))
 				chosen := qualityLevels[2].label
@@ -153,6 +148,19 @@ func (a *app) settingsView(c *ui.Context) {
 				}
 				if segmented(c.Key("appearance"), &i, "跟随系统", "浅色", "深色") {
 					s.Appearance = modes[i]
+					a.changed()
+				}
+			})
+		})
+
+		group("实验性功能", func() {
+			row("进度条烟雾特效", "播放时进度条化作拖着烟雾的光点，随音乐起伏；会多用一些电量", func() {
+				if ui.Switch(c.Key("smoke"), &s.Smoke).Label("进度条烟雾特效").Changed() {
+					a.changed()
+				}
+			})
+			row("烟雾背景", "播放页的背景化作封面色调的烟雾，缓缓升起，随低音起伏；仍在打磨，会多用一些电量", func() {
+				if ui.Switch(c.Key("fog"), &s.Fog).Label("烟雾背景").Changed() {
 					a.changed()
 				}
 			})

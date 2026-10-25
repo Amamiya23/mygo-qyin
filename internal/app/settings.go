@@ -36,6 +36,10 @@ type settings struct {
 	// Normalize evens out the loudness of tracks, by what NetEase
 	// measured of each.
 	Normalize bool `json:"normalize"`
+	// Fog fills Now Playing's backdrop with fog of the cover's color,
+	// rising and swelling with the bass: an experiment the listener turns
+	// on.
+	Fog bool `json:"fog"`
 	// CacheMB is how many megabytes the songs kept on disk may take; 0
 	// keeps none.
 	CacheMB int `json:"cacheMB"`
