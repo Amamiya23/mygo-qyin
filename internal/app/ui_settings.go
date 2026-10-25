@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
@@ -194,5 +196,31 @@ func (a *app) settingsView(c *ui.Context) {
 				}
 			})
 		})
+
+		if a.updates {
+			group("更新", func() {
+				desc := "每天检查一次是否有新版本"
+				if t := lastUpdateCheck(); !t.IsZero() {
+					desc += "；上次检查：" + commentTime(t, time.Now())
+				}
+				row("自动检查更新", desc, func() {
+					on := updateChecks()
+					if ui.Switch(c.Key("update-checks"), &on).Label("自动检查更新").Changed() {
+						setUpdateChecks(on)
+					}
+				})
+				row("自动下载并安装", "在后台下载新版本，下次打开时生效", func() {
+					on := updateDownloads()
+					if ui.Switch(c.Key("update-downloads"), &on).Label("自动下载并安装").Disabled(!updateChecks()).Changed() {
+						setUpdateDownloads(on)
+					}
+				})
+				row("当前版本 "+mygo.App.Version(), "", func() {
+					if ui.Button(c.Key("check-updates"), "检查更新").Clicked() {
+						checkForUpdates()
+					}
+				})
+			})
+		}
 	})
 }

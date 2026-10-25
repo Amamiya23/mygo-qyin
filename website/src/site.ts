@@ -1,5 +1,7 @@
 export const repo = 'https://github.com/egoist/mygo-cloudmusic'
 export const releases = `${repo}/releases/latest`
+// The latest release, with its installers, from GitHub's API.
+export const releaseApi = 'https://api.github.com/repos/egoist/mygo-cloudmusic/releases/latest'
 export const mygo = 'https://mygo.egoist.dev'
 
 export const site = {

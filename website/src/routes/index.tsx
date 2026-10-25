@@ -1,10 +1,10 @@
-import { createFileRoute } from '@tanstack/solid-router'
+import { Link, createFileRoute } from '@tanstack/solid-router'
 import { For, createSignal, type JSX } from 'solid-js'
 import { Layout } from '../components/Layout'
 import { AppWindow } from '../components/AppWindow'
 import { GitHubMark, Icon, type IconName } from '../components/Icon'
 import { ThemeSwitch } from '../theme'
-import { mygo, releases, repo } from '../site'
+import { mygo, repo } from '../site'
 
 export const Route = createFileRoute('/')({
   component: Home,
@@ -35,10 +35,10 @@ function Hero() {
           用 Go 与 <a href={mygo}>MyGo</a> 写成，原生界面，没有 WebView。打开就响，拖动进度没有杂音，暂停时轻轻淡出。
         </p>
         <div class="actions">
-          <a class="btn btn-primary" href={releases}>
+          <Link class="btn btn-primary" to="/download">
             <Icon name="download" size={17} />
             下载
-          </a>
+          </Link>
           <a class="btn btn-ghost" href={repo}>
             <GitHubMark size={17} />
             查看源代码

@@ -65,6 +65,43 @@ func settingsPath() (string, error) {
 	return filepath.Join(dir, "settings.json"), nil
 }
 
+// oldName is what the app was called before it took its bundle's name, and
+// kept its data under.
+const oldName = "网易云音乐"
+
+// moveOldData moves the user data and the song cache kept under oldName to
+// the directories of the app's name, unless those hold something already:
+// the login, settings and where playback was left go on. It must run before
+// anything reads them.
+func moveOldData() {
+	for _, name := range []mygo.PathName{mygo.PathUserData, mygo.PathCache} {
+		dir, err := mygo.App.Path(name)
+		if err != nil {
+			continue
+		}
+		moveDir(filepath.Join(filepath.Dir(dir), oldName), dir)
+	}
+}
+
+// moveDir moves the directory old to dir when dir is empty, as Path made
+// it, and old exists.
+func moveDir(old, dir string) {
+	if old == dir {
+		return
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) > 0 {
+		return
+	}
+	if _, err := os.Stat(old); err != nil {
+		return
+	}
+	if os.Remove(dir) == nil {
+		if err := os.Rename(old, dir); err != nil {
+			os.MkdirAll(dir, 0o700)
+		}
+	}
+}
+
 // loadSettings reads the settings, or returns the defaults.
 func loadSettings() settings {
 	s := defaultSettings()
