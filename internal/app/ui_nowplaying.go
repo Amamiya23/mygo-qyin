@@ -317,7 +317,7 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 		quietUnder(col, dim)
 		col.Children(func() {
 			if !loaded {
-				lyricsSkeleton(c, npShimmer(c), h)
+				lyricsSkeleton(c, npShimmer(c))
 				return
 			}
 			ui.Text(c, "纯音乐，请欣赏").FontSize(24).FontWeight(700).TextColor(white.Alpha(0.4))
@@ -337,7 +337,7 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 	}
 	lag := a.lyricGlide.step(c, &a.lyricScroll)
 
-	scroll := ui.Scroll(c.Key("lyrics")).Grow(1).TrackScroll(&a.lyricScroll).Padding(h*0.22, 8, h*0.5, 0)
+	scroll := ui.Scroll(c.Key("lyrics")).Grow(1).TrackScroll(&a.lyricScroll).Padding(0, 8, h*0.5, 0)
 	dim, quiet := a.quietShown(c, scroll, tr, lines, loaded)
 	if dim > 0.98 {
 		// Under the hot comment, gone, not drawn faint.

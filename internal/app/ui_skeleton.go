@@ -217,8 +217,8 @@ func commentSkeleton(c *ui.Context, s shimmer, n int) {
 }
 
 // lyricsSkeleton is lyricsPane's lines while they load.
-func lyricsSkeleton(c *ui.Context, s shimmer, h float32) {
-	ui.Column(c).Gap(6).Padding(h*0.22, 8, 0, 0).Children(func() {
+func lyricsSkeleton(c *ui.Context, s shimmer) {
+	ui.Column(c).Gap(6).Padding(0, 8, 0, 0).Children(func() {
 		for i := range 7 {
 			ui.Box(c.Key(i)).Padding(10, 12).Children(func() {
 				s.text(c, 30, 1.25).WidthPercent(boneWidth(i+1) * 0.9)
