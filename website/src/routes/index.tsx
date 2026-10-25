@@ -32,7 +32,7 @@ function Hero() {
           <span>安静地听歌。</span>
         </h1>
         <p class="lede">
-          用 Go 与 <a href={mygo}>MyGo</a> 写成，原生界面，没有 WebView。打开就响，拖动进度没有杂音，暂停时轻轻淡出。
+          用 Go 与 <a href={mygo}>MyGo</a> 写成，原生界面，没有 WebView。启动快，占用少，闲下来就安安静静，不打扰你的电脑。
         </p>
         <div class="actions">
           <Link class="btn btn-primary" to="/download">
@@ -77,7 +77,7 @@ const features: Feature[] = [
   {
     icon: 'volume',
     title: '温柔的音量',
-    body: '音量均衡，暂停与继续时淡出淡入，拖动进度没有杂音。',
+    body: '音量均衡，暂停与继续时淡出淡入。',
     extra: () => <Fade />,
   },
   {
