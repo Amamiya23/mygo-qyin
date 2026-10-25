@@ -346,3 +346,20 @@ func TestSegmentedFrames(t *testing.T) {
 		f.Close()
 	}
 }
+
+// ⌘D likes the song playing, and again unlikes it, saying so in a toast.
+func TestLikeCurrent(t *testing.T) {
+	likeSong = func(int64, bool) error { return nil }
+	defer func() { likeSong = netease.Like }()
+	a := newTestApp()
+	a.pl.Cue([]netease.Track{{ID: 7, Name: "宝船"}})
+	a.profile = &netease.Profile{UserID: 1}
+	a.likeCurrent()
+	if !a.liked[7] || a.toast != "已添加到我喜欢的音乐" {
+		t.Fatalf("liked %v, toast %q", a.liked[7], a.toast)
+	}
+	a.likeCurrent()
+	if a.liked[7] || a.toast != "已取消喜欢" {
+		t.Fatalf("unliked: liked %v, toast %q", a.liked[7], a.toast)
+	}
+}

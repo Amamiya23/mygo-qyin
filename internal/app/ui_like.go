@@ -65,6 +65,24 @@ func (a *app) toggleLike(tr *netease.Track) {
 	}()
 }
 
+// likeCurrent likes the song playing, or unlikes it, from the keyboard
+// (⌘D), which shows no heart: a toast says which it did.
+func (a *app) likeCurrent() {
+	tr := a.pl.Current()
+	if tr == nil {
+		return
+	}
+	a.toggleLike(tr)
+	if a.profile == nil {
+		return // asked to sign in
+	}
+	if a.liked[tr.ID] {
+		a.toast = "已添加到我喜欢的音乐"
+	} else {
+		a.toast = "已取消喜欢"
+	}
+}
+
 func (a *app) setLiked(id int64, like bool) {
 	if like {
 		a.liked[id] = true

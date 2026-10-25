@@ -39,6 +39,8 @@ func (a *app) setMenu() {
 			{Label: "下一首", Accelerator: "CmdOrCtrl+Right", Click: run(func() { a.pl.Next() })},
 			{Label: "上一首", Accelerator: "CmdOrCtrl+Left", Click: run(func() { a.pl.Prev() })},
 			mygo.Separator(),
+			{Label: "喜欢/取消喜欢", Accelerator: "CmdOrCtrl+D", Click: run(a.likeCurrent)},
+			mygo.Separator(),
 			{Label: "随机播放", Click: run(func() { a.pl.ToggleShuffle() })},
 			{Label: "切换循环模式", Click: run(func() { a.pl.CycleRepeat() })},
 			mygo.Separator(),
