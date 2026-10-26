@@ -197,7 +197,11 @@ func Run() error {
 		})
 		a.setMenu()
 		a.boot()
-		a.notch = newNotch(a)
+		// The notch player is macOS's, over its menu bar: elsewhere it would
+		// hang at the top of the screen as a black box.
+		if runtime.GOOS == "darwin" {
+			a.notch = newNotch(a)
+		}
 		if shotHook != nil {
 			shotHook(a)
 		}
