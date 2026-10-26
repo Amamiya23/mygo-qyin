@@ -1,6 +1,10 @@
 package app
 
-import "github.com/egoist/mygo"
+import (
+	"runtime"
+
+	"github.com/egoist/mygo"
+)
 
 // setMenu gives the app its menu bar, in Chinese and named as the app
 // is, with the settings in the app menu and the player's controls in a
@@ -13,21 +17,28 @@ func (a *app) setMenu() {
 		}
 	}
 	name := mygo.App.Name()
+	appMenu := []*mygo.MenuItem{
+		{Role: mygo.RoleAbout, Label: "关于" + name},
+		{Label: "检查更新…", Click: run(checkForUpdates)},
+		mygo.Separator(),
+		{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: run(a.openSettings)},
+		mygo.Separator(),
+	}
+	// Services and hiding are macOS's alone. Elsewhere MyGo leaves their
+	// items out but keeps the separators around them, which then stack.
+	if runtime.GOOS == "darwin" {
+		appMenu = append(appMenu,
+			&mygo.MenuItem{Role: mygo.RoleServices, Label: "服务"},
+			mygo.Separator(),
+			&mygo.MenuItem{Role: mygo.RoleHide, Label: "隐藏" + name},
+			&mygo.MenuItem{Role: mygo.RoleHideOthers, Label: "隐藏其他"},
+			&mygo.MenuItem{Role: mygo.RoleUnhide, Label: "全部显示"},
+			mygo.Separator(),
+		)
+	}
+	appMenu = append(appMenu, &mygo.MenuItem{Role: mygo.RoleQuit, Label: "退出" + name})
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
-		{Label: name, Submenu: []*mygo.MenuItem{
-			{Role: mygo.RoleAbout, Label: "关于" + name},
-			{Label: "检查更新…", Click: run(checkForUpdates)},
-			mygo.Separator(),
-			{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: run(a.openSettings)},
-			mygo.Separator(),
-			{Role: mygo.RoleServices, Label: "服务"},
-			mygo.Separator(),
-			{Role: mygo.RoleHide, Label: "隐藏" + name},
-			{Role: mygo.RoleHideOthers, Label: "隐藏其他"},
-			{Role: mygo.RoleUnhide, Label: "全部显示"},
-			mygo.Separator(),
-			{Role: mygo.RoleQuit, Label: "退出" + name},
-		}},
+		{Label: name, Submenu: appMenu},
 		{Label: "文件", Submenu: []*mygo.MenuItem{
 			{Label: "新建歌单…", Accelerator: "CmdOrCtrl+N", Click: run(func() {
 				a.showMain()

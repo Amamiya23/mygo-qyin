@@ -25,6 +25,9 @@ func (a *app) openSettings() {
 		StateKey:        "settings",
 		DisableMaximize: true,
 		DisableMinimize: true,
+		// The app's menu has nothing for this window: on Linux and
+		// Windows it stays out of sight until Alt shows it.
+		AutoHideMenuBar: true,
 		BackgroundColor: "light-dark(#f4f4f6, #1c1c1f)",
 		Content:         ui.View(a.settingsView),
 	})
