@@ -157,6 +157,26 @@ func init() {
 				mygo.RunOnMain(mygo.App.Quit)
 				return
 			}
+			if os.Getenv("NM_SCENE") == "artist" {
+				// Now Playing, then the page of the artist it credits first,
+				// as their name opens it, its songs the most popular and the newest.
+				time.Sleep(5 * time.Second)
+				step(0, func() { a.volume = 0; a.pl.SetVolume(0); a.pl.PlayQueue(a.daily, 0) })
+				time.Sleep(3 * time.Second)
+				step(0, func() { a.nowPlaying, a.npPane = true, paneLyrics })
+				time.Sleep(3 * time.Second)
+				shot("a-np", a.win)
+				step(0, func() { a.openArtist(a.pl.Current().Artists[0].ID) })
+				time.Sleep(150 * time.Millisecond)
+				shot("a-loading", a.win)
+				time.Sleep(4 * time.Second)
+				shot("a-artist", a.win)
+				step(0, func() { a.artistSort = artistLatest; a.loadLatest(a.route.artist) })
+				time.Sleep(3 * time.Second)
+				shot("a-latest", a.win)
+				mygo.RunOnMain(mygo.App.Quit)
+				return
+			}
 			time.Sleep(5 * time.Second)
 			mygo.RunOnMain(func() {
 				x, y, w, h := windowFrame(a.notch.win.NativeHandle())

@@ -293,18 +293,14 @@ func (a *app) fmCard(c *ui.Context) {
 					return
 				}
 				ui.Text(c, tr.Name).FontSize(30).FontWeight(800).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
-				sub := tr.ArtistNames()
-				if tr.Album.Name != "" {
-					sub += " — " + tr.Album.Name
-				}
-				color := white.Alpha(0.7)
 				switch {
 				case pl.Loading():
-					sub = "正在缓冲…"
+					ui.Text(c, "正在缓冲…").FontSize(14).TextColor(white.Alpha(0.7)).SingleLine()
 				case pl.Err() != "":
-					sub, color = pl.Err(), white
+					ui.Text(c, pl.Err()).FontSize(14).TextColor(white).SingleLine()
+				default:
+					a.artistLinks(c, tr, white.Alpha(0.7), white, albumAfter(tr)).FontSize(14).SingleLine()
 				}
-				ui.Text(c, sub).FontSize(14).TextColor(color).SingleLine()
 				ui.Row(c).Gap(14).AlignItems(ui.Center).Margin(20, 0, 0, -8).Children(func() {
 					if a.profile != nil {
 						if iconButton(c.Key("trash"), iconTrash, 20, white.Alpha(0.8), "不喜欢").Clicked() {

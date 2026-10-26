@@ -388,7 +388,8 @@ func (a *app) playerBar(c *ui.Context) {
 				})
 				ui.Column(c).Shrink(1).MinWidth(0).Gap(3).Children(func() {
 					ui.Text(c, tr.Name).FontSize(13.5).FontWeight(600).SingleLine()
-					sub := tr.ArtistNames()
+					// What it is waiting on shows in place of the artists.
+					var sub string
 					color := p.muted
 					switch {
 					case a.picked.id == tr.ID:
@@ -398,7 +399,11 @@ func (a *app) playerBar(c *ui.Context) {
 					case pl.Err() != "":
 						sub, color = pl.Err(), p.accent
 					}
-					ui.Text(c, sub).FontSize(12).TextColor(color).SingleLine()
+					if sub == "" {
+						a.artistLinks(c, tr, p.muted, p.text).FontSize(12).SingleLine()
+					} else {
+						ui.Text(c, sub).FontSize(12).TextColor(color).SingleLine()
+					}
 				})
 			})
 			if info.Clicked() {

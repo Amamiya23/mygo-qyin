@@ -126,3 +126,37 @@ func TestVIPSongPlayableLive(t *testing.T) {
 		t.Fatalf("Stan not playable: %+v", songs[0].Privilege)
 	}
 }
+
+func TestArtistDetailLive(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip()
+	}
+	deviceOnce.Do(func() { deviceID = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123" })
+	ar, err := ArtistDetail(12138269)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ar.Name == "" || ar.Avatar == "" || len(ar.Songs) == 0 || ar.Songs[0].Privilege == nil {
+		t.Fatalf("artist %+v with %d songs", ar.Artist, len(ar.Songs))
+	}
+	t.Logf("%s: %d songs, %d albums, first %q", ar.Name, ar.MusicSize, ar.AlbumSize, ar.Songs[0].Name)
+}
+
+func TestArtistLatestSongsLive(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip()
+	}
+	deviceOnce.Do(func() { deviceID = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123" })
+	// The brilliant green's come in the old shape, 毛不易's in the new.
+	for _, id := range []int64{21823, 12138269} {
+		songs, err := ArtistLatestSongs(id, 100)
+		if err != nil || len(songs) == 0 {
+			t.Fatalf("artist %d: %d songs, %v", id, len(songs), err)
+		}
+		s := songs[0]
+		if len(s.Artists) == 0 || s.Album.PicURL == "" || s.Duration == 0 || s.Privilege == nil {
+			t.Fatalf("artist %d: newest song %+v", id, s)
+		}
+		t.Logf("artist %d: %d songs, newest %q", id, len(songs), s.Name)
+	}
+}

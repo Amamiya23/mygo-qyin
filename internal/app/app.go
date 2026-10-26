@@ -20,11 +20,13 @@ const (
 	pagePlaylist
 	pageSearch
 	pageFM
+	pageArtist
 )
 
 type route struct {
 	page     pageKind
 	playlist int64
+	artist   int64
 }
 
 // app is the state both windows show. Everything in it is read and changed
@@ -59,10 +61,12 @@ type app struct {
 	homeErr     string
 	homeLoading bool
 
-	playlists map[int64]*netease.Playlist
-	loadingPl map[int64]bool
-	plErr     map[int64]string
-	trackList ui.ListState
+	playlists  map[int64]*netease.Playlist
+	loadingPl  map[int64]bool
+	plErr      map[int64]string
+	artists    map[int64]*artistData
+	artistSort int // the order an artist's page lists songs in: artistHot or artistLatest
+	trackList  ui.ListState
 	// Where the page and the sidebar are scrolled, kept while Now Playing
 	// covers them, unbuilt.
 	pageScroll ui.ScrollState
@@ -158,6 +162,7 @@ func Run() error {
 		playlists: map[int64]*netease.Playlist{},
 		loadingPl: map[int64]bool{},
 		plErr:     map[int64]string{},
+		artists:   map[int64]*artistData{},
 		lyricAt:   -1,
 		queueAt:   -1,
 		cacheUsed: -1,

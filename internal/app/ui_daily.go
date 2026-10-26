@@ -370,7 +370,7 @@ func (a *app) dailyPicks(c *ui.Context, songs []netease.Track, ours bool) {
 				})
 				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(1).Children(func() {
 					ui.Text(c, tr.Name).FontSize(13).FontWeight(600).MaxLines(1)
-					ui.Text(c, tr.ArtistNames()).FontSize(11.5).TextColor(white.Alpha(0.6)).MaxLines(1)
+					a.artistLinks(c, tr, white.Alpha(0.6), white).FontSize(11.5).MaxLines(1)
 				})
 			})
 			if row.Clicked() {

@@ -320,6 +320,57 @@ func Search(query string, limit int) ([]Track, error) {
 	return res.Result.Songs, nil
 }
 
+// ArtistProfile is who an artist is, as their page shows them, with the
+// songs they are best known for.
+type ArtistProfile struct {
+	Artist
+	Avatar    string   `json:"img1v1Url"` // square
+	PicURL    string   `json:"picUrl"`    // wide
+	Alias     []string `json:"alias"`
+	Trans     string   `json:"trans"`
+	BriefDesc string   `json:"briefDesc"`
+	MusicSize int      `json:"musicSize"`
+	AlbumSize int      `json:"albumSize"`
+	Songs     []Track  `json:"-"`
+}
+
+// ArtistDetail returns an artist with their 50 most popular songs.
+func ArtistDetail(id int64) (*ArtistProfile, error) {
+	var res struct {
+		Artist   ArtistProfile `json:"artist"`
+		HotSongs []Track       `json:"hotSongs"`
+	}
+	if err := get("/api/v1/artist/"+strconv.FormatInt(id, 10), nil, &res); err != nil {
+		return nil, err
+	}
+	ar := &res.Artist
+	ar.Songs = res.HotSongs
+	detailPrivileges(ar.Songs)
+	return ar, nil
+}
+
+// ArtistLatestSongs returns up to limit of an artist's songs, the newest
+// first.
+func ArtistLatestSongs(id int64, limit int) ([]Track, error) {
+	var res struct {
+		Songs []struct {
+			ID int64 `json:"id"`
+		} `json:"songs"`
+	}
+	form := url.Values{"id": {strconv.FormatInt(id, 10)}, "order": {"time"}, "limit": {strconv.Itoa(limit)}, "offset": {"0"}}
+	if err := post("/api/v1/artist/songs", form, &res); err != nil {
+		return nil, err
+	}
+	// Some artists' songs come in the old shape (artists, album, duration)
+	// that Track doesn't read: their details have them in the new one, as
+	// the listener's privileges.
+	ids := make([]int64, len(res.Songs))
+	for i, s := range res.Songs {
+		ids[i] = s.ID
+	}
+	return SongDetails(ids)
+}
+
 var ErrUnavailable = errors.New("this song isn't available to stream")
 
 // Stream is where a track streams from, and what it is.

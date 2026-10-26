@@ -443,11 +443,11 @@ func (n *notch) expanded(c *ui.Context, tr *netease.Track, open, left float32) {
 			}
 			ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 				ui.Text(c, tr.Name).FontSize(15).FontWeight(700).SingleLine()
-				sub := tr.ArtistNames()
 				if pl.Loading() {
-					sub = "正在缓冲…"
+					ui.Text(c, "正在缓冲…").FontSize(12.5).TextColor(white.Alpha(0.55)).SingleLine()
+				} else {
+					a.artistLinks(c, tr, white.Alpha(0.55), white).FontSize(12.5).SingleLine()
 				}
-				ui.Text(c, sub).FontSize(12.5).TextColor(white.Alpha(0.55)).SingleLine()
 			})
 			a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6))
 			n.levels(c, tr, 26, 22, 5)

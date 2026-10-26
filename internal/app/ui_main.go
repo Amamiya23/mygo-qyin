@@ -105,8 +105,11 @@ func (a *app) open(r route) {
 func (a *app) show(r route) {
 	a.route = r
 	a.trackList, a.pageScroll = ui.ListState{}, ui.ScrollState{}
-	if r.page == pagePlaylist {
+	switch r.page {
+	case pagePlaylist:
 		a.loadPlaylist(r.playlist, false)
+	case pageArtist:
+		a.loadArtist(r.artist)
 	}
 }
 
@@ -224,7 +227,7 @@ func (a *app) sidebarNowPlaying(c *ui.Context, tr *netease.Track) {
 		a.cover(c, tr.Album.PicURL, 96, 40, 6).Shadow(0, 2, 6, 0, p.cardShade)
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
 			ui.Text(c, tr.Name).FontSize(12.5).FontWeight(600).SingleLine()
-			ui.Text(c, tr.ArtistNames()).FontSize(11.5).TextColor(p.muted).SingleLine()
+			a.artistLinks(c, tr, p.muted, p.text).FontSize(11.5).SingleLine()
 		})
 	})
 	if card.Clicked() {
@@ -343,6 +346,8 @@ func (a *app) content(c *ui.Context) {
 		a.searchPage(c)
 	case pageFM:
 		a.fmPage(c)
+	case pageArtist:
+		a.artistPage(c)
 	}
 }
 
