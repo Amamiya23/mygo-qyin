@@ -61,6 +61,7 @@ type app struct {
 	charts      []netease.Playlist
 	homeErr     string
 	homeLoading bool
+	homeAt      time.Time // when what the home page shows was asked for
 
 	playlists  map[int64]*netease.Playlist
 	loadingPl  map[int64]bool
@@ -218,6 +219,8 @@ func Run() error {
 		a.syncDock()
 		a.win.OnShow(a.syncDock)
 		a.win.OnHide(a.syncDock)
+		// Shown or switched to the morning after, it shows the new day's.
+		a.win.OnFocus(a.freshenHome)
 		a.applyTray()
 		if shotHook != nil {
 			shotHook(a)
