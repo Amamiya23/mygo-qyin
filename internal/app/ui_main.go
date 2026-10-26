@@ -53,7 +53,9 @@ func (a *app) view(c *ui.Context) {
 				side.Background(p.sidebar)
 			}
 			side.Children(func() { a.sidebar(c) })
-			ui.Box(c).Grow(1).Background(p.bg).BorderWidth(0, 0, 0, 1).BorderColor(p.hairline).Children(func() {
+			// Keyed, so that a popover of the sidebar opening or closing
+			// keeps what the page and its bars hold, their edges' fades.
+			ui.Box(c.Key("main")).Grow(1).Background(p.bg).BorderWidth(0, 0, 0, 1).BorderColor(p.hairline).Children(func() {
 				a.content(c)
 				// The bars float over the page, which scrolls under them:
 				// positioned, they paint over it.
