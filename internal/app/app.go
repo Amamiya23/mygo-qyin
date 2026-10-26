@@ -34,6 +34,7 @@ type route struct {
 type app struct {
 	win   *mygo.Window
 	notch *notch
+	tray  *mygo.Tray // the icon in the menu bar or notification area, while it shows
 	art   *artCache
 	pl    *player.Player
 	pal   palette
@@ -151,8 +152,13 @@ var shotHook func(a *app)
 
 func (a *app) showMain() {
 	if a.win != nil {
+		if a.win.IsMinimized() {
+			a.win.Restore()
+		}
 		a.win.Show()
 		a.win.Focus()
+		// From the menu bar alone the app may be inactive.
+		mygo.App.Focus()
 	}
 }
 
@@ -206,19 +212,21 @@ func Run() error {
 		// hang at the top of the screen as a black box.
 		if runtime.GOOS == "darwin" {
 			a.notch = newNotch(a)
+			mygo.App.SetActivationPolicy(activationPolicy(a.settings))
 		}
+		a.applyTray()
 		if shotHook != nil {
 			shotHook(a)
 		}
-		// On macOS closing the window hides it: music plays on, under the
-		// notch, and the Dock icon brings it back. Elsewhere nothing would
-		// bring it back, so closing it quits.
+		// Closing the window hides it: music plays on, and the Dock icon
+		// or the tray's brings it back. A Linux desktop without a tray
+		// has neither, so there closing it quits.
 		a.win.OnClose(func(e *mygo.CloseEvent) {
 			if a.quitting {
 				return
 			}
 			e.PreventDefault()
-			if runtime.GOOS == "darwin" {
+			if runtime.GOOS == "darwin" || a.tray != nil {
 				a.win.Hide()
 			} else {
 				mygo.App.Quit()
@@ -230,6 +238,13 @@ func Run() error {
 		a.settings.Volume = a.volume
 		a.settings.save()
 		a.saveSession()
+	})
+	// Windows leaves an icon in the notification area after its app until
+	// the pointer passes over it.
+	mygo.App.OnWillQuit(func(*mygo.QuitEvent) {
+		if a.tray != nil {
+			a.tray.Destroy()
+		}
 	})
 	mygo.App.OnWindowAllClosed(func() {})
 	mygo.App.OnActivate(func(bool) { a.showMain() })

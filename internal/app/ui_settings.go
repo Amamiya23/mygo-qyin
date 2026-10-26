@@ -1,6 +1,7 @@
 package app
 
 import (
+	"runtime"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -67,6 +68,32 @@ func (a *app) settingsView(c *ui.Context) {
 					}
 				})
 				control()
+			})
+		}
+
+		// Only on macOS: elsewhere the icon is always in the notification
+		// area.
+		if runtime.GOOS == "darwin" {
+			group("通用", func() {
+				row("应用图标", "显示在菜单栏时，关闭窗口后可从菜单栏图标打开", func() {
+					labels := make([]string, len(appIcons))
+					chosen := appIcons[0].label
+					for i, ic := range appIcons {
+						labels[i] = ic.label
+						if ic.id == s.AppIcon {
+							chosen = ic.label
+						}
+					}
+					if ui.Select(c.Key("app-icon"), &chosen, labels).Label("应用图标").Width(150).Changed() {
+						for _, ic := range appIcons {
+							if ic.label == chosen {
+								s.AppIcon = ic.id
+							}
+						}
+						a.changed()
+						a.changeAppIcon()
+					}
+				})
 			})
 		}
 

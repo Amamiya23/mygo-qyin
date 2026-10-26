@@ -46,6 +46,9 @@ type settings struct {
 	// rising and swelling with the bass: an experiment the listener turns
 	// on.
 	Fog bool `json:"fog"`
+	// AppIcon is where the app's icon shows on macOS (appIcons); elsewhere
+	// it is always in the notification area.
+	AppIcon string `json:"appIcon"`
 	// CacheMB is how many megabytes the songs kept on disk may take; 0
 	// keeps none.
 	CacheMB int `json:"cacheMB"`
@@ -54,7 +57,7 @@ type settings struct {
 }
 
 func defaultSettings() settings {
-	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8, Normalize: true, CacheMB: 2048}
+	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8, Normalize: true, AppIcon: "dock-and-menubar", CacheMB: 2048}
 }
 
 func settingsPath() (string, error) {
