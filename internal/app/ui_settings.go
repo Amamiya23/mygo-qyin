@@ -32,7 +32,11 @@ func (a *app) openSettings() {
 		BackgroundColor: "light-dark(#f4f4f6, #1c1c1f)",
 		Content:         ui.View(a.settingsView),
 	})
-	a.settingsWin.OnClosed(func() { a.settingsWin = nil })
+	a.settingsWin.OnClosed(func() {
+		a.settingsWin = nil
+		a.syncDock()
+	})
+	a.syncDock()
 }
 
 // changed applies the settings everywhere and keeps them.

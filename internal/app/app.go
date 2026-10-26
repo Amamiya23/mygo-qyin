@@ -212,8 +212,12 @@ func Run() error {
 		// hang at the top of the screen as a black box.
 		if runtime.GOOS == "darwin" {
 			a.notch = newNotch(a)
-			mygo.App.SetActivationPolicy(activationPolicy(a.settings))
 		}
+		// From the menu bar alone, the Dock icon shows while the window
+		// does.
+		a.syncDock()
+		a.win.OnShow(a.syncDock)
+		a.win.OnHide(a.syncDock)
 		a.applyTray()
 		if shotHook != nil {
 			shotHook(a)

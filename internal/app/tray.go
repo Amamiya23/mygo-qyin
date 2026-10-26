@@ -40,24 +40,36 @@ func showsTray(s settings) bool {
 }
 
 // activationPolicy is macOS's for the settings: no Dock icon for the menu
-// bar alone.
-func activationPolicy(s settings) mygo.ActivationPolicy {
-	if s.AppIcon == "menubar" {
+// bar alone, unless a window is open, so the listener can switch to it
+// with Command-Tab and the app's menu shows.
+func activationPolicy(s settings, windowOpen bool) mygo.ActivationPolicy {
+	if s.AppIcon == "menubar" && !windowOpen {
 		return mygo.ActivationPolicyAccessory
 	}
 	return mygo.ActivationPolicyRegular
 }
 
+// windowOpen tells whether the main window or the settings window is
+// open: shown or minimized, as the notch player doesn't count.
+func (a *app) windowOpen() bool {
+	if a.settingsWin != nil {
+		return true
+	}
+	return a.win != nil && (a.win.IsVisible() || a.win.IsMinimized())
+}
+
+// syncDock shows or hides the Dock icon, as the settings and the open
+// windows say.
+func (a *app) syncDock() {
+	if runtime.GOOS == "darwin" {
+		mygo.App.SetActivationPolicy(activationPolicy(a.settings, a.windowOpen()))
+	}
+}
+
 // changeAppIcon shows the app's icon where the settings now say, as the
 // listener chose another place for it.
 func (a *app) changeAppIcon() {
-	if runtime.GOOS == "darwin" {
-		mygo.App.SetActivationPolicy(activationPolicy(a.settings))
-		// Without a Dock icon, macOS may leave the app inactive behind
-		// another's windows: the settings window the listener chose in
-		// stays in front.
-		mygo.App.Focus()
-	}
+	a.syncDock()
 	a.applyTray()
 }
 
