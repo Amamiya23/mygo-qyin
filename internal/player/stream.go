@@ -1,6 +1,7 @@
 package player
 
 import (
+	"cmp"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"math"
 	"math/cmplx"
 	"net/http"
+	"os"
 	"sync"
 
 	"github.com/egoist/mygo/audio"
@@ -16,42 +18,66 @@ import (
 	"netease-music-mygo/internal/netease"
 )
 
-// A download fetches a song into memory as it plays: readers wait for the
-// bytes they need, so playback starts with the first ones.
+// A download fetches a song as it plays: readers wait for the bytes they
+// need, so playback starts with the first ones. The song comes into a file
+// of the cache, which keeps it once it has all come in, and is read from
+// there: the system holds what of it was read lately, rather than the
+// app's memory, as much again as the song. Songs the cache would not keep
+// come into memory.
 type download struct {
 	mu     sync.Mutex
 	cond   sync.Cond
+	file   *os.File // where the song is, or nil: then data
 	data   []byte
+	n      int64 // the bytes in so far
 	size   int64 // expected, or 0 if unknown
 	done   bool
 	err    error
 	cancel context.CancelFunc
-	// whole, if set, takes the song once it has all come in.
-	whole func([]byte)
+	// part is the file's path until the cache keeps it, which keep does
+	// once the song has all come in: the path it is at then.
+	part string
+	keep func(part string, n int64) (string, bool)
+	// users counts what reads or writes the song: the stream decoding it,
+	// until it closes, and the goroutine fetching it. The last to go
+	// closes the file, and removes it unless the cache kept it.
+	users  int
+	closed bool
 }
 
-// startDownload fetches url, of size bytes if known, and gives whole the
-// song once it has all come in.
-func startDownload(url string, size int64, whole func([]byte)) *download {
+// startDownload fetches url, of size bytes if known, into part, a file
+// that keep keeps once it has all come in: or into memory, without one.
+func startDownload(url string, size int64, part *os.File, keep func(string, int64) (string, bool)) *download {
 	ctx, cancel := context.WithCancel(context.Background())
-	d := &download{size: size, cancel: cancel, whole: whole}
+	d := &download{size: size, cancel: cancel, users: 2}
 	d.cond.L = &d.mu
-	if size > 0 {
+	switch {
+	case part != nil:
+		d.file, d.part, d.keep = part, part.Name(), keep
+	case size > 0:
 		d.data = make([]byte, 0, size)
 	}
 	go d.run(ctx, url)
 	return d
 }
 
-// downloaded returns a download that has all of b in already, as a song
-// from the cache.
+// downloaded returns a download that has all of b in already.
 func downloaded(b []byte) *download {
-	d := &download{data: b, size: int64(len(b)), done: true, cancel: func() {}}
+	d := &download{data: b, n: int64(len(b)), size: int64(len(b)), done: true, cancel: func() {}, users: 1}
+	d.cond.L = &d.mu
+	return d
+}
+
+// opened returns a download that has all of the file f in already, of
+// size bytes, as a song from the cache.
+func opened(f *os.File, size int64) *download {
+	d := &download{file: f, n: size, size: size, done: true, cancel: func() {}, users: 1}
 	d.cond.L = &d.mu
 	return d
 }
 
 func (d *download) run(ctx context.Context, url string) {
+	defer d.release()
 	finish := func(err error) {
 		d.mu.Lock()
 		d.done, d.err = true, err
@@ -78,18 +104,14 @@ func (d *download) run(ctx context.Context, url string) {
 	for {
 		n, err := res.Body.Read(buf)
 		if n > 0 {
-			d.mu.Lock()
-			d.data = append(d.data, buf[:n]...)
-			d.cond.Broadcast()
-			d.mu.Unlock()
+			d.write(buf[:n])
 		}
 		if err == io.EOF {
-			finish(nil)
-			// Nothing appends to the data any more: it is the song's, whole
-			// if as long as promised.
-			if d.whole != nil && (d.size <= 0 || int64(len(d.data)) == d.size) {
-				d.whole(d.data)
+			// Whole if as long as promised: the cache's.
+			if d.part != "" && (d.size <= 0 || d.n == d.size) {
+				d.hand()
 			}
+			finish(nil)
 			return
 		}
 		if err != nil {
@@ -99,7 +121,58 @@ func (d *download) run(ctx context.Context, url string) {
 	}
 }
 
-// Close stops the download and wakes its readers.
+// write adds b to what is in. Only run writes, so it reads the file and
+// what is in without the lock, which guards them from readers.
+func (d *download) write(b []byte) {
+	if d.file != nil {
+		if _, err := d.file.Write(b); err != nil {
+			d.toMemory()
+		}
+	}
+	d.mu.Lock()
+	if d.file == nil {
+		d.data = append(d.data, b...)
+	}
+	d.n += int64(len(b))
+	d.cond.Broadcast()
+	d.mu.Unlock()
+}
+
+// toMemory moves the song into memory from a file that takes no more, as
+// on a full disk: it plays on, but is not kept.
+func (d *download) toMemory() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.data = make([]byte, d.n, max(d.size, d.n))
+	got, _ := d.file.ReadAt(d.data, 0)
+	d.data = d.data[:got]
+	d.n = int64(got)
+	d.file.Close()
+	os.Remove(d.part)
+	d.file, d.part = nil, ""
+}
+
+// hand gives the song, all in, to the cache, and reads it from where it
+// is kept. Windows moves no file that is open: it closes the file first,
+// and opens it again where it went, while no one reads it.
+func (d *download) hand() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.file.Close()
+	path, ok := d.keep(d.part, d.n)
+	f, err := os.Open(path)
+	if err != nil {
+		d.file, d.n, d.done, d.err = nil, 0, true, err
+		return
+	}
+	d.file = f
+	if ok {
+		d.part = ""
+	}
+}
+
+// Close stops the download and wakes its readers: the stream lets the
+// song go.
 func (d *download) Close() {
 	d.cancel()
 	d.mu.Lock()
@@ -107,7 +180,29 @@ func (d *download) Close() {
 		d.done, d.err = true, context.Canceled
 	}
 	d.cond.Broadcast()
+	closed := d.closed
+	d.closed = true
 	d.mu.Unlock()
+	if !closed {
+		d.release()
+	}
+}
+
+// release lets the song go for one of its users. With none left, nothing
+// reads it any more: its file closes, and goes unless the cache kept it.
+func (d *download) release() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.users--; d.users > 0 {
+		return
+	}
+	if d.file != nil {
+		d.file.Close()
+	}
+	if d.part != "" {
+		os.Remove(d.part)
+	}
+	d.file, d.data, d.n, d.part = nil, nil, 0, ""
 }
 
 // Progress returns the share of the song downloaded so far.
@@ -120,7 +215,7 @@ func (d *download) Progress() float64 {
 	if d.size <= 0 {
 		return 0
 	}
-	return float64(len(d.data)) / float64(d.size)
+	return float64(d.n) / float64(d.size)
 }
 
 // waitFor waits until n bytes are in, or the download ended, and returns
@@ -128,20 +223,48 @@ func (d *download) Progress() float64 {
 func (d *download) waitFor(n int64) int64 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	for int64(len(d.data)) < n && !d.done {
+	for d.n < n && !d.done {
 		d.cond.Wait()
 	}
-	return int64(len(d.data))
+	return d.n
 }
 
-// bytesAt returns the bytes from off as far as they are in.
-func (d *download) bytesAt(off int64) []byte {
+// readAt reads into b what is in from off, as much as fits. Its caller
+// holds the lock.
+func (d *download) readAt(b []byte, off int64) (int, error) {
+	n := min(int64(len(b)), d.n-off)
+	if n <= 0 {
+		return 0, nil
+	}
+	if d.file == nil {
+		return copy(b, d.data[off:d.n]), nil
+	}
+	return d.file.ReadAt(b[:n], off)
+}
+
+// peek returns up to n bytes from off, as far as they are in.
+func (d *download) peek(off int64, n int) []byte {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if off >= int64(len(d.data)) {
-		return nil
+	b := make([]byte, n)
+	got, _ := d.readAt(b, off)
+	return b[:got]
+}
+
+// A window reads a download a piece at a time, for scanning it byte by
+// byte without reading the file for each.
+type window struct {
+	dl  *download
+	off int64
+	b   []byte
+}
+
+// at returns up to n bytes from off, as far as they are in.
+func (w *window) at(off int64, n int) []byte {
+	if off < w.off || off+int64(n) > w.off+int64(len(w.b)) {
+		w.off, w.b = off, w.dl.peek(off, max(n, 32<<10))
 	}
-	return d.data[off:len(d.data):len(d.data)]
+	return w.b[off-w.off : min(int64(len(w.b)), off-w.off+int64(n))]
 }
 
 // A downloadReader reads a download from an offset, waiting for its bytes.
@@ -156,16 +279,19 @@ func (r *downloadReader) Read(p []byte) (int, error) {
 	d := r.d
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	for int64(len(d.data)) <= r.pos && !d.done {
+	for d.n <= r.pos && !d.done {
 		d.cond.Wait()
 	}
-	if int64(len(d.data)) <= r.pos {
+	if d.n <= r.pos {
 		if d.err != nil {
 			return 0, d.err
 		}
 		return 0, io.EOF
 	}
-	n := copy(p, d.data[r.pos:])
+	n, err := d.readAt(p, r.pos)
+	if n == 0 {
+		return 0, cmp.Or(err, io.ErrUnexpectedEOF)
+	}
 	r.pos += int64(n)
 	return n, nil
 }
@@ -183,7 +309,7 @@ type stream interface {
 // say. An MP3 says nothing of its length: durationMs is it.
 func openStream(dl *download, durationMs int64) (stream, error) {
 	off := id3Size(dl)
-	if dl.waitFor(off+4) >= off+4 && string(dl.bytesAt(off)[:4]) == "fLaC" {
+	if dl.waitFor(off+4) >= off+4 && string(dl.peek(off, 4)) == "fLaC" {
 		return openFLACStream(dl)
 	}
 	return openMP3Stream(dl, durationMs)
@@ -221,7 +347,7 @@ func openMP3Stream(dl *download, durationMs int64) (*mp3Stream, error) {
 // id3Size returns the length of the ID3v2 tag at the start of the file.
 func id3Size(dl *download) int64 {
 	dl.waitFor(10)
-	b := dl.bytesAt(0)
+	b := dl.peek(0, 10)
 	if len(b) < 10 || string(b[:3]) != "ID3" {
 		return 0
 	}
@@ -303,16 +429,16 @@ func (s *mp3Stream) Close() error {
 // header the next frame's confirms, so that bytes that only look like one
 // within the audio do not count.
 func findFrame(dl *download, off int64) int64 {
+	w := window{dl: dl}
 	for tries := 0; tries < 64<<10; tries++ {
 		have := dl.waitFor(off + 4)
 		if have < off+4 {
 			return off
 		}
-		b := dl.bytesAt(off)
-		size := frameSize(b)
+		size := frameSize(w.at(off, 4))
 		if size > 0 {
-			have = dl.waitFor(off + int64(size) + 4)
-			next := dl.bytesAt(off + int64(size))
+			dl.waitFor(off + int64(size) + 4)
+			next := w.at(off+int64(size), 4)
 			if len(next) < 4 || frameSize(next) > 0 {
 				return off
 			}

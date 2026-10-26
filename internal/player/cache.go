@@ -39,8 +39,9 @@ func (c *Cache) SetLimit(limit int64) {
 
 func cacheKey(id int64, level string) string { return fmt.Sprintf("%d-%s", id, level) }
 
-// lookup returns a song kept at level or a better one, with its stream.
-func (c *Cache) lookup(id int64, level string) ([]byte, *netease.Stream, bool) {
+// lookup returns a song kept at level or a better one, open to read, with
+// its stream.
+func (c *Cache) lookup(id int64, level string) (*download, *netease.Stream, bool) {
 	if c == nil {
 		return nil, nil, false
 	}
@@ -56,49 +57,82 @@ func (c *Cache) lookup(id int64, level string) ([]byte, *netease.Stream, bool) {
 			continue
 		}
 		path := filepath.Join(c.dir, key+"."+st.Type)
-		b, err := os.ReadFile(path)
-		if err != nil || int64(len(b)) != st.Size {
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		if info, err := f.Stat(); err != nil || info.Size() != st.Size {
+			f.Close()
 			continue
 		}
 		// Played now: the last to go.
 		now := time.Now()
 		os.Chtimes(path, now, now)
-		return b, &st, true
+		return opened(f, st.Size), &st, true
 	}
 	return nil, nil, false
 }
 
-// store keeps a song, whole, of the stream st, and drops what is over the
-// limit then.
-func (c *Cache) store(id int64, st *netease.Stream, b []byte) {
+// download fetches the song of the stream st into a file, to keep once it
+// has all come in; or into memory, if the cache would not keep it.
+func (c *Cache) download(id int64, st *netease.Stream) *download {
+	part := c.part(st)
+	if part == nil {
+		return startDownload(st.URL, st.Size, nil, nil)
+	}
+	return startDownload(st.URL, st.Size, part, func(path string, n int64) (string, bool) {
+		return c.keep(id, st, path, n)
+	})
+}
+
+// part makes a file for a song of the stream st to come into, or returns
+// nil if the cache would not keep it. Each has a name of its own: the same
+// song played again while it still comes in has another.
+func (c *Cache) part(st *netease.Stream) *os.File {
 	if c == nil {
-		return
+		return nil
 	}
 	c.mu.Lock()
 	limit := c.limit
 	c.mu.Unlock()
 	// A song of more than a quarter of it would push out too many.
-	if int64(len(b)) > limit/4 {
-		return
+	if limit <= 0 || st.Size > limit/4 {
+		return nil
+	}
+	if os.MkdirAll(c.dir, 0o700) != nil {
+		return nil
+	}
+	f, err := os.CreateTemp(c.dir, "*.part")
+	if err != nil {
+		return nil
+	}
+	return f
+}
+
+// keep keeps the song of the stream st, n bytes, from the file part, which
+// is closed, and drops what is over the limit then. It returns where the
+// song is: kept, or still at part.
+func (c *Cache) keep(id int64, st *netease.Stream, part string, n int64) (string, bool) {
+	c.mu.Lock()
+	limit := c.limit
+	c.mu.Unlock()
+	if n > limit/4 {
+		return part, false
 	}
 	kept := *st
 	if kept.Type == "" {
 		kept.Type = "mp3"
 	}
-	kept.Size = int64(len(b))
+	kept.Size = n
 	key := cacheKey(id, kept.Level)
 	meta, _ := json.Marshal(kept)
-	if os.MkdirAll(c.dir, 0o700) != nil {
-		return
-	}
-	// Written aside, then moved in place: a song half written is no song.
 	path := filepath.Join(c.dir, key+"."+kept.Type)
-	if os.WriteFile(path+".part", b, 0o600) != nil || os.Rename(path+".part", path) != nil {
-		os.Remove(path + ".part")
-		return
+	if os.Rename(part, path) != nil {
+		return part, false
 	}
 	os.WriteFile(filepath.Join(c.dir, key+".json"), meta, 0o600)
 	c.prune(path)
+	return path, true
 }
 
 // Size returns how many bytes the songs kept take.
@@ -150,6 +184,7 @@ func (c *Cache) remove(path string) {
 func (c *Cache) prune(keep string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.dropParts()
 	songs := c.songs()
 	slices.SortFunc(songs, func(a, b cachedSong) int { return a.used.Compare(b.used) })
 	var total int64
@@ -163,6 +198,17 @@ func (c *Cache) prune(keep string) {
 		if f.path != keep {
 			c.remove(f.path)
 			total -= f.size
+		}
+	}
+}
+
+// dropParts removes the files of songs that never all came in, left by an
+// app that quit as they came: one coming in is written to every moment.
+func (c *Cache) dropParts() {
+	parts, _ := filepath.Glob(filepath.Join(c.dir, "*.part"))
+	for _, path := range parts {
+		if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) > time.Hour {
+			os.Remove(path)
 		}
 	}
 }

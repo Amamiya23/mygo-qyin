@@ -165,26 +165,34 @@ func TestNormGain(t *testing.T) {
 func TestCache(t *testing.T) {
 	dir := t.TempDir()
 	c := NewCache(dir, 400)
-	song := func(n int) []byte { return make([]byte, n) }
-	c.store(1, &netease.Stream{Level: "lossless", Type: "flac", Gain: -3}, song(100))
-	b, st, ok := c.lookup(1, "exhigh")
-	if !ok || len(b) != 100 || st.Type != "flac" || st.Gain != -3 {
+	store := func(id int64, st *netease.Stream, n int) {
+		f := c.part(st)
+		f.Write(make([]byte, n))
+		f.Close()
+		c.keep(id, st, f.Name(), int64(n))
+	}
+	store(1, &netease.Stream{Level: "lossless", Type: "flac", Gain: -3}, 100)
+	dl, st, ok := c.lookup(1, "exhigh")
+	if !ok || dl.size != 100 || st.Type != "flac" || st.Gain != -3 {
 		t.Fatalf("lookup: %v %+v", ok, st)
 	}
+	dl.Close()
 	if _, _, ok := c.lookup(1, "hires"); ok {
 		t.Error("found a lossless song for Hi-Res")
 	}
 	old := time.Now().Add(-time.Hour)
 	os.Chtimes(filepath.Join(dir, "1-lossless.flac"), old, old)
-	c.store(2, &netease.Stream{Level: "exhigh", Type: "mp3"}, song(100))
-	c.store(3, &netease.Stream{Level: "exhigh", Type: "mp3"}, song(100))
-	c.store(4, &netease.Stream{Level: "exhigh", Type: "mp3"}, song(100))
-	c.store(5, &netease.Stream{Level: "exhigh", Type: "mp3"}, song(100))
+	store(2, &netease.Stream{Level: "exhigh", Type: "mp3"}, 100)
+	store(3, &netease.Stream{Level: "exhigh", Type: "mp3"}, 100)
+	store(4, &netease.Stream{Level: "exhigh", Type: "mp3"}, 100)
+	store(5, &netease.Stream{Level: "exhigh", Type: "mp3"}, 100)
 	if _, _, ok := c.lookup(1, "standard"); ok {
 		t.Error("kept the song played longest ago")
 	}
-	if _, _, ok := c.lookup(5, "standard"); !ok {
+	if dl, _, ok := c.lookup(5, "standard"); !ok {
 		t.Error("dropped the song just kept")
+	} else {
+		dl.Close()
 	}
 	if n := c.Size(); n > 400 {
 		t.Errorf("takes %d of 400", n)

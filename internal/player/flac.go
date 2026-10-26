@@ -34,11 +34,8 @@ func openFLACStream(dl *download) (*flacStream, error) {
 	if err != nil {
 		return nil, err
 	}
-	head := dl.bytesAt(0)[:start]
-	if len(head) >= 3 && string(head[:3]) == "ID3" {
-		head = head[id3Size(dl):]
-	}
-	st, err := flac.New(bytes.NewReader(head))
+	from := id3Size(dl)
+	st, err := flac.New(bytes.NewReader(dl.peek(from, int(start-from))))
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +52,7 @@ func openFLACStream(dl *download) (*flacStream, error) {
 // ID3 tag, if any, and its metadata blocks.
 func flacDataStart(dl *download) (int64, error) {
 	off := id3Size(dl)
-	if dl.waitFor(off+4) < off+4 || string(dl.bytesAt(off)[:4]) != "fLaC" {
+	if dl.waitFor(off+4) < off+4 || string(dl.peek(off, 4)) != "fLaC" {
 		return 0, errors.New("flac: not a FLAC file")
 	}
 	off += 4
@@ -63,7 +60,7 @@ func flacDataStart(dl *download) (int64, error) {
 		if dl.waitFor(off+4) < off+4 {
 			return 0, io.ErrUnexpectedEOF
 		}
-		h := dl.bytesAt(off)
+		h := dl.peek(off, 4)
 		last := h[0]&0x80 != 0
 		off += 4 + (int64(h[1])<<16 | int64(h[2])<<8 | int64(h[3]))
 		if last {
@@ -179,11 +176,12 @@ func (s *flacStream) SetPosition(target int64) error {
 // before end starts, and the frame of sound it starts with. Bytes that
 // only look like a frame's header within the audio fail its checksums.
 func (s *flacStream) frameAfter(off, end int64) (int64, int64, bool) {
+	w := window{dl: s.dl}
 	for ; off+2 < end; off++ {
 		if s.dl.waitFor(off+2) < off+2 {
 			return 0, 0, false
 		}
-		b := s.dl.bytesAt(off)
+		b := w.at(off, 2)
 		if b[0] != 0xff || b[1]&0xfe != 0xf8 {
 			continue
 		}
@@ -203,7 +201,7 @@ func (s *flacStream) frameAt(off int64) (at int64, ok bool) {
 			ok = false
 		}
 	}()
-	f, err := s.parse(&downloadReader{d: s.dl, pos: off})
+	f, err := s.parse(bufio.NewReaderSize(&downloadReader{d: s.dl, pos: off}, 16<<10))
 	if err != nil || f.Channels.Count() != int(s.info.NChannels) {
 		return 0, false
 	}

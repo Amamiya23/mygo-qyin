@@ -663,20 +663,16 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 }
 
 // open opens track t's audio at level: kept in the cache, or else
-// streamed, and kept once it has all come in.
+// streamed into it, and kept once it has all come in.
 func (p *Player) open(t netease.Track, level string) (*netease.Stream, stream, error) {
-	var dl *download
-	b, info, ok := p.Cache.lookup(t.ID, level)
-	if ok {
-		dl = downloaded(b)
-	} else {
+	dl, info, ok := p.Cache.lookup(t.ID, level)
+	if !ok {
 		var err error
 		info, err = netease.SongURL(t.ID, level)
 		if err != nil {
 			return nil, nil, err
 		}
-		cache := p.Cache
-		dl = startDownload(info.URL, info.Size, func(b []byte) { cache.store(t.ID, info, b) })
+		dl = p.Cache.download(t.ID, info)
 	}
 	s, err := openStream(dl, t.Duration)
 	if err != nil {

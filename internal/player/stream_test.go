@@ -2,8 +2,15 @@ package player
 
 import (
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
+	"time"
+
+	"netease-music-mygo/internal/netease"
 )
 
 func TestFrameSize(t *testing.T) {
@@ -71,7 +78,7 @@ func TestMP3SeekIsClean(t *testing.T) {
 			off := s.start + int64(float64(dl.size-s.start)*float64(from)/float64(s.frames))
 			off = findFrame(dl, off)
 			k := int64(0)
-			for p := s.start; p < off; p += int64(frameSize(dl.data[p:])) {
+			for p := s.start; p < off; p += int64(frameSize(dl.peek(p, 4))) {
 				k++
 			}
 			at = (k*1152 + preroll) * 2
@@ -152,5 +159,70 @@ func TestFLACMetadataLength(t *testing.T) {
 	}
 	if d := maxDiff(buf[:n], ref); d != 0 {
 		t.Errorf("off by up to %.4f", d)
+	}
+}
+
+// A song plays as it streams into a file of the cache, rather than the
+// app's memory, and the cache keeps it once it has all come in; one cut
+// short leaves no file behind.
+func TestStreamIntoCache(t *testing.T) {
+	b, err := os.ReadFile("testdata/seek.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	half := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cut" {
+			w.Header().Set("Content-Length", strconv.Itoa(len(b)))
+			w.Write(b[:len(b)/2])
+			w.(http.Flusher).Flush()
+			<-half
+			return
+		}
+		w.Write(b)
+	}))
+	defer srv.Close()
+	defer close(half)
+	dir := t.TempDir()
+	c := NewCache(dir, 1<<30)
+	ref := decodeAll(t, b)
+
+	st := &netease.Stream{URL: srv.URL + "/whole", Size: int64(len(b)), Level: "exhigh", Type: "mp3"}
+	s, err := openStream(c.download(1, st), int64(len(ref)/2)*1000/44100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []float32
+	buf := make([]float32, 4096)
+	for {
+		n, err := s.Read(buf)
+		got = append(got, buf[:n]...)
+		if err != nil || n == 0 {
+			break
+		}
+	}
+	s.Close()
+	if d := maxDiff(got, ref); len(got) != len(ref) || d != 0 {
+		t.Errorf("played %d of %d samples, off by up to %.4f", len(got), len(ref), d)
+	}
+	if dl, _, ok := c.lookup(1, "exhigh"); !ok {
+		t.Error("not kept")
+	} else {
+		dl.Close()
+	}
+
+	cut := c.download(2, &netease.Stream{URL: srv.URL + "/cut", Size: int64(len(b)), Level: "exhigh", Type: "mp3"})
+	cut.waitFor(int64(len(b) / 2))
+	cut.Close()
+	for start := time.Now(); time.Since(start) < 2*time.Second; time.Sleep(10 * time.Millisecond) {
+		if parts, _ := filepath.Glob(filepath.Join(dir, "*.part")); len(parts) == 0 {
+			break
+		}
+	}
+	if parts, _ := filepath.Glob(filepath.Join(dir, "*.part")); len(parts) != 0 {
+		t.Errorf("left %v", parts)
+	}
+	if _, _, ok := c.lookup(2, "exhigh"); ok {
+		t.Error("kept a song cut short")
 	}
 }

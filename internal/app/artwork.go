@@ -24,21 +24,41 @@ type artwork struct {
 	backdrop *ui.Bitmap
 	tint     ui.Color // the cover's most vivid color
 	failed   bool
+	used     time.Time // when it was last asked for
 }
 
-// artCache loads covers on goroutines and keeps them for the session:
-// their pixels on the GPU, and on the CPU only their data, which takes a
-// fraction of the pixels. Its methods run on the main thread; post runs a
-// function there.
+// artCache loads covers on goroutines and keeps them while they show, and
+// for a while after: their pixels on the GPU, and on the CPU only their
+// data, which takes a fraction of the pixels. Its methods run on the main
+// thread; post runs a function there.
 type artCache struct {
-	art  map[string]*artwork
-	busy map[string]bool
-	sem  chan struct{}
-	post func(func())
+	art   map[string]*artwork
+	busy  map[string]bool
+	sem   chan struct{}
+	post  func(func())
+	now   func() time.Time
+	swept time.Time
 }
+
+// artKeep is how long a cover not asked for stays: the pages scrolled
+// through over a session show thousands.
+const artKeep = 5 * time.Minute
 
 func newArtCache(post func(func())) *artCache {
-	return &artCache{art: map[string]*artwork{}, busy: map[string]bool{}, sem: make(chan struct{}, 8), post: post}
+	return &artCache{art: map[string]*artwork{}, busy: map[string]bool{}, sem: make(chan struct{}, 8), post: post, now: time.Now, swept: time.Now()}
+}
+
+// sweep drops the covers not asked for in artKeep, once a minute.
+func (c *artCache) sweep(now time.Time) {
+	if now.Sub(c.swept) < time.Minute {
+		return
+	}
+	c.swept = now
+	for key, a := range c.art {
+		if now.Sub(a.used) > artKeep {
+			delete(c.art, key)
+		}
+	}
 }
 
 // get returns the cover at url, or nil while it loads.
@@ -50,7 +70,10 @@ func (c *artCache) get(url string, backdrop bool) *artwork {
 	if backdrop {
 		key += "#backdrop"
 	}
+	now := c.now()
+	c.sweep(now)
 	if a, ok := c.art[key]; ok {
+		a.used = now
 		return a
 	}
 	if c.busy[key] {
@@ -72,10 +95,10 @@ func (c *artCache) get(url string, backdrop bool) *artwork {
 		c.post(func() {
 			delete(c.busy, key)
 			if err != nil {
-				c.art[key] = &artwork{failed: true}
+				c.art[key] = &artwork{failed: true, used: c.now()}
 				return
 			}
-			a := &artwork{bmp: bmp, tint: tint}
+			a := &artwork{bmp: bmp, tint: tint, used: c.now()}
 			if blurred != nil {
 				a.backdrop = ui.NewBitmap(blurred)
 			}
