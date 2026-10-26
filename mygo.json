@@ -10,6 +10,7 @@
   },
   "macos": {
     "icon": "icon/AppIcon.icon",
+    "minimumSystemVersion": "13.0",
     "signingIdentity": "Developer ID Application: xinyu zeng (GJE9R5VE87)",
     "notarize": { "keychainProfile": "notary" }
   },
