@@ -105,7 +105,7 @@ func TestCoverSlidesWithTheSong(t *testing.T) {
 		play func()
 		id   int64
 		dir  float32
-	}{{"next", a.pl.Next, 3, 1}, {"prev", a.pl.PrevTrack, 2, -1}} {
+	}{{"next", a.pl.Next, 3, 1}, {"prev", a.pl.Prev, 2, -1}} {
 		step.play()
 		tt.Frame()
 		tt.Advance(60 * time.Millisecond)

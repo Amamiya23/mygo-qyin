@@ -174,7 +174,7 @@ func (a *app) npCover(c *ui.Context, tr *netease.Track, art *artwork, size float
 		if dir > 0 {
 			pl.Next()
 		} else {
-			pl.PrevTrack()
+			pl.Prev()
 		}
 	}
 

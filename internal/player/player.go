@@ -395,21 +395,10 @@ func (p *Player) Next() {
 	p.load(at)
 }
 
+// Prev plays the track before this one, however far this one has played:
+// once a few seconds in, going back to its start only kept the listener
+// pressing twice.
 func (p *Player) Prev() {
-	if len(p.order) == 0 {
-		return
-	}
-	// As every player does: the start of this track, then the one before.
-	if p.Position() > 3*time.Second {
-		p.Seek(0)
-		return
-	}
-	p.PrevTrack()
-}
-
-// PrevTrack plays the track before this one, however far this one has
-// played, as flicking the cover back does.
-func (p *Player) PrevTrack() {
 	if len(p.order) == 0 {
 		return
 	}

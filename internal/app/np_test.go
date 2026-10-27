@@ -81,3 +81,51 @@ func TestLyricsPaneBeforePlayer(t *testing.T) {
 		t.Errorf("pane %d", pane)
 	}
 }
+
+// 上一首 plays the song before, however far this one has played: a few
+// seconds in, it went back to this one's start, and took a second click.
+func TestPrevGoesBackASong(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.pl.Cue([]netease.Track{{ID: 1, Name: "一", Duration: 200000}, {ID: 2, Name: "二", Duration: 200000}})
+	a.pl.SetLyrics(nil)
+	a.pl.Hold(30 * time.Second)
+	a.nowPlaying = true
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	if err := tt.Click("上一首"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if id := a.pl.Current().ID; id != 2 {
+		t.Errorf("playing %d, want the one before, 2", id)
+	}
+}
+
+// Now Playing holds still as the quality's badge goes, while the next song
+// loads, and comes back: the row of times grew with it, moving the column.
+func TestNowPlayingHoldsStillWithoutBadge(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.pl.Cue([]netease.Track{{ID: 1, Name: "一", Duration: 200000}})
+	a.pl.SetLyrics(nil)
+	a.nowPlaying = true
+	tt := ui.NewTester(a.view, 1200, 800)
+	var at []float32
+	for _, st := range []*netease.Stream{{Level: "lossless"}, nil} {
+		a.pl.SetStream(st)
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+		r, ok := tt.Find("专辑封面")
+		if !ok {
+			t.Fatal("no cover")
+		}
+		at = append(at, r.Y)
+	}
+	if at[0] != at[1] {
+		t.Errorf("the cover moved from %v to %v as the badge went", at[0], at[1])
+	}
+}

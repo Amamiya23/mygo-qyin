@@ -40,3 +40,6 @@ func (p *Player) Attach(out *audio.Player) {
 	p.out = out
 	p.playing = true
 }
+
+// SetStream makes st what the current track streams.
+func (p *Player) SetStream(st *netease.Stream) { p.info = st }
