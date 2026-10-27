@@ -9,19 +9,30 @@ import (
 )
 
 // userDetail and userPlaylists load a user and their playlists from
-// NetEase; tests replace them.
+// NetEase, and followedArtists and subscribedPodcasts what the listener
+// follows; tests replace them.
 var (
-	userDetail    = netease.UserDetail
-	userPlaylists = netease.UserPlaylists
+	userDetail         = netease.UserDetail
+	userPlaylists      = netease.UserPlaylists
+	followedArtists    = netease.FollowedArtists
+	subscribedPodcasts = netease.SubscribedPodcasts
 )
 
 // userData is what the app has of a user: who they are, and the playlists
-// they made that anyone may see.
+// they made that anyone may see. Of the listener's own page, it has the
+// artists they follow and the podcasts they subscribe to too, which
+// NetEase shows no one else.
 type userData struct {
 	user      *netease.User
 	playlists []netease.Playlist
 	loading   int // how many of the two are on their way
 	err       string
+
+	artists       []netease.ArtistProfile
+	podcasts      []netease.Podcast
+	artistsShown  bool // whether artists has loaded once
+	podcastsShown bool
+	subsLoading   int
 }
 
 func (a *app) loadUser(id int64) {
@@ -29,6 +40,9 @@ func (a *app) loadUser(id int64) {
 	if d == nil {
 		d = &userData{}
 		a.users[id] = d
+	}
+	if a.profile != nil && a.profile.UserID == id {
+		a.loadSubscriptions(d)
 	}
 	if d.user != nil || d.loading > 0 {
 		return
@@ -51,6 +65,35 @@ func (a *app) loadUser(id int64) {
 			d.loading--
 			if err == nil {
 				d.playlists = publicPlaylists(made, id)
+			}
+		})
+	}()
+}
+
+// loadSubscriptions loads the artists the listener follows and the
+// podcasts they subscribe to, each time their page shows: they follow and
+// subscribe on other pages, and these keep up. What they had shows while
+// the lists are on their way.
+func (a *app) loadSubscriptions(d *userData) {
+	if d.subsLoading > 0 {
+		return
+	}
+	d.subsLoading = 2
+	go func() {
+		ars, err := followedArtists()
+		a.post(func() {
+			d.subsLoading--
+			if err == nil {
+				d.artists, d.artistsShown = ars, true
+			}
+		})
+	}()
+	go func() {
+		pods, err := subscribedPodcasts()
+		a.post(func() {
+			d.subsLoading--
+			if err == nil {
+				d.podcasts, d.podcastsShown = pods, true
 			}
 		})
 	}()
@@ -86,6 +129,7 @@ func (a *app) userPage(c *ui.Context) {
 		return
 	}
 	u := d.user
+	own := a.profile != nil && a.profile.UserID == id
 	a.scrollPage(c, func() {
 		ui.Row(c).Gap(28).AlignItems(ui.End).Children(func() {
 			ui.Box(c).Size(artistPhotoSize, artistPhotoSize).Radius(artistPhotoSize/2).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
@@ -110,6 +154,28 @@ func (a *app) userPage(c *ui.Context) {
 			ui.Grid(c).Columns(a.columns(c, 168)).GapX(20).GapY(28).Children(func() {
 				for i := range d.playlists {
 					a.playlistCard(c.Key(d.playlists[i].ID), &d.playlists[i])
+				}
+			})
+		}
+		if own && d.podcastsShown {
+			a.section(c, "订阅的播客")
+			if len(d.podcasts) == 0 {
+				a.empty(c, "还没有订阅播客")
+			}
+			ui.Grid(c).Columns(a.columns(c, 340)).GapX(8).GapY(4).Margin(0, -12).Children(func() {
+				for i := range d.podcasts {
+					a.podcastRow(c.Key(d.podcasts[i].ID), &d.podcasts[i])
+				}
+			})
+		}
+		if own && d.artistsShown {
+			a.section(c, "关注的歌手")
+			if len(d.artists) == 0 {
+				a.empty(c, "还没有关注歌手")
+			}
+			ui.Grid(c).Columns(a.columns(c, 132)).GapX(20).GapY(28).Children(func() {
+				for i := range d.artists {
+					a.artistCard(c.Key(d.artists[i].ID), &d.artists[i])
 				}
 			})
 		}

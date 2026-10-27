@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 )
 
 // With NM_SHOTS set to a directory, the app walks through its views and
@@ -174,6 +175,19 @@ func init() {
 				step(0, func() { a.artistTab = artistLatest; a.loadLatest(a.route.id) })
 				time.Sleep(3 * time.Second)
 				shot("a-latest", a.win)
+				mygo.RunOnMain(mygo.App.Quit)
+				return
+			}
+			if os.Getenv("NM_SCENE") == "profile" {
+				// The listener's own page, and at its foot the podcasts they
+				// subscribe to and the artists they follow.
+				time.Sleep(4 * time.Second)
+				step(0, func() { a.open(route{page: pageUser, id: a.profile.UserID}) })
+				time.Sleep(4 * time.Second)
+				shot("p-profile", a.win)
+				step(0, func() { a.pageScroll.ScrollTo(0, 100000, ui.Smooth) })
+				time.Sleep(2 * time.Second)
+				shot("p-follows", a.win)
 				mygo.RunOnMain(mygo.App.Quit)
 				return
 			}
