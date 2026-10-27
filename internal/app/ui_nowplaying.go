@@ -264,21 +264,43 @@ const (
 	paneWall
 )
 
-func (a *app) paneTabs(c *ui.Context) {
+// npTab is a tab of Now Playing: its pane, and what it says.
+type npTab struct {
+	pane  int
+	label string
+}
+
+// npTabs returns the tabs of Now Playing, in order, for what plays: ⌘1
+// chooses the first, ⌘2 the second, and on.
+func (a *app) npTabs() []npTab {
 	if tr := a.pl.Current(); tr != nil && tr.ProgramID != 0 {
-		a.paneTab(c, paneProgram, "简介")
+		tabs := []npTab{{paneProgram, "简介"}}
 		if a.captionsShown() {
-			a.paneTab(c, paneCaptions, "字幕")
+			tabs = append(tabs, npTab{paneCaptions, "字幕"})
 		}
-		a.paneTab(c, paneQueue, "待播清单")
-		a.paneTab(c, paneComments, a.commentsTab())
-		return
+		return append(tabs, npTab{paneQueue, "待播清单"}, npTab{paneComments, "评论"})
 	}
-	a.paneTab(c, paneLyrics, "歌词")
-	a.paneTab(c, paneStage, "律动")
-	a.paneTab(c, paneQueue, "待播清单")
-	a.paneTab(c, paneWall, "选歌")
-	a.paneTab(c, paneComments, a.commentsTab())
+	return []npTab{{paneLyrics, "歌词"}, {paneStage, "律动"}, {paneQueue, "待播清单"}, {paneWall, "选歌"}, {paneComments, "评论"}}
+}
+
+func (a *app) paneTabs(c *ui.Context) {
+	for _, t := range a.npTabs() {
+		label := t.label
+		if t.pane == paneComments {
+			label = a.commentsTab()
+		}
+		a.paneTab(c, t.pane, label)
+	}
+}
+
+// choosePane shows pane i in Now Playing, remembering lyrics or the stage,
+// whichever was chosen, for the next song.
+func (a *app) choosePane(i int) {
+	a.npPane = i
+	if (i == paneLyrics || i == paneStage) && a.settings.LyricsStage != (i == paneStage) {
+		a.settings.LyricsStage = i == paneStage
+		a.settings.save()
+	}
 }
 
 // radioChip says which radio plays, over the title: a click on it, or on
@@ -369,11 +391,7 @@ func (a *app) paneTab(c *ui.Context, i int, label string) {
 		rollCount(c, &a.tabCount, n, text, fg)
 	})
 	if b.Clicked() {
-		a.npPane = i
-		if (i == paneLyrics || i == paneStage) && a.settings.LyricsStage != (i == paneStage) {
-			a.settings.LyricsStage = i == paneStage
-			a.settings.save()
-		}
+		a.choosePane(i)
 	}
 }
 
