@@ -2,6 +2,7 @@ package netease
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 )
 
@@ -12,8 +13,15 @@ func SubscribePodcast(id int64, subscribe bool) error {
 }
 
 // FollowArtist follows an artist for the listener, or unfollows them.
+// Through the web API: as the desktop client, through eapi, following is
+// refused with -460, 检测到您的网络环境存在风险, though unfollowing is not.
 func FollowArtist(id int64, follow bool) error {
-	return subscription("artist", follow, map[string]any{"artistId": strconv.FormatInt(id, 10), "artistIds": fmt.Sprintf("[%d]", id)})
+	path := "/api/artist/unsub"
+	if follow {
+		path = "/api/artist/sub"
+	}
+	form := url.Values{"artistId": {strconv.FormatInt(id, 10)}, "artistIds": {fmt.Sprintf("[%d]", id)}}
+	return post(path, form, &struct{}{})
 }
 
 func subscription(kind string, sub bool, data map[string]any) error {
