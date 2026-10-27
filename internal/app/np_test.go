@@ -72,3 +72,12 @@ func TestQueueStaysAsATrackIsPlayed(t *testing.T) {
 		}
 	}
 }
+
+// The app chooses Now Playing's pane before it makes the player: it
+// crashed on start when the choice asked the player what played.
+func TestLyricsPaneBeforePlayer(t *testing.T) {
+	a := &app{settings: settings{LyricsStage: true}}
+	if pane := a.lyricsPaneChosen(); pane != paneStage {
+		t.Errorf("pane %d", pane)
+	}
+}

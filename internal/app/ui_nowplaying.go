@@ -218,12 +218,10 @@ func reveal(e ui.Element, shown bool) ui.Element {
 	return e.AnimatePose(pose, ui.Animation{Duration: 200 * time.Millisecond})
 }
 
-// lyricsPaneChosen is the pane of lyrics the listener chose last, or for
-// an episode, what it is about.
+// lyricsPaneChosen is the pane of lyrics the listener chose last: what
+// the app starts on, before the player is made. Now Playing shows an
+// episode's in place of either.
 func (a *app) lyricsPaneChosen() int {
-	if tr := a.pl.Current(); tr != nil && tr.ProgramID != 0 {
-		return paneProgram
-	}
 	if a.settings.LyricsStage {
 		return paneStage
 	}
