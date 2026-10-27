@@ -30,9 +30,10 @@ func TestAccountMenu(t *testing.T) {
 	if !a.accountOpen || !tt.HasText("退出登录") {
 		t.Fatalf("menu not open: %v", a.accountOpen)
 	}
-	if !tt.Focused("设置…") {
+	if !tt.Focused("我的主页") {
 		t.Fatal("the first item has no focus")
 	}
+	tt.Key(0, ui.KeyDown)
 	tt.Key(0, ui.KeyDown)
 	tt.Frame()
 	if !tt.Focused("退出登录") {
@@ -50,6 +51,33 @@ func TestAccountMenu(t *testing.T) {
 	tt.Frame()
 	if a.accountOpen {
 		t.Fatal("a second click left the menu open")
+	}
+}
+
+// 我的主页 in the account menu opens the page of who is signed in and puts
+// the menu away.
+func TestAccountMenuOpensOwnPage(t *testing.T) {
+	detail, playlists := userDetail, userPlaylists
+	defer func() { userDetail, userPlaylists = detail, playlists }()
+	userDetail = func(id int64) (*netease.User, error) { return &netease.User{UserID: id, Nickname: "小明"}, nil }
+	userPlaylists = func(int64) ([]netease.Playlist, []netease.Playlist, error) { return nil, nil, nil }
+
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.profile = &netease.Profile{UserID: 42, Nickname: "小明"}
+	tt := ui.NewTester(a.view, 1000, 700)
+	tt.Frame()
+	tt.Click("小明")
+	tt.Frame()
+	if err := tt.Click("我的主页"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.route.page != pageUser || a.route.id != 42 {
+		t.Fatalf("route = %+v, want the page of user 42", a.route)
+	}
+	if a.accountOpen {
+		t.Fatal("the menu stayed open")
 	}
 }
 

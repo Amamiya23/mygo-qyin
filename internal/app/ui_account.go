@@ -241,7 +241,8 @@ func (a *app) profileName() string {
 }
 
 // accountRow sits at the foot of the sidebar: who is signed in, with a
-// dropdown to open the settings or sign out, or a way to sign in.
+// dropdown to open their page or the settings or sign out, or a way to
+// sign in.
 func (a *app) accountRow(c *ui.Context) {
 	p := a.pal
 	b := ui.ButtonBase(c.Key("account")).Height(40).PaddingX(8).Gap(10).Radius(10).AlignItems(ui.Center).Justify(ui.Start).FocusRing(false)
@@ -274,7 +275,8 @@ func (a *app) accountRow(c *ui.Context) {
 }
 
 // accountMenu drops up from the account row, as wide as it, in the colors
-// of the volume popover: the settings, then signing out.
+// of the volume popover: the listener's own page and the settings, then
+// signing out.
 func (a *app) accountMenu(c *ui.Context, row ui.Element) {
 	pop := popoverColors(a.pal.dark)
 	ui.PopoverBase(c.Key("account-menu"), row, &a.accountOpen, func(panel ui.Element) {
@@ -289,7 +291,11 @@ func (a *app) accountMenu(c *ui.Context, row ui.Element) {
 		if runtime.GOOS == "darwin" {
 			shortcut = "⌘,"
 		}
-		if a.menuItem(c, iconSettings, "设置…", shortcut).AutoFocus().Clicked() {
+		if a.menuItem(c, iconUser, "我的主页", "").AutoFocus().Clicked() {
+			a.accountOpen = false
+			a.open(route{page: pageUser, id: a.profile.UserID})
+		}
+		if a.menuItem(c, iconSettings, "设置…", shortcut).Clicked() {
 			a.accountOpen = false
 			a.openSettings()
 		}
