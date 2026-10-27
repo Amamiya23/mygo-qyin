@@ -55,11 +55,18 @@ func startDownload(url string, size int64, part *os.File, keep func(string, int6
 	case part != nil:
 		d.file, d.part, d.keep = part, part.Name(), keep
 	case size > 0:
-		d.data = make([]byte, 0, size)
+		d.data = make([]byte, 0, prealloc(size))
 	}
 	go d.run(ctx, url)
 	return d
 }
+
+// maxPrealloc is the most memory set aside for a song before its bytes
+// come in: the size it is said to be is the API's word, which a song that
+// turns out longer only outgrows.
+const maxPrealloc = 32 << 20
+
+func prealloc(size int64) int64 { return min(size, maxPrealloc) }
 
 // downloaded returns a download that has all of b in already.
 func downloaded(b []byte) *download {
@@ -143,7 +150,7 @@ func (d *download) write(b []byte) {
 func (d *download) toMemory() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.data = make([]byte, d.n, max(d.size, d.n))
+	d.data = make([]byte, d.n, max(prealloc(d.size), d.n))
 	got, _ := d.file.ReadAt(d.data, 0)
 	d.data = d.data[:got]
 	d.n = int64(got)

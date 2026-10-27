@@ -39,6 +39,12 @@ func (c *Cache) SetLimit(limit int64) {
 
 func cacheKey(id int64, level string) string { return fmt.Sprintf("%d-%s", id, level) }
 
+// keepable reports whether a song of level and type ext may be kept: they
+// name its file, so only those known, which keep it in the cache's folder.
+func keepable(level, ext string) bool {
+	return slices.Contains(netease.Levels, level) && (ext == "mp3" || ext == "flac")
+}
+
 // lookup returns a song kept at level or a better one, open to read, with
 // its stream.
 func (c *Cache) lookup(id int64, level string) (*download, *netease.Stream, bool) {
@@ -53,7 +59,7 @@ func (c *Cache) lookup(id int64, level string) (*download, *netease.Stream, bool
 			continue
 		}
 		var st netease.Stream
-		if json.Unmarshal(meta, &st) != nil {
+		if json.Unmarshal(meta, &st) != nil || !keepable(lv, st.Type) {
 			continue
 		}
 		path := filepath.Join(c.dir, key+"."+st.Type)
@@ -124,6 +130,9 @@ func (c *Cache) keep(id int64, st *netease.Stream, part string, n int64) (string
 		kept.Type = "mp3"
 	}
 	kept.Size = n
+	if !keepable(kept.Level, kept.Type) {
+		return part, false
+	}
 	key := cacheKey(id, kept.Level)
 	meta, _ := json.Marshal(kept)
 	path := filepath.Join(c.dir, key+"."+kept.Type)

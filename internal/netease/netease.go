@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -443,7 +444,9 @@ func SongURL(id int64, level string) (*Stream, error) {
 	if d.Peak != nil {
 		s.Peak = *d.Peak
 	}
-	if s.Level == "" {
+	// The level names the song's file in the cache: one not of Levels is
+	// taken for the one asked for.
+	if !slices.Contains(Levels, s.Level) {
 		s.Level = level
 	}
 	s.URL = strings.Replace(d.URL, "http://", "https://", 1)
