@@ -309,6 +309,28 @@ func TestPlayEpisode(t *testing.T) {
 	}
 }
 
+// 查看播客 in Now Playing closes it onto the episode's podcast, though
+// that is the page it covers: it did nothing, as the page was open.
+func TestEpisodeOpensPodcast(t *testing.T) {
+	a := catalogApp()
+	a.open(route{page: pagePodcast, id: 5})
+	d := a.podcasts[5]
+	d.programs[0].Description = "晚安"
+	a.playProgram(d, 0)
+	a.pl.SetLyrics(nil)
+	a.nowPlaying, a.npPane = true, paneProgram
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if err := tt.Click("查看播客"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.nowPlaying || a.route != (route{page: pagePodcast, id: 5}) {
+		t.Fatalf("Now Playing open %v over %+v", a.nowPlaying, a.route)
+	}
+}
+
 // A song row's album opens its page, not playing the song as the row's
 // click would.
 func TestAlbumLinkInRow(t *testing.T) {

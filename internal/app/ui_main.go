@@ -90,13 +90,14 @@ func (a *app) shortcuts(c *ui.Context) {
 	}
 }
 
-// go opens a page, remembering the one before for the back button.
+// go opens a page, remembering the one before for the back button, and
+// closes Now Playing over it, though it is the page open.
 func (a *app) open(r route) {
+	a.nowPlaying = false
 	if r == a.route {
 		return
 	}
 	a.history, a.forward = append(a.history, a.route), nil
-	a.nowPlaying = false
 	a.show(r)
 }
 
