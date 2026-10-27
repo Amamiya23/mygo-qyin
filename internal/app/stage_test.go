@@ -28,6 +28,27 @@ func TestStageStyleMenu(t *testing.T) {
 	}
 }
 
+// 火花 in the stage's menu turns the sparks on, and again off, whatever
+// the style.
+func TestStageSparksMenu(t *testing.T) {
+	a, tt, _ := playingApp()
+	a.nowPlaying, a.npPane = true, paneStage
+	a.settings.StageStyle = "tilt"
+	tt.Frame()
+	for _, want := range []bool{true, false} {
+		if err := tt.Click("律动效果"); err != nil {
+			t.Fatal(err)
+		}
+		if err := tt.ChooseMenuItem("火花"); err != nil {
+			t.Fatalf("%v; the menu shows %q", err, tt.Menu())
+		}
+		tt.Frame()
+		if a.settings.StageSparks != want || a.settings.StageStyle != "tilt" {
+			t.Errorf("sparks %v in %q, want %v in tilt", a.settings.StageSparks, a.settings.StageStyle, want)
+		}
+	}
+}
+
 func words(texts ...string) []lyrics.Word {
 	out := make([]lyrics.Word, len(texts))
 	for i, s := range texts {

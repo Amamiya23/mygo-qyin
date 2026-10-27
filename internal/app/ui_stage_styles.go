@@ -51,8 +51,49 @@ func (a *app) stageStyleButton(c *ui.Context) {
 				a.settings.save()
 			}
 		}
+		m.Separator()
+		if m.Item("火花").Checked(a.settings.StageSparks).Chosen() {
+			a.settings.StageSparks = !a.settings.StageSparks
+			a.settings.save()
+		}
 	})
 }
+
+// sparkTime is how long a word's sparks fly.
+const sparkTime = 0.6
+
+// stageSparks throws sparks off e as a word lands, since seconds after it
+// is sung, seed telling one word's from another's: short streaks of the
+// accent, white-hot at first, fly out from its edge, slowing, shortening
+// and fading; more and farther off a line's last word. They are drawn only
+// while they fly, in frames the stage draws for the word anyway.
+func stageSparks(e ui.Element, since float32, seed float64, last bool, accent ui.Color) {
+	if since < 0 || since >= sparkTime {
+		return
+	}
+	t := since / sparkTime
+	e.DrawOver(func(p *ui.Painter, r ui.Rect) {
+		cx, cy := r.X+r.W/2, r.Y+r.H/2
+		n, reach := 9, max(r.W, r.H)*0.75
+		if last {
+			n, reach = 16, reach*1.6
+		}
+		out := 1 - (1-t)*(1-t)*(1-t)
+		fade := (1 - t) * (1 - t)
+		color := accent.Mix(white, 0.6*(1-t))
+		for i := range n {
+			angle := 2 * math.Pi * (float64(i) + float64(lineRandom(seed, float64(i)))*0.7) / float64(n)
+			dx, dy := float32(math.Cos(angle)), float32(math.Sin(angle))
+			// From the word's edge, each at its own speed.
+			edge := r.W/2*0.7*abs32(dx) + r.H/2*0.7*abs32(dy)
+			head := edge + reach*(0.55+0.45*lineRandom(seed, float64(i)+50))*out
+			tail := max(edge, head-reach*0.3*(1-t))
+			p.Line(cx+dx*tail, cy+dy*tail, cx+dx*head, cy+dy*head, 0.8+1.6*(1-t), color.Alpha(0.9*fade))
+		}
+	})
+}
+
+func abs32(v float32) float32 { return max(v, -v) }
 
 // stageUnits splits words into the units 云阶 and 倾诉 break a line
 // between, as spans [from, to) of its words: a word of a language spaced
@@ -200,6 +241,7 @@ func (a *app) partitaLine(c *ui.Context, l *lyrics.Line, pos time.Duration, f, h
 			}
 			spaceWords(shapes, widths, f*0.1)
 			shapes[len(shapes)-1].margin = 0
+			shapes[len(shapes)-1].last = ri == len(rows)-1
 
 			pad := f * (row.scale*1.4 - 1) / 2
 			ui.Row(c.Key(ri)).AlignItems(ui.Center).Padding(3, 8).Margin(max(0, pad), 0, max(0, pad)+10, 0).
@@ -314,8 +356,9 @@ func splitParts(words []lyrics.Word, units [][2]int, n int) []tiltPart {
 // characters fading in one after another, swelling as each is sung and
 // staying a little larger. The leaning part is lighter, spaced wider, in
 // the accent, its characters up and down by turns. The whole line is at
-// opacity fade, rising a little as it goes.
-func tiltLine(c *ui.Context, l *lyrics.Line, pos time.Duration, w, fade float32, accent ui.Color) {
+// opacity fade, rising a little as it goes; with sparks, each word throws
+// them as it is sung.
+func tiltLine(c *ui.Context, l *lyrics.Line, pos time.Duration, w, fade float32, accent ui.Color, sparks bool) {
 	size := min(w*0.06875, 90)
 	avail := w * 0.85
 	style := func(p tiltPart) (weight int, spacing float32) {
@@ -349,14 +392,14 @@ func tiltLine(c *ui.Context, l *lyrics.Line, pos time.Duration, w, fade float32,
 	ui.Column(c.Key(l.At)).Absolute().Top(0).Left(0).Right(0).Bottom(0).Center().Gap(14).
 		Translate(0, -12*(1-fade)).Opacity(fade).PassThrough().Children(func() {
 		for pi, part := range parts {
-			tiltPartView(c.Key(pi), l.Words[part.from:part.to], part, pos, size, accent)
+			tiltPartView(c.Key(pi), l.Words[part.from:part.to], part, pos, size, accent, sparks, pi == len(parts)-1)
 		}
 	})
 }
 
 // tiltPartView shows a part of a line on 倾诉, its words, as they are at
-// pos.
-func tiltPartView(c *ui.Context, words []lyrics.Word, part tiltPart, pos time.Duration, size float32, accent ui.Color) {
+// pos, last when the part ends the line.
+func tiltPartView(c *ui.Context, words []lyrics.Word, part tiltPart, pos time.Duration, size float32, accent ui.Color, sparks, last bool) {
 	ease := func(t float32) float32 { t = clamp01(t); return 1 - (1-t)*(1-t) }
 	since := float32((pos - (words[0].Start - tiltLead)).Seconds())
 	weight, spacing, gap, color, pulse := 400, float32(0.08), float32(0.25), white, float32(0.15)
@@ -409,6 +452,9 @@ func tiltPartView(c *ui.Context, words []lyrics.Word, part tiltPart, pos time.Du
 					ch.Italic().LineHeight(1.25).Translate(0, y)
 				} else {
 					ch.LineHeight(1.35)
+				}
+				if sparks && i == 0 {
+					stageSparks(ch, t, float64(word.Start/time.Millisecond), last && wi == len(words)-1, accent)
 				}
 				i++
 				k++

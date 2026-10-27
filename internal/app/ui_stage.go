@@ -15,10 +15,12 @@ import (
 // lighting up with a glow, then settling and drifting. Everything follows
 // from where playback is, so seeking shows the same frame playing would.
 
-// wordShape is where a word sits and leans, the same for a line each time.
+// wordShape is where a word sits and leans, the same for a line each time;
+// last says it ends its line.
 type wordShape struct {
 	x, y, rotate, scale, drift float32
 	margin                     float32
+	last                       bool
 }
 
 // lineRandom is a small random number generator seeded by a line and a word,
@@ -67,6 +69,9 @@ func stageShapes(c *ui.Context, l *lyrics.Line, f float32) []wordShape {
 		}
 	}
 	spaceWords(shapes, widths, f*0.08)
+	if len(shapes) > 0 {
+		shapes[len(shapes)-1].last = true
+	}
 	return shapes
 }
 
@@ -196,7 +201,7 @@ func (a *app) stageLine(c *ui.Context, l *lyrics.Line, pos time.Duration, f, w, 
 		a.partitaLine(c, l, pos, f, h, fade, accent)
 		return
 	case "tilt":
-		tiltLine(c, l, pos, w, fade, accent)
+		tiltLine(c, l, pos, w, fade, accent, a.settings.StageSparks)
 		return
 	}
 	seed := float64(l.At / time.Millisecond)
@@ -262,6 +267,9 @@ func (a *app) stageWord(c *ui.Context, word lyrics.Word, s wordShape, pos time.D
 				TextColor(accent.Alpha(0.85 * glow)).Blur(f * 0.2).PassThrough()
 		}
 	})
+	if a.settings.StageSparks {
+		stageSparks(box, float32((pos - word.Start).Seconds()), float64(word.Start/time.Millisecond), s.last, accent)
+	}
 }
 
 // interlude shows three dots breathing through a break, filling as the
