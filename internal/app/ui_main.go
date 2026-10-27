@@ -2,7 +2,6 @@ package app
 
 import (
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/egoist/mygo/plugins/glass"
@@ -104,14 +103,29 @@ func (a *app) open(r route) {
 // show shows the page of r.
 func (a *app) show(r route) {
 	a.route = r
-	a.trackList, a.pageScroll = ui.ListState{}, ui.ScrollState{}
+	if r.page == pageSearch {
+		a.query, a.searched = r.query, r
+	}
+	a.load(r)
+}
+
+// load loads what the page of r shows, unless it has.
+func (a *app) load(r route) {
 	switch r.page {
 	case pageHome:
 		a.freshenHome()
 	case pagePlaylist:
-		a.loadPlaylist(r.playlist, false)
+		a.loadPlaylist(r.id, false)
+	case pageSearch:
+		a.loadSearch(r, false)
 	case pageArtist:
-		a.loadArtist(r.artist)
+		a.loadArtist(r.id)
+	case pageAlbum:
+		a.loadAlbum(r.id)
+	case pageUser:
+		a.loadUser(r.id)
+	case pagePodcast:
+		a.loadPodcast(r.id)
 	}
 }
 
@@ -145,7 +159,6 @@ func (a *app) goForward() {
 }
 
 func (a *app) sidebar(c *ui.Context) {
-	p := a.pal
 	// Under the window buttons where they sit over the sidebar, as the
 	// traffic lights do; elsewhere, as close to the top as to the sides.
 	top := float32(14)
@@ -155,33 +168,18 @@ func (a *app) sidebar(c *ui.Context) {
 	// Where nothing in it takes the press, the sidebar moves the window, as
 	// the title bar it reaches up into would.
 	ui.Column(c).Fill().Padding(top, 14, 14, 14).Gap(4).DragWindow().Children(func() {
-		// The search field.
-		field := ui.Row(c).Height(32).PaddingX(10).Gap(7).Radius(9).AlignItems(ui.Center).Margin(0, 0, 14, 0)
-		focused := c.Focused(a.searchBox)
-		if focused {
-			field.Background(p.bg).Shadow(0, 0, 0, 3, p.accent.Alpha(0.25)).Border(1, p.accent.Alpha(0.6))
-		} else {
-			field.Background(p.hover).Border(1, p.hairline)
-		}
-		field.Children(func() {
-			ui.Icon(c, iconSearch).Size(14, 14).TextColor(p.muted)
-			in := ui.TextInputBase(c.Key("search"), &a.query).Bind(&a.searchBox).Grow(1).
-				Placeholder("搜索歌曲、歌手").FontSize(13).Label("搜索")
-			if in.Submitted() && strings.TrimSpace(a.query) != "" {
-				a.search(strings.TrimSpace(a.query))
-			}
-		})
+		a.searchField(c)
 
 		ui.Scroll(c.Key("nav")).TrackScroll(&a.navScroll).Grow(1).Margin(0, -6).Padding(0, 6).Gap(4).Children(func() {
 			a.navItem(c, iconHome, "为你推荐", route{page: pageHome})
 			a.navItem(c, iconDaily, "每日推荐", route{page: pageDaily})
 			a.navItem(c, iconRadio, "私人 FM", route{page: pageFM})
 			a.navItem(c, iconCharts, "排行榜", route{page: pageCharts})
-			if a.searched != "" {
-				a.navItem(c, iconSearch, "搜索结果", route{page: pageSearch})
+			if a.searched.query != "" {
+				a.navItem(c, iconSearch, "搜索结果", a.searched)
 			}
-			a.myPlaylists(c, "我的歌单", a.mine, true)
-			a.myPlaylists(c, "收藏的歌单", a.saved, false)
+			a.myPlaylists(c, "我的歌单", a.mine, true, &a.mineCollapsed)
+			a.myPlaylists(c, "收藏的歌单", a.saved, false, &a.savedCollapsed)
 		})
 
 		// What plays, as a card at the foot of the sidebar, over who listens.
@@ -333,6 +331,11 @@ func (a *app) pageTop(c *ui.Context) {
 }
 
 func (a *app) content(c *ui.Context) {
+	// A new page starts at its top. Not as it is opened: a control in a
+	// list, as a page's tabs in its header, opens it as the list builds.
+	if a.scrolled != a.route {
+		a.trackList, a.pageScroll, a.scrolled = ui.ListState{}, ui.ScrollState{}, a.route
+	}
 	// Pages mark where their content is, as they scroll.
 	a.underTop, a.underBottom = false, false
 	switch a.route.page {
@@ -350,6 +353,12 @@ func (a *app) content(c *ui.Context) {
 		a.fmPage(c)
 	case pageArtist:
 		a.artistPage(c)
+	case pageAlbum:
+		a.albumPage(c)
+	case pageUser:
+		a.userPage(c)
+	case pagePodcast:
+		a.podcastPage(c)
 	}
 }
 
@@ -452,30 +461,4 @@ func firstPlayable(tracks []netease.Track) int {
 		}
 	}
 	return 0
-}
-
-func (a *app) search(q string) {
-	a.history, a.forward = append(a.history, a.route), nil
-	a.route = route{page: pageSearch}
-	a.trackList, a.pageScroll = ui.ListState{}, ui.ScrollState{}
-	a.nowPlaying = false
-	a.runSearch(q)
-}
-
-// runSearch loads the results of q, wherever the listener is.
-func (a *app) runSearch(q string) {
-	a.searched, a.searching, a.searchErr, a.results = q, true, "", nil
-	go func() {
-		res, err := netease.Search(q, 60)
-		a.post(func() {
-			if q != a.searched {
-				return
-			}
-			a.searching = false
-			a.results = res
-			if err != nil {
-				a.searchErr = "搜索失败，请稍后再试"
-			}
-		})
-	}()
 }

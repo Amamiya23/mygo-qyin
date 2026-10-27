@@ -44,6 +44,11 @@ type Track struct {
 	Reason string `json:"reason"`
 	// Privilege is what the listener may do with the track, if known.
 	Privilege *Privilege `json:"privilege"`
+	// A podcast's episode plays as a track of its audio, ID, with the
+	// episode's ProgramID, the PodcastID it is in, and what it is about.
+	ProgramID   int64  `json:"programId,omitempty"`
+	PodcastID   int64  `json:"podcastId,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // Privilege is what NetEase lets the listener signed in, or nobody, do
@@ -80,6 +85,11 @@ func (t *Track) ArtistNames() string {
 // privilege says, or else as its fee does for anyone, VIP songs (1) and
 // paid albums (4) giving only a preview.
 func (t *Track) Playable() bool {
+	if t.ProgramID > 0 {
+		// An episode's audio has no privilege: whether it streams, as a
+		// paid one bought, is up to its stream.
+		return true
+	}
 	if t.Privilege != nil {
 		return t.Privilege.St >= 0 && t.Privilege.Pl > 0
 	}
@@ -89,7 +99,12 @@ func (t *Track) Playable() bool {
 func (t *Track) Length() time.Duration { return time.Duration(t.Duration) * time.Millisecond }
 
 // URL is the track's page on the NetEase website.
-func (t *Track) URL() string { return apiBase + "/song?id=" + strconv.FormatInt(t.ID, 10) }
+func (t *Track) URL() string {
+	if t.ProgramID > 0 {
+		return apiBase + "/program?id=" + strconv.FormatInt(t.ProgramID, 10)
+	}
+	return apiBase + "/song?id=" + strconv.FormatInt(t.ID, 10)
+}
 
 type Playlist struct {
 	ID          int64   `json:"id"`
@@ -101,7 +116,9 @@ type Playlist struct {
 	TrackCount  int     `json:"trackCount"`
 	UpdateFreq  string  `json:"updateFrequency"`
 	SpecialType int     `json:"specialType"` // 5: the listener's liked songs
+	Privacy     int     `json:"privacy"`     // 10: only its creator sees it
 	Creator     struct {
+		UserID   int64  `json:"userId"`
 		Nickname string `json:"nickname"`
 	} `json:"creator"`
 	Tracks   []Track `json:"tracks"`
@@ -303,23 +320,6 @@ func SongDetails(ids []int64) ([]Track, error) {
 	return out, nil
 }
 
-// Search returns the songs matching a query.
-func Search(query string, limit int) ([]Track, error) {
-	var res struct {
-		Result struct {
-			Songs []Track `json:"songs"`
-		} `json:"result"`
-	}
-	q := url.Values{"s": {query}, "type": {"1"}, "limit": {strconv.Itoa(limit)}, "offset": {"0"}}
-	if err := get("/api/cloudsearch/pc", q, &res); err != nil {
-		return nil, err
-	}
-	// Search marks whole catalogues as taken down that the listener may
-	// play, as YOASOBI's for a subscriber: the songs' details say right.
-	detailPrivileges(res.Result.Songs)
-	return res.Result.Songs, nil
-}
-
 // ArtistProfile is who an artist is, as their page shows them, with the
 // songs they are best known for.
 type ArtistProfile struct {
@@ -331,7 +331,10 @@ type ArtistProfile struct {
 	BriefDesc string   `json:"briefDesc"`
 	MusicSize int      `json:"musicSize"`
 	AlbumSize int      `json:"albumSize"`
-	Songs     []Track  `json:"-"`
+	Followed  bool     `json:"followed"` // by the listener signed in
+	// AccountID is the artist's own account, which posts their events, or 0.
+	AccountID int64   `json:"accountId"`
+	Songs     []Track `json:"-"`
 }
 
 // ArtistDetail returns an artist with their 50 most popular songs.

@@ -156,7 +156,7 @@ func (a *app) playlistCard(c *ui.Context, pl *netease.Playlist) {
 		}
 	})
 	if card.Clicked() {
-		a.open(route{page: pagePlaylist, playlist: pl.ID})
+		a.open(route{page: pagePlaylist, id: pl.ID})
 	}
 }
 
@@ -223,12 +223,12 @@ func (a *app) chartCard(c *ui.Context, pl *netease.Playlist) {
 		})
 	})
 	if card.Clicked() {
-		a.open(route{page: pagePlaylist, playlist: pl.ID})
+		a.open(route{page: pagePlaylist, id: pl.ID})
 	}
 }
 
 func (a *app) playlistPage(c *ui.Context) {
-	id := a.route.playlist
+	id := a.route.id
 	pl := a.playlists[id]
 	if pl == nil {
 		if !a.loadingPl[id] {
@@ -312,47 +312,25 @@ func (a *app) playlistHeader(c *ui.Context, pl *netease.Playlist) {
 	})
 }
 
-func (a *app) searchPage(c *ui.Context) {
-	if len(a.results) == 0 && a.searching {
-		a.trackSkeleton(c, a.pageShimmer(c), true, func(c *ui.Context) {
-			a.heading(c, "“"+a.searched+"”", "搜索")
-		})
-		return
-	}
-	if len(a.results) == 0 {
-		msg := a.searchErr
-		if msg == "" {
-			msg = "没有找到相关歌曲"
-		}
-		top, bottom := a.insets(c)
-		ui.Column(c).Grow(1).Padding(top+pageGap, pagePad, bottom, pagePad).Children(func() {
-			a.heading(c, "“"+a.searched+"”", "搜索")
-			a.centered(c, msg, nil)
-		})
-		return
-	}
-	a.trackRows(c, a.results, true, func(c *ui.Context) {
-		a.heading(c, "“"+a.searched+"”", "搜索")
-	})
-}
-
 // trackRows lists tracks under a header, which scrolls with them; a click
 // plays the list from the track clicked.
-func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, header func(c *ui.Context)) {
+func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, header func(c *ui.Context), footer ...func(c *ui.Context)) {
 	p := a.pal
 	cur := a.pl.Current()
 	// A song's menu can take it out of the playlist it is listed in.
 	var pid int64
 	if a.route.page == pagePlaylist {
-		pid = a.route.playlist
+		pid = a.route.id
 	}
 	w, _ := c.Size()
-	wide := w-sidebarWidth > 820
+	// An album's page has no column of the album its songs are on.
+	wide := w-sidebarWidth > 820 && a.route.page != pageAlbum
 	top, bottom := a.insets(c)
 	// Rows out of view are not built, their marks with them: a list
 	// scrolled away from its start or end has content under the bars.
 	a.underTop, a.underBottom = true, true
-	ui.List(c.Key(a.route), &a.trackList, len(tracks)+1, func(i int) {
+	rows := len(tracks) + 1 + len(footer)
+	ui.List(c.Key(a.route), &a.trackList, rows, func(i int) {
 		if i == 0 {
 			ui.Column(c).Children(func() {
 				a.startMark(c)
@@ -360,8 +338,12 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 			})
 			return
 		}
-		if i == len(tracks) {
+		if i == rows-1 {
 			defer a.endMark(c)
+		}
+		if i > len(tracks) {
+			footer[i-len(tracks)-1](c)
+			return
 		}
 		i--
 		tr := &tracks[i]
@@ -415,7 +397,14 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 				})
 			})
 			if wide {
-				ui.Text(c, tr.Album.Name).Grow(2).Basis(0).MinWidth(0).FontSize(12.5).TextColor(p.muted).SingleLine()
+				album := ui.RichText(c).Grow(2).Basis(0).MinWidth(0).FontSize(12.5).TextColor(p.muted).SingleLine()
+				album.Children(func() {
+					if tr.Album.ID == 0 {
+						ui.Text(c, tr.Album.Name)
+					} else {
+						a.link(c.Key("album"), tr.Album.Name, p.muted, p.text, route{page: pageAlbum, id: tr.Album.ID})
+					}
+				})
 			}
 			// A liked song's heart shows; the others' as the pointer is on them.
 			ui.Box(c).Size(32, 32).Center().Children(func() {

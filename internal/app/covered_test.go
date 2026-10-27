@@ -26,7 +26,7 @@ func TestCoveredPageKeepsItsPlace(t *testing.T) {
 	a.pl.Cue([]netease.Track{{ID: 9999, Name: "一张相片"}})
 	tt := ui.NewTester(a.view, 1200, 800)
 
-	for _, r := range []route{{page: pagePlaylist, playlist: 42}, {page: pageCharts}} {
+	for _, r := range []route{{page: pagePlaylist, id: 42}, {page: pageCharts}} {
 		a.open(r)
 		tt.Frame()
 		tt.Wheel(700, 400, 0, 2400)

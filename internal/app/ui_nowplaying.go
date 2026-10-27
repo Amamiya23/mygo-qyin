@@ -102,7 +102,18 @@ func (a *app) nowPlayingView(c *ui.Context) {
 
 func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32, pointerIn bool) {
 	pl := a.pl
-	a.commentsFor(tr)
+	// An episode's comments aren't its audio's, which commentsFor loads.
+	if tr.ProgramID == 0 {
+		a.commentsFor(tr)
+	}
+	// An episode has what it is about in place of lyrics and comments; a
+	// song, lyrics in place of that.
+	switch program := tr.ProgramID != 0; {
+	case program && a.npPane != paneQueue:
+		a.npPane = paneProgram
+	case !program && a.npPane == paneProgram:
+		a.npPane = a.lyricsPaneChosen()
+	}
 	if a.npPane != paneQueue {
 		a.queueAt = -1
 	}
@@ -140,7 +151,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 							a.radioChip(c, r)
 						}
 						ui.Text(c, tr.Name).FontSize(22).FontWeight(700).LetterSpacing(-0.3).SingleLine()
-						a.artistLinks(c, tr, white.Alpha(0.6), white, albumAfter(tr)).FontSize(15).SingleLine()
+						a.artistLinks(c, tr, white.Alpha(0.6), white, true).FontSize(15).SingleLine()
 					})
 					a.likeButton(c.Key("like"), tr, 22, white.Alpha(0.7))
 					a.songMenu(c.Key("more"), tr, 22, white.Alpha(0.7)).Margin(0, -8, 0, 0)
@@ -187,6 +198,8 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 					a.lyricsPane(c, tr, h)
 				case paneComments:
 					a.commentsPane(c, tr)
+				case paneProgram:
+					a.programPane(c, tr)
 				default:
 					a.queuePane(c)
 				}
@@ -205,8 +218,12 @@ func reveal(e ui.Element, shown bool) ui.Element {
 	return e.AnimatePose(pose, ui.Animation{Duration: 200 * time.Millisecond})
 }
 
-// lyricsPaneChosen is the pane of lyrics the listener chose last.
+// lyricsPaneChosen is the pane of lyrics the listener chose last, or for
+// an episode, what it is about.
 func (a *app) lyricsPaneChosen() int {
+	if tr := a.pl.Current(); tr != nil && tr.ProgramID != 0 {
+		return paneProgram
+	}
 	if a.settings.LyricsStage {
 		return paneStage
 	}
@@ -219,9 +236,15 @@ const (
 	paneQueue
 	paneStage
 	paneComments
+	paneProgram
 )
 
 func (a *app) paneTabs(c *ui.Context) {
+	if tr := a.pl.Current(); tr != nil && tr.ProgramID != 0 {
+		a.paneTab(c, paneProgram, "简介")
+		a.paneTab(c, paneQueue, "待播清单")
+		return
+	}
 	a.paneTab(c, paneLyrics, "歌词")
 	a.paneTab(c, paneStage, "律动")
 	a.paneTab(c, paneQueue, "待播清单")

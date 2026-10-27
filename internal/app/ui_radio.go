@@ -299,7 +299,7 @@ func (a *app) fmCard(c *ui.Context) {
 				case pl.Err() != "":
 					ui.Text(c, pl.Err()).FontSize(14).TextColor(white).SingleLine()
 				default:
-					a.artistLinks(c, tr, white.Alpha(0.7), white, albumAfter(tr)).FontSize(14).SingleLine()
+					a.artistLinks(c, tr, white.Alpha(0.7), white, true).FontSize(14).SingleLine()
 				}
 				ui.Row(c).Gap(14).AlignItems(ui.Center).Margin(20, 0, 0, -8).Children(func() {
 					if a.profile != nil {

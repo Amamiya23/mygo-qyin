@@ -21,12 +21,18 @@ const (
 	pageSearch
 	pageFM
 	pageArtist
+	pageAlbum
+	pageUser
+	pagePodcast
 )
 
 type route struct {
-	page     pageKind
-	playlist int64
-	artist   int64
+	page pageKind
+	// id is the playlist, artist, album, user or podcast the page shows.
+	id int64
+	// query and kind are what a search page searched for.
+	query string
+	kind  netease.SearchType
 }
 
 // app is the state both windows show. Everything in it is read and changed
@@ -63,28 +69,33 @@ type app struct {
 	homeLoading bool
 	homeAt      time.Time // when what the home page shows was asked for
 
-	playlists  map[int64]*netease.Playlist
-	loadingPl  map[int64]bool
-	plErr      map[int64]string
-	artists    map[int64]*artistData
-	artistSort int // the order an artist's page lists songs in: artistHot or artistLatest
-	trackList  ui.ListState
+	playlists map[int64]*netease.Playlist
+	loadingPl map[int64]bool
+	plErr     map[int64]string
+	artists   map[int64]*artistData
+	artistTab int // what an artist's page lists: artistHot, artistLatest, artistAlbums or artistEvents
+	albums    map[int64]*albumData
+	users     map[int64]*userData
+	podcasts  map[int64]*podcastData
+	trackList ui.ListState
 	// Where the page and the sidebar are scrolled, kept while Now Playing
 	// covers them, unbuilt.
 	pageScroll ui.ScrollState
 	navScroll  ui.ScrollState
+	scrolled   route // the page trackList and pageScroll are of
 
-	query     string
-	searched  string
-	results   []netease.Track
-	searching bool
-	searchErr string
-	searchBox ui.Handle
+	mineCollapsed, savedCollapsed bool
+
+	query       string
+	searchBox   ui.Handle
+	searches    map[route]*searchData // the results of each search, by its page
+	searched    route                 // the search last shown, which the sidebar goes back to
+	suggestions suggestState          // what the search field's query may be after
 
 	nowPlaying  bool
 	npOpen      bool      // Now Playing as it last showed: open or not
 	npChangedAt time.Time // when it last opened or closed
-	npPane      int       // paneLyrics, paneQueue, paneStage or paneComments
+	npPane      int       // paneLyrics, paneQueue, paneStage, paneComments or paneProgram
 	npPaneTop   float32   // how far the cover beside the pane starts below its top
 	lyricScroll ui.ScrollState
 	lyricGlide  lyricGlide
@@ -170,6 +181,10 @@ func Run() error {
 		loadingPl: map[int64]bool{},
 		plErr:     map[int64]string{},
 		artists:   map[int64]*artistData{},
+		albums:    map[int64]*albumData{},
+		users:     map[int64]*userData{},
+		podcasts:  map[int64]*podcastData{},
+		searches:  map[route]*searchData{},
 		lyricAt:   -1,
 		queueAt:   -1,
 		cacheUsed: -1,

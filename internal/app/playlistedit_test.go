@@ -28,7 +28,7 @@ func editTestApp() *app {
 		{ID: 1, Name: "一张相片", Artists: []netease.Artist{{Name: "林宥嘉"}}, Duration: 200000},
 		{ID: 2, Name: "宝船", Artists: []netease.Artist{{Name: "DOUDOU"}}, Duration: 200000},
 	}}
-	a.route = route{page: pagePlaylist, playlist: 10}
+	a.route = route{page: pagePlaylist, id: 10}
 	return a
 }
 
@@ -71,7 +71,7 @@ func TestRemoveSongFromPlaylist(t *testing.T) {
 	defer func() { removeFromPlaylist = netease.RemoveFromPlaylist }()
 
 	a := editTestApp()
-	// Playing the playlist: the queue keeps the song.
+	// Playing the id: the queue keeps the song.
 	a.pl.Cue(a.playlists[10].Tracks)
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
@@ -97,7 +97,7 @@ func TestRemoveSongFromPlaylist(t *testing.T) {
 func TestNoRemovingFromSavedPlaylist(t *testing.T) {
 	a := editTestApp()
 	a.playlists[20] = &netease.Playlist{ID: 20, Name: "飙升榜", Tracks: a.playlists[10].Tracks}
-	a.route = route{page: pagePlaylist, playlist: 20}
+	a.route = route{page: pagePlaylist, id: 20}
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
 	if err := tt.RightClick("宝船"); err != nil {
@@ -216,7 +216,7 @@ func TestDeletePlaylist(t *testing.T) {
 	a := editTestApp()
 	a.homeLoading = true
 	a.route = route{page: pageCharts}
-	a.open(route{page: pagePlaylist, playlist: 10})
+	a.open(route{page: pagePlaylist, id: 10})
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
 	if err := tt.Click("更多"); err != nil {

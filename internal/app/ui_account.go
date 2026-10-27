@@ -51,15 +51,13 @@ func (a *app) signedIn(prof *netease.Profile) {
 	// the listener play their songs is back.
 	a.restoreSession()
 	a.mine, a.saved, a.recPlaylists, a.liked = nil, nil, nil, nil
-	// What the listener may play changed: load the lists again.
+	// What the listener may play, and follows, changed: load the pages
+	// again.
 	a.playlists = map[int64]*netease.Playlist{}
 	a.plErr = map[int64]string{}
-	if a.route.page == pagePlaylist {
-		a.loadPlaylist(a.route.playlist, false)
-	}
-	if a.searched != "" {
-		a.runSearch(a.searched)
-	}
+	a.artists, a.albums, a.users, a.podcasts = map[int64]*artistData{}, map[int64]*albumData{}, map[int64]*userData{}, map[int64]*podcastData{}
+	a.searches = map[route]*searchData{}
+	a.load(a.route)
 	a.loadHome()
 	if prof == nil {
 		return
@@ -322,22 +320,42 @@ func (a *app) menuItem(c *ui.Context, icon *ui.SVG, label, shortcut string) ui.E
 	return b
 }
 
-// myPlaylists lists the listener's playlists in the sidebar: those they
-// made, if mine, with a button to make one and a menu to rename them.
-func (a *app) myPlaylists(c *ui.Context, title string, lists []netease.Playlist, mine bool) {
+// myPlaylists lists the listener's playlists under a header that opens
+// and closes them: those they made, if mine, with a button to make one
+// and a menu to rename them.
+func (a *app) myPlaylists(c *ui.Context, title string, lists []netease.Playlist, mine bool, collapsed *bool) {
 	if len(lists) == 0 {
 		return
 	}
 	p := a.pal
-	ui.Row(c.Key(title)).AlignItems(ui.Center).Margin(18, 4, 6, 10).Children(func() {
-		ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(p.faint).Grow(1)
+	ui.Row(c.Key(title)).AlignItems(ui.Center).Margin(18, 4, 6, 6).Children(func() {
+		b := ui.ButtonBase(c.Key("toggle")).Grow(1).Height(26).PaddingX(4).Gap(6).Radius(6).
+			AlignItems(ui.Center).Justify(ui.Start).Role(ui.RoleDisclosure).Label(title)
+		if b.Clicked() {
+			*collapsed = !*collapsed
+		}
+		b.Expanded(!*collapsed)
+		if b.Hovered() {
+			b.Background(p.hover)
+		}
+		b.Children(func() {
+			ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(p.faint).Grow(1)
+			arrow := iconDown
+			if *collapsed {
+				arrow = iconForward
+			}
+			ui.Icon(c, arrow).Size(12, 12).TextColor(p.faint)
+		})
 		if mine && iconButton(c.Key("new"), iconPlus, 13, p.faint, "新建歌单").Clicked() {
 			a.newPlaylist(nil)
 		}
 	})
+	if *collapsed {
+		return
+	}
 	for i := range lists {
 		pl := &lists[i]
-		selected := a.route.page == pagePlaylist && a.route.playlist == pl.ID && !a.nowPlaying
+		selected := a.route.page == pagePlaylist && a.route.id == pl.ID && !a.nowPlaying
 		b := ui.ButtonBase(c.Key(pl.ID)).Height(34).PaddingX(8).Gap(10).Radius(8).AlignItems(ui.Center).Justify(ui.Start).FocusRing(false).Label(pl.Name)
 		switch {
 		case selected:
@@ -361,7 +379,7 @@ func (a *app) myPlaylists(c *ui.Context, title string, lists []netease.Playlist,
 			})
 		}
 		if b.Clicked() {
-			a.open(route{page: pagePlaylist, playlist: pl.ID})
+			a.open(route{page: pagePlaylist, id: pl.ID})
 		}
 	}
 }

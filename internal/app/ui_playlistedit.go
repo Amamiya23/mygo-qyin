@@ -65,7 +65,7 @@ func (a *app) loadMine(uid int64) {
 // changed: loaded anew if shown, and the sidebar's covers with it.
 func (a *app) playlistChanged(id int64) {
 	delete(a.playlists, id)
-	if a.route.page == pagePlaylist && a.route.playlist == id {
+	if a.route.page == pagePlaylist && a.route.id == id {
 		a.loadPlaylist(id, false)
 	}
 	if a.profile != nil {
@@ -136,7 +136,7 @@ func (a *app) submitName() {
 			a.mine = slices.Insert(a.mine, at, *pl)
 			pl.Tracks = nil
 			a.playlists[pl.ID] = pl
-			a.open(route{page: pagePlaylist, playlist: pl.ID})
+			a.open(route{page: pagePlaylist, id: pl.ID})
 			if add != nil {
 				a.addTo(pl.ID, add)
 			}
@@ -162,7 +162,7 @@ func (a *app) deleteChosen() {
 	pl := a.mine[i]
 	a.mine = slices.Delete(slices.Clone(a.mine), i, i+1)
 	// Leave no way back to its page, and leave it for the page before.
-	gone := func(r route) bool { return r.page == pagePlaylist && r.playlist == id }
+	gone := func(r route) bool { return r.page == pagePlaylist && r.id == id }
 	a.history = slices.DeleteFunc(a.history, gone)
 	a.forward = slices.DeleteFunc(a.forward, gone)
 	if gone(a.route) {

@@ -160,3 +160,71 @@ func TestArtistLatestSongsLive(t *testing.T) {
 		t.Logf("artist %d: %d songs, newest %q", id, len(songs), s.Name)
 	}
 }
+
+// Each kind of search finds something for a common query, and says how
+// many it found in all; podcasts come 10 at most, on one page.
+func TestSearchPageLive(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip()
+	}
+	deviceOnce.Do(func() { deviceID = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123" })
+	for _, kind := range []SearchType{SearchSongs, SearchAlbums, SearchArtists, SearchUsers, SearchPodcasts} {
+		res, err := SearchPage("音乐", kind, 5, 0)
+		if err != nil || res.Len() == 0 || res.Total < res.Len() {
+			t.Fatalf("kind %d: %d of %d, %v", kind, res.Len(), res.Total, err)
+		}
+	}
+	s, err := SearchSuggest("周杰")
+	if err != nil || len(s.Songs) == 0 || len(s.Songs[0].Artists) == 0 || len(s.Albums) == 0 || len(s.Albums[0].Artists) == 0 {
+		t.Fatalf("suggestions %+v, %v", s, err)
+	}
+}
+
+// An album's page has its artists and songs in the shape Track reads; an
+// artist's albums page on.
+func TestAlbumLive(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip()
+	}
+	deviceOnce.Do(func() { deviceID = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123" })
+	al, err := AlbumDetail(32311)
+	if err != nil || al.Name == "" || len(al.Artists) == 0 || al.PublishTime == 0 || len(al.Songs) == 0 {
+		t.Fatalf("album %+v, %v", al, err)
+	}
+	if s := al.Songs[0]; len(s.Artists) == 0 || s.Album.PicURL == "" || s.Duration == 0 || s.Privilege == nil {
+		t.Fatalf("first song %+v", s)
+	}
+	albums, more, err := ArtistAlbums(6452, 5, 0)
+	if err != nil || len(albums) != 5 || !more || albums[0].PicURL == "" {
+		t.Fatalf("%d albums, more %v, %v", len(albums), more, err)
+	}
+}
+
+// An artist with an account of their own has its events, a page at a
+// time, and a podcast has its episodes, each with audio to play.
+func TestEventsAndPodcastLive(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip()
+	}
+	deviceOnce.Do(func() { deviceID = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123" })
+	ar, err := ArtistDetail(5781)
+	if err != nil || ar.AccountID == 0 {
+		t.Fatalf("artist %+v, %v", ar, err)
+	}
+	events, last, _, err := Events(ar.AccountID, 5, -1)
+	if err != nil || len(events) == 0 || last == 0 || events[0].User.Nickname == "" {
+		t.Fatalf("%d events, last %d, %v", len(events), last, err)
+	}
+	res, err := SearchPage("故事", SearchPodcasts, 1, 0)
+	if err != nil || len(res.Podcasts) == 0 {
+		t.Fatalf("podcasts %+v, %v", res, err)
+	}
+	pod, err := PodcastDetail(res.Podcasts[0].ID)
+	if err != nil || pod.Name == "" || pod.ProgramCount == 0 {
+		t.Fatalf("podcast %+v, %v", pod, err)
+	}
+	programs, _, err := PodcastPrograms(pod.ID, 5, 0)
+	if err != nil || len(programs) == 0 || programs[0].MainSong.ID == 0 {
+		t.Fatalf("%d episodes, %v", len(programs), err)
+	}
+}
