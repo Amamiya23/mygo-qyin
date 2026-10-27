@@ -179,7 +179,7 @@ func (n *notch) byeSoon(d time.Duration) {
 		mygo.RunOnMain(func() {
 			switch {
 			case !n.hello:
-			case n.open:
+			case n.open || !n.passing:
 				n.byeSoon(2 * time.Second)
 			default:
 				n.bye()
@@ -241,13 +241,16 @@ func (n *notch) target() (w, h float32) {
 	}
 }
 
+// cursorPoint is where the pointer is on the screen.
+var cursorPoint = func() mygo.Point { return mygo.Screen.CursorScreenPoint() }
+
 // poll follows the pointer, which the window cannot always see: it lets
 // clicks through where it draws nothing, and opens while over it.
 func (n *notch) poll() {
 	if !n.a.settings.Notch && !n.hello {
 		return
 	}
-	pt := mygo.Screen.CursorScreenPoint()
+	pt := cursorPoint()
 	w, h := n.target()
 	x := n.screenX + (n.winW-w)/2
 	px, py := float32(pt.X), float32(pt.Y)
@@ -267,14 +270,20 @@ func (n *notch) poll() {
 		}
 		n.lastInside = now
 		// A pointer passing by to the menu bar does not open it: one that
-		// rests there does.
-		if !n.open && now.Sub(n.enteredAt) >= 300*time.Millisecond {
+		// rests there does. While it greets it stays as it is, the pointer
+		// on its button.
+		if !n.open && !n.hello && now.Sub(n.enteredAt) >= 300*time.Millisecond {
 			n.open, changed = true, true
 		}
 	} else if n.open && now.Sub(n.lastInside) > 300*time.Millisecond {
 		n.open, changed = false, true
 	}
-	if pass := !inside; pass != n.passing {
+	pass := !inside
+	if n.win == nil {
+		n.passing = pass
+		return // as in tests
+	}
+	if pass != n.passing {
 		n.passing = pass
 		n.win.SetIgnoreMouseEvents(pass)
 	}

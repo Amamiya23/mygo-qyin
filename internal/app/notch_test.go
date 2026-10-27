@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/audio"
 	"github.com/egoist/mygo/ui"
 
@@ -52,6 +53,42 @@ func TestNotchGreetsOnce(t *testing.T) {
 	a.syncWindows()
 	if n.hello {
 		t.Error("greeted twice")
+	}
+}
+
+// The pointer resting on the greeting leaves it as it is, so its button can
+// be clicked. It used to open the player, which hid the button, and leaving
+// brought it back only to open again as the pointer came back to it.
+func TestNotchGreetingKeptUnderPointer(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	n := &notch{a: a, real: true, w0: 185, h0: 32, winW: notchOpenW + 60, winH: 240}
+	a.notch = n
+	a.pl.Cue([]netease.Track{{ID: 7, Name: "宝船", Duration: 200000}})
+	n.greet()
+	if !n.hello {
+		t.Fatal("did not greet")
+	}
+
+	defer func(f func() mygo.Point) { cursorPoint = f }(cursorPoint)
+	cursorPoint = func() mygo.Point {
+		return mygo.Point{X: int(n.screenX + n.winW/2 + 120), Y: int(n.screenY + n.h0 + 28)}
+	}
+	n.poll()
+	n.enteredAt = n.lastInside.Add(-time.Second) // as if it had rested there
+	n.poll()
+	if n.open {
+		t.Fatal("opened the player over the greeting")
+	}
+
+	tt := ui.NewTester(n.view, int(n.winW), int(n.winH))
+	tt.Advance(time.Second)
+	tt.Frame()
+	if err := tt.Click("开启刘海播放器"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.settings.Notch || n.hello {
+		t.Fatalf("kept: notch %v, greeting %v", a.settings.Notch, n.hello)
 	}
 }
 
