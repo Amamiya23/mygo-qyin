@@ -1,7 +1,7 @@
 # Releasing
 
 1. Commit pending work and run `go test ./internal/...`.
-2. Bump `version` in `mygo.json` in a commit titled just the version, e.g. `0.1.8`.
+2. Bump `version` in `mygo.json`, and add a `## 0.1.8` section at the top of `CHANGELOG.md` saying, in Chinese, what changed for people using the app since the last release. Commit both in a commit titled just the version, e.g. `0.1.8`. MyGo's updater shows that section in the app's update window, and the release page takes it as its notes; `mygo build` fails without one.
 3. Tag it `v<version>` and push main and the tag:
 
    ```bash
