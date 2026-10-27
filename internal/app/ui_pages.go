@@ -29,8 +29,8 @@ func (a *app) heading(c *ui.Context, title, sub string) {
 	})
 }
 
-func (a *app) section(c *ui.Context, title string) {
-	ui.Text(c, title).FontSize(19).FontWeight(700).LetterSpacing(-0.3).Margin(34, 0, 14, 0)
+func (a *app) section(c *ui.Context, title string) ui.Element {
+	return ui.Text(c, title).FontSize(19).FontWeight(700).LetterSpacing(-0.3).Margin(34, 0, 14, 0)
 }
 
 func (a *app) homePage(c *ui.Context) {
@@ -126,8 +126,19 @@ func (a *app) chartsPage(c *ui.Context) {
 // playlistCard is a square cover with the playlist's name below: it lifts
 // under the pointer, where a play button shows on it.
 func (a *app) playlistCard(c *ui.Context, pl *netease.Playlist) {
+	if a.coverCard(c, pl.Name, pl.Cover(), pl.PlayCount, pl.UpdateFreq, func() { a.loadPlaylist(pl.ID, true) }) {
+		a.open(route{page: pagePlaylist, id: pl.ID})
+	}
+}
+
+// coverCard is a playlist's card, or a podcast's: its cover, with how many
+// times it was played on it, over its name and a line under that. The
+// button on the cover calls play; it reports whether the rest was clicked.
+func (a *app) coverCard(c *ui.Context, name, cover string, playCount float64, sub string, play func()) bool {
 	p := a.pal
-	card := ui.ButtonBase(c).Column().Gap(10).AlignItems(ui.Stretch).FocusRing(false).Label(pl.Name)
+	// From the top: a grid stretches the cards of a row as tall as the
+	// tallest, whose name or line under it takes two lines.
+	card := ui.ButtonBase(c).Column().Gap(10).AlignItems(ui.Stretch).Justify(ui.Start).FocusRing(false).Label(name)
 	hovered := card.Hovered()
 	card.Children(func() {
 		art := ui.Box(c).AspectRatio(1).Radius(10)
@@ -140,24 +151,22 @@ func (a *app) playlistCard(c *ui.Context, pl *netease.Playlist) {
 		}
 		art.AnimatePose(lift, ui.Snappy)
 		art.Children(func() {
-			a.coverFill(c, pl.Cover(), 400, 10)
-			if pl.PlayCount > 0 {
+			a.coverFill(c, cover, 400, 10)
+			if playCount > 0 {
 				ui.Row(c).Absolute().Top(8).Right(8).Padding(2, 7).Radius(999).Gap(3).AlignItems(ui.Center).
 					Background(ui.RGBA(0, 0, 0, 0.35)).TextColor(ui.RGB(255, 255, 255)).Children(func() {
 					ui.Icon(c, iconHeadset).Size(10, 10)
-					ui.Text(c, plays(pl.PlayCount)).FontSize(10.5).FontWeight(600)
+					ui.Text(c, plays(playCount)).FontSize(10.5).FontWeight(600)
 				})
 			}
-			a.coverPlayButton(c, pl.ID, hovered)
+			a.coverPlayButton(c, hovered, play)
 		})
-		ui.Text(c, pl.Name).FontSize(13).FontWeight(500).MaxLines(2).LineHeight(1.35)
-		if pl.UpdateFreq != "" {
-			ui.Text(c, pl.UpdateFreq).FontSize(12).TextColor(p.muted).SingleLine().Margin(-6, 0, 0, 0)
+		ui.Text(c, name).FontSize(13).FontWeight(500).MaxLines(2).LineHeight(1.35)
+		if sub != "" {
+			ui.Text(c, sub).FontSize(12).TextColor(p.muted).SingleLine().Margin(-6, 0, 0, 0)
 		}
 	})
-	if card.Clicked() {
-		a.open(route{page: pagePlaylist, id: pl.ID})
-	}
+	return card.Clicked()
 }
 
 // coverFill fills its parent with a cover, its corners rounded by radius.
@@ -173,8 +182,9 @@ func (a *app) coverFill(c *ui.Context, url string, px int, radius float32) {
 	box.Children(func() { artImage(c, bmp, radius, in) })
 }
 
-// coverPlayButton plays a playlist from its card, without opening it.
-func (a *app) coverPlayButton(c *ui.Context, id int64, shown bool) {
+// coverPlayButton plays a playlist or a podcast from its card, without
+// opening it.
+func (a *app) coverPlayButton(c *ui.Context, shown bool, play func()) {
 	b := ui.ButtonBase(c.Key("play")).Absolute().Bottom(10).Right(10).Size(38, 38).Radius(999).Center().
 		Background(a.pal.accent).TextColor(ui.RGB(255, 255, 255)).Label("播放").FocusRing(false).
 		Shadow(0, 4, 12, 0, ui.RGBA(0, 0, 0, 0.3))
@@ -188,7 +198,7 @@ func (a *app) coverPlayButton(c *ui.Context, id int64, shown bool) {
 	b.AnimatePose(pose, ui.Snappy)
 	b.Children(func() { ui.Icon(c, iconPlay).Size(15, 15).Margin(0, 0, 0, 2) })
 	if b.Clicked() {
-		a.loadPlaylist(id, true)
+		play()
 	}
 }
 

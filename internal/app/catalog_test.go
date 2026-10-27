@@ -334,6 +334,84 @@ func TestEpisodeOpensPodcast(t *testing.T) {
 	}
 }
 
+// The sidebar's 播客 opens the podcasts tab, which asks for the first page
+// of the most popular podcasts.
+func TestPodcastsTabLoads(t *testing.T) {
+	asked := make(chan int, 4)
+	hotPodcasts = func(_, offset int) ([]netease.Podcast, bool, error) {
+		asked <- offset
+		return nil, false, errors.New("offline")
+	}
+	recommendedPodcasts = func() ([]netease.Podcast, error) { return nil, errors.New("offline") }
+	defer func() { hotPodcasts, recommendedPodcasts = netease.HotPodcasts, netease.RecommendedPodcasts }()
+	a := newTestApp()
+	a.settings = defaultSettings()
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	if err := tt.Click("播客"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.route.page != pagePodcasts {
+		t.Fatalf("opened %+v", a.route)
+	}
+	if got := wait(t, asked, "the popular podcasts"); got != 0 {
+		t.Fatalf("asked from %d", got)
+	}
+}
+
+// A podcast's card in the tab opens its page; the button on its cover plays
+// its newest episode instead, and leaves the tab open.
+func TestPodcastCard(t *testing.T) {
+	a := catalogApp()
+	a.open(route{page: pagePodcasts})
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	r, ok := tt.Find("夜航电台")
+	if !ok {
+		t.Fatal("no card")
+	}
+	// The button shows under the pointer, in the corner of the square
+	// cover.
+	x, y := r.X+r.W-29, r.Y+r.W-29
+	tt.Move(x, y)
+	tt.Advance(time.Second)
+	tt.Frame()
+	tt.ClickAt(x, y)
+	tt.Frame()
+	if cur := a.pl.Current(); cur == nil || cur.ProgramID != 40 || a.route.page != pagePodcasts {
+		t.Fatalf("playing %+v on %+v", cur, a.route)
+	}
+	tt.ClickAt(r.X+r.W/2, r.Y+r.W/2)
+	tt.Frame()
+	if a.route != (route{page: pagePodcast, id: 5}) {
+		t.Fatalf("opened %+v", a.route)
+	}
+}
+
+// A page of popular podcasts lists only those not listed yet, and the next
+// starts past all of it. NetEase's pages overlap: the tab listed podcasts
+// twice, two cards under one key sharing their state.
+func TestHotPodcastsOverlap(t *testing.T) {
+	pods := func(ids ...int64) []netease.Podcast {
+		var out []netease.Podcast
+		for _, id := range ids {
+			out = append(out, netease.Podcast{ID: id})
+		}
+		return out
+	}
+	var tab podcastTab
+	tab.addHot(pods(1, 2, 3))
+	tab.addHot(pods(4, 2, 5))
+	var ids []int64
+	for _, p := range tab.hot {
+		ids = append(ids, p.ID)
+	}
+	if !slices.Equal(ids, []int64{1, 2, 3, 4, 5}) || tab.hotAt != 6 {
+		t.Fatalf("listed %v, next from %d", ids, tab.hotAt)
+	}
+}
+
 // A song row's album opens its page, not playing the song as the row's
 // click would.
 func TestAlbumLinkInRow(t *testing.T) {
@@ -394,6 +472,13 @@ func catalogApp() *app {
 		programs = append(programs, p)
 	}
 	a.podcasts[5] = &podcastData{podcast: pod, programs: programs, page: paged{loaded: true}}
+	var hot []netease.Podcast
+	for i, name := range []string{"深夜书店", "城市漫游", "慢慢说", "周末早餐", "通勤十分钟", "老唱片"} {
+		hot = append(hot, netease.Podcast{ID: int64(60 + i), Name: name, DJ: netease.User{Nickname: "主播"}, RcmdText: "陪你度过每个夜晚", PlayCount: float64(1e6 * (i + 1))})
+	}
+	subbed := *pod
+	subbed.LastProgram = programs[0].Name
+	a.podcastTab = &podcastTab{subs: []netease.Podcast{subbed}, picks: hot[:3], hot: hot, hotPage: paged{loaded: true}}
 	for _, res := range []struct {
 		kind netease.SearchType
 		res  netease.SearchResult
@@ -426,6 +511,7 @@ var catalogScenes = []struct {
 	{"album", route{page: pageAlbum, id: 8}, 0},
 	{"user", route{page: pageUser, id: 9}, 0},
 	{"podcast", route{page: pagePodcast, id: 5}, 0},
+	{"podcasts", route{page: pagePodcasts}, 0},
 }
 
 // With NM_FRAMES set, saves the pages of searches, artists, albums, users

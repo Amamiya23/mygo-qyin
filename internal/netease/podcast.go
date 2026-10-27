@@ -8,15 +8,20 @@ import (
 
 // Podcast is a channel of episodes, which NetEase calls a radio.
 type Podcast struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"name"`
-	PicURL       string `json:"picUrl"`
-	Description  string `json:"desc"`
-	Category     string `json:"category"`
-	DJ           User   `json:"dj"`
-	ProgramCount int    `json:"programCount"`
-	SubCount     int64  `json:"subCount"`
-	Subed        bool   `json:"subed"` // by the listener signed in
+	ID           int64   `json:"id"`
+	Name         string  `json:"name"`
+	PicURL       string  `json:"picUrl"`
+	Description  string  `json:"desc"`
+	Category     string  `json:"category"`
+	DJ           User    `json:"dj"`
+	ProgramCount int     `json:"programCount"`
+	SubCount     int64   `json:"subCount"`
+	PlayCount    float64 `json:"playCount"`
+	Subed        bool    `json:"subed"`    // by the listener signed in
+	RcmdText     string  `json:"rcmdtext"` // a line on why to listen, in lists
+	// LastProgram is the name of its newest episode, in the listener's
+	// subscriptions.
+	LastProgram string `json:"lastProgramName"`
 }
 
 // Program is an episode of a podcast.
@@ -72,4 +77,25 @@ func PodcastPrograms(id int64, limit, offset int) ([]Program, bool, error) {
 	q := url.Values{"radioId": {strconv.FormatInt(id, 10)}, "limit": {strconv.Itoa(limit)}, "offset": {strconv.Itoa(offset)}, "asc": {"false"}}
 	err := get("/api/dj/program/byradio", q, &res)
 	return res.Programs, res.More, err
+}
+
+// RecommendedPodcasts returns the podcasts NetEase picks to listen to.
+func RecommendedPodcasts() ([]Podcast, error) {
+	var res struct {
+		Podcasts []Podcast `json:"djRadios"`
+	}
+	err := get("/api/djradio/recommend/v1", nil, &res)
+	return res.Podcasts, err
+}
+
+// HotPodcasts returns limit of the most popular podcasts from offset, and
+// whether there are more.
+func HotPodcasts(limit, offset int) ([]Podcast, bool, error) {
+	var res struct {
+		Podcasts []Podcast `json:"djRadios"`
+		HasMore  bool      `json:"hasMore"`
+	}
+	q := url.Values{"limit": {strconv.Itoa(limit)}, "offset": {strconv.Itoa(offset)}}
+	err := get("/api/djradio/hot/v1", q, &res)
+	return res.Podcasts, res.HasMore, err
 }

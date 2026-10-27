@@ -24,6 +24,7 @@ const (
 	pageAlbum
 	pageUser
 	pagePodcast
+	pagePodcasts
 )
 
 type route struct {
@@ -69,15 +70,16 @@ type app struct {
 	homeLoading bool
 	homeAt      time.Time // when what the home page shows was asked for
 
-	playlists map[int64]*netease.Playlist
-	loadingPl map[int64]bool
-	plErr     map[int64]string
-	artists   map[int64]*artistData
-	artistTab int // what an artist's page lists: artistHot, artistLatest, artistAlbums or artistEvents
-	albums    map[int64]*albumData
-	users     map[int64]*userData
-	podcasts  map[int64]*podcastData
-	trackList ui.ListState
+	playlists  map[int64]*netease.Playlist
+	loadingPl  map[int64]bool
+	plErr      map[int64]string
+	artists    map[int64]*artistData
+	artistTab  int // what an artist's page lists: artistHot, artistLatest, artistAlbums or artistEvents
+	albums     map[int64]*albumData
+	users      map[int64]*userData
+	podcasts   map[int64]*podcastData
+	podcastTab *podcastTab // the podcasts tab's lists
+	trackList  ui.ListState
 	// Where the page and the sidebar are scrolled, kept while Now Playing
 	// covers them, unbuilt.
 	pageScroll ui.ScrollState
@@ -177,17 +179,18 @@ func (a *app) showMain() {
 // Run runs the app until it quits.
 func Run() error {
 	a := &app{
-		playlists: map[int64]*netease.Playlist{},
-		loadingPl: map[int64]bool{},
-		plErr:     map[int64]string{},
-		artists:   map[int64]*artistData{},
-		albums:    map[int64]*albumData{},
-		users:     map[int64]*userData{},
-		podcasts:  map[int64]*podcastData{},
-		searches:  map[route]*searchData{},
-		lyricAt:   -1,
-		queueAt:   -1,
-		cacheUsed: -1,
+		playlists:  map[int64]*netease.Playlist{},
+		loadingPl:  map[int64]bool{},
+		plErr:      map[int64]string{},
+		artists:    map[int64]*artistData{},
+		albums:     map[int64]*albumData{},
+		users:      map[int64]*userData{},
+		podcasts:   map[int64]*podcastData{},
+		podcastTab: &podcastTab{},
+		searches:   map[route]*searchData{},
+		lyricAt:    -1,
+		queueAt:    -1,
+		cacheUsed:  -1,
 	}
 	moveOldData()
 	a.useUpdater()

@@ -158,6 +158,29 @@ func init() {
 				mygo.RunOnMain(mygo.App.Quit)
 				return
 			}
+			if os.Getenv("NM_SCENE") == "podcasts" {
+				// The podcasts tab as it loads and once it has, then the
+				// first podcast's newest episode, as its card's button plays
+				// it, muted.
+				time.Sleep(3 * time.Second)
+				step(0, func() { a.open(route{page: pagePodcasts}) })
+				time.Sleep(150 * time.Millisecond)
+				shot("p-loading", a.win)
+				time.Sleep(4 * time.Second)
+				shot("p-podcasts", a.win)
+				step(0, func() {
+					a.volume = 0
+					a.pl.SetVolume(0)
+					t := a.podcastTab
+					if pods := append(t.subs, append(t.picks, t.hot...)...); len(pods) > 0 {
+						a.playPodcast(pods[0].ID)
+					}
+				})
+				time.Sleep(4 * time.Second)
+				shot("p-playing", a.win)
+				mygo.RunOnMain(mygo.App.Quit)
+				return
+			}
 			if os.Getenv("NM_SCENE") == "artist" {
 				// Now Playing, then the page of the artist it credits first,
 				// as their name opens it, its songs the most popular and the newest.

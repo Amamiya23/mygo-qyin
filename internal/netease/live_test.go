@@ -228,3 +228,22 @@ func TestEventsAndPodcastLive(t *testing.T) {
 		t.Fatalf("%d episodes, %v", len(programs), err)
 	}
 }
+
+// The podcasts tab's lists come a page at a time, with names and covers.
+func TestPodcastListsLive(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip()
+	}
+	rec, err := RecommendedPodcasts()
+	if err != nil || len(rec) == 0 || rec[0].Name == "" {
+		t.Fatalf("%d recommended, %v", len(rec), err)
+	}
+	hot, more, err := HotPodcasts(5, 0)
+	if err != nil || len(hot) != 5 || !more || hot[0].PicURL == "" {
+		t.Fatalf("%d hot, more %v, %v", len(hot), more, err)
+	}
+	next, _, err := HotPodcasts(5, 5)
+	if err != nil || len(next) == 0 || next[0].ID == hot[0].ID {
+		t.Fatalf("next page %+v, %v", next, err)
+	}
+}
