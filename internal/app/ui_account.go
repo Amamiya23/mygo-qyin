@@ -346,7 +346,7 @@ func (a *app) myPlaylists(c *ui.Context, title string, lists []netease.Playlist,
 			}
 			ui.Icon(c, arrow).Size(12, 12).TextColor(p.faint)
 		})
-		if mine && iconButton(c.Key("new"), iconPlus, 13, p.faint, "新建歌单").Clicked() {
+		if mine && iconButton(c.Key("new"), iconPlus, 13, p.faint, "新建歌单").Size(26, 26).Radius(6).Clicked() {
 			a.newPlaylist(nil)
 		}
 	})
