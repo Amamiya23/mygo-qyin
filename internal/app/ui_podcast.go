@@ -267,14 +267,11 @@ func (a *app) podcastRow(c *ui.Context, pod *netease.Podcast) {
 // programPane is what the episode playing is about, in Now Playing, in
 // place of a song's lyrics.
 func (a *app) programPane(c *ui.Context, tr *netease.Track) {
-	ui.Scroll(c.Key(tr.ProgramID)).Grow(1).Padding(4, 12, 48, 0).Gap(16).Children(func() {
+	ui.Scroll(c.Key(tr.ProgramID)).Grow(1).Padding(4, 12, 48, 0).Children(func() {
 		desc := strings.TrimSpace(tr.Description)
 		if desc == "" {
 			desc = "这期节目没有简介"
 		}
 		ui.Text(c, desc).FontSize(15).LineHeight(1.7).TextColor(white.Alpha(0.75))
-		if tr.PodcastID != 0 && pillButton(c.Key("podcast"), iconRadio, "查看播客", white.Alpha(0.14), white).AlignSelf(ui.Start).Clicked() {
-			a.openPage(route{page: pagePodcast, id: tr.PodcastID})
-		}
 	})
 }

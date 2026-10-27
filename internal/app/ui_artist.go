@@ -13,25 +13,33 @@ import (
 // artistLinks shows a track's artists as its credits read, each a link to
 // their page in color, brightening to hover under the pointer, and then,
 // with album, a link to its album. An artist NetEase has no page for,
-// credited by name alone, is plain text, as is an episode's host.
+// credited by name alone, is plain text. An episode's host and podcast,
+// in its artists' and album's place, link to the podcast's page.
 func (a *app) artistLinks(c *ui.Context, tr *netease.Track, color, hover ui.Color, album ...bool) ui.Element {
+	podcast := route{page: pagePodcast, id: tr.PodcastID}
 	return ui.RichText(c).TextColor(color).Children(func() {
 		for i, ar := range tr.Artists {
 			if i > 0 {
 				ui.Text(c, ", ")
 			}
-			if ar.ID == 0 {
+			switch {
+			case tr.PodcastID != 0:
+				a.link(c.Key(i), ar.Name, color, hover, podcast)
+			case ar.ID != 0:
+				a.link(c.Key(i), ar.Name, color, hover, route{page: pageArtist, id: ar.ID})
+			default:
 				ui.Text(c, ar.Name)
-				continue
 			}
-			a.link(c.Key(i), ar.Name, color, hover, route{page: pageArtist, id: ar.ID})
 		}
 		if len(album) > 0 && album[0] && tr.Album.Name != "" {
 			ui.Text(c, " — ")
-			if tr.Album.ID == 0 {
-				ui.Text(c, tr.Album.Name)
-			} else {
+			switch {
+			case tr.PodcastID != 0:
+				a.link(c.Key("album"), tr.Album.Name, color, hover, podcast)
+			case tr.Album.ID != 0:
 				a.link(c.Key("album"), tr.Album.Name, color, hover, route{page: pageAlbum, id: tr.Album.ID})
+			default:
+				ui.Text(c, tr.Album.Name)
 			}
 		}
 	})
