@@ -58,7 +58,7 @@ func (a *app) nowPlayingLayer(c *ui.Context, open, settled bool) {
 	if !open && settled || a.pl.Current() == nil {
 		// Closed: nothing to paint or click.
 		layer.Invisible()
-		a.queueAt = -1
+		a.queueAt, a.wallState.track = -1, 0
 		return
 	}
 	if !open {
@@ -106,6 +106,8 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 	// An episode has what it is about and its captions in place of lyrics;
 	// a song, lyrics in place of those.
 	switch program := tr.ProgramID != 0; {
+	case program && a.npPane == paneWall:
+		a.npPane = paneQueue
 	case program && (a.npPane == paneLyrics || a.npPane == paneStage):
 		a.npPane = paneProgram
 		if a.captionsOn() {
@@ -118,6 +120,9 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 	}
 	if a.npPane != paneQueue {
 		a.queueAt = -1
+	}
+	if a.npPane != paneWall {
+		a.wallState.track = 0
 	}
 	{
 		// The top strip drags the window; the chevron closes the view,
@@ -138,6 +143,11 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 			})
 			a.stage(c, tr, accent)
 			a.stageBar(c, tr, art, accent)
+			return
+		}
+		if a.npPane == paneWall {
+			// The wall takes the whole view too, under the song playing.
+			a.wallPane(c, tr, art, accent, w, h, pointerIn)
 			return
 		}
 
@@ -198,7 +208,13 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 				} else {
 					c.AnimationFrame() // not laid out yet: the next frame places it
 				}
-				reveal(tabs.Top(a.npPaneTop-8-tb.H), pointerIn).Children(func() { a.paneTabs(c) })
+				// Built anew, back from another pane, the tabs are not laid out
+				// yet: they take their height from the last time, rather than
+				// showing lower for a frame and rising.
+				if tb.H > 0 {
+					a.npTabsH = tb.H
+				}
+				reveal(tabs.Top(a.npPaneTop-8-a.npTabsH), pointerIn).Children(func() { a.paneTabs(c) })
 				ui.Box(c).Height(a.npPaneTop)
 				switch a.npPane {
 				case paneLyrics:
@@ -245,6 +261,7 @@ const (
 	paneComments
 	paneProgram
 	paneCaptions
+	paneWall
 )
 
 func (a *app) paneTabs(c *ui.Context) {
@@ -260,6 +277,7 @@ func (a *app) paneTabs(c *ui.Context) {
 	a.paneTab(c, paneLyrics, "歌词")
 	a.paneTab(c, paneStage, "律动")
 	a.paneTab(c, paneQueue, "待播清单")
+	a.paneTab(c, paneWall, "选歌")
 	a.paneTab(c, paneComments, a.commentsTab())
 }
 

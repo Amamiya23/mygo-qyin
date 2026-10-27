@@ -103,6 +103,7 @@ type app struct {
 	npChangedAt time.Time // when it last opened or closed
 	npPane      int       // paneLyrics, paneQueue, paneStage, paneComments, paneProgram or paneCaptions
 	npPaneTop   float32   // how far the cover beside the pane starts below its top
+	npTabsH     float32   // how tall the pane's tabs were, last laid out
 	lyricScroll ui.ScrollState
 	lyricGlide  lyricGlide
 	lyricAt     int
@@ -130,6 +131,7 @@ type app struct {
 	backdropCache         backdropCache // the backdrop of Now Playing, as last painted
 	npArt                 *artwork      // the cover whose colors Now Playing shows
 	npCoverState          coverState    // the cover of Now Playing, as it is tilted and flicked
+	wallState             wallState     // the wall of the queue's covers, as it is dragged
 	quiet                 quietState    // the quiet parts of the song playing, for its hot comments
 	captions              captionState  // the episode playing's captions, and the model that writes them
 	sig                   playerSig

@@ -279,3 +279,37 @@ func hsvColor(h, s, v float64) ui.Color {
 	m := v - c
 	return ui.RGB(uint8((r+m)*255+0.5), uint8((g+m)*255+0.5), uint8((b+m)*255+0.5))
 }
+
+// backdropOver paints the backdrop again over band, a strip of win, the
+// box the backdrop fills, as opaque at each height in band as alpha says
+// for it, from 0 at its top to 1 at its foot: what moves under the strip
+// fades into the backdrop with no edge, the very pixels around it where
+// it is opaque.
+func (a *app) backdropOver(p *ui.Painter, win, band ui.Rect, alpha func(t float32) float32) {
+	bd := &a.backdropCache
+	if bd.canvas == nil || win.W <= 0 || win.H <= 0 || band.H <= 0 {
+		return
+	}
+	cw, ch := bd.canvas.Size()
+	sx, sy := float32(cw)/win.W, float32(ch)/win.H
+	// Its song's fading in over the song before's, as the backdrop.
+	before := float32(0)
+	if bd.before != nil {
+		if k := float32(p.Now().Sub(bd.fadeAt)) / float32(backdropFade); k < 1 {
+			before = (1 - k) * (1 - k) * (1 - k)
+		}
+	}
+	const strip = 2
+	for y := float32(0); y < band.H; y += strip {
+		o := alpha((y + strip/2) / band.H)
+		if o <= 0.004 {
+			continue
+		}
+		dst := ui.Rect{X: band.X, Y: band.Y + y, W: band.W, H: min(strip, band.H-y)}
+		src := ui.Rect{X: (dst.X - win.X) * sx, Y: (dst.Y - win.Y) * sy, W: dst.W * sx, H: dst.H * sy}
+		p.ImageRegion(bd.canvas.Bitmap(), src, dst, ui.ImageOptions{Tint: white.Alpha(o)})
+		if before > 0 {
+			p.ImageRegion(bd.before.Bitmap(), src, dst, ui.ImageOptions{Tint: white.Alpha(o * before)})
+		}
+	}
+}
