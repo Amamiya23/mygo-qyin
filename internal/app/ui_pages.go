@@ -246,10 +246,10 @@ func (a *app) playlistPage(c *ui.Context) {
 			return
 		}
 		s := a.pageShimmer(c)
-		a.trackSkeleton(c, s, false, func(c *ui.Context) { a.playlistHeaderSkeleton(c, s) })
+		a.trackSkeleton(c, s, true, func(c *ui.Context) { a.playlistHeaderSkeleton(c, s) })
 		return
 	}
-	a.trackRows(c, pl.Tracks, false, func(c *ui.Context) { a.playlistHeader(c, pl) })
+	a.trackRows(c, pl.Tracks, true, func(c *ui.Context) { a.playlistHeader(c, pl) })
 }
 
 func (a *app) playlistHeader(c *ui.Context, pl *netease.Playlist) {
