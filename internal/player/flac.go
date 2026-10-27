@@ -26,6 +26,7 @@ type flacStream struct {
 	skip  int64     // frames to drop before it, after a seek
 	pend  []float32 // decoded, and not yet read: stereo
 	spec  *spectrum
+	drop  func() // lets the download go, as the stream closes
 	once  sync.Once
 }
 
@@ -39,7 +40,7 @@ func openFLACStream(dl *download) (*flacStream, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &flacStream{dl: dl, info: st.Info, start: start}
+	s := &flacStream{dl: dl, info: st.Info, start: start, drop: dl.Close}
 	if s.info.NChannels == 0 || s.info.SampleRate == 0 {
 		return nil, errors.New("flac: no stream info")
 	}
@@ -209,7 +210,7 @@ func (s *flacStream) frameAt(off int64) (at int64, ok bool) {
 }
 
 func (s *flacStream) Close() error {
-	s.once.Do(s.dl.Close)
+	s.once.Do(s.drop)
 	return nil
 }
 

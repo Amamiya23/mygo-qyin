@@ -1,6 +1,7 @@
 package player
 
 import (
+	"errors"
 	"math"
 	"math/rand/v2"
 	"time"
@@ -348,6 +349,30 @@ func (p *Player) Downloaded() (float64, bool) {
 	}
 	dl, _ := p.stream.source()
 	return dl.Progress(), true
+}
+
+// Audio is the current track's sound decoded apart from what plays, as
+// OpenAudio opens it: interleaved stereo at its rate, read as it
+// downloads.
+type Audio interface {
+	SampleRate() int
+	Channels() int
+	Read(dst []float32) (int, error)
+	// SetPosition goes to a frame, of SampleRate a second.
+	SetPosition(frame int64) error
+	Close() error
+}
+
+// OpenAudio opens the current track's sound again, for decoding apart
+// from what plays, as for transcribing an episode. It reads the same
+// download, waiting for what has not come in, and fails once the track
+// changes. It works on any goroutine once opened; close it when done.
+func (p *Player) OpenAudio() (Audio, error) {
+	if p.stream == nil || p.track == nil {
+		return nil, errors.New("player: nothing loaded")
+	}
+	dl, _ := p.stream.source()
+	return openShared(dl, p.track.Duration)
 }
 
 // PlayOrder returns the queue's indices in play order, and where the

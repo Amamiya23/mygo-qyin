@@ -188,6 +188,18 @@ func (d *download) Close() {
 	}
 }
 
+// share counts one more user of the song, as a second stream decoding
+// it, unless it is gone already.
+func (d *download) share() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.users <= 0 {
+		return false
+	}
+	d.users++
+	return true
+}
+
 // release lets the song go for one of its users. With none left, nothing
 // reads it any more: its file closes, and goes unless the cache kept it.
 func (d *download) release() {
@@ -315,6 +327,27 @@ func openStream(dl *download, durationMs int64) (stream, error) {
 	return openMP3Stream(dl, durationMs)
 }
 
+// openShared opens a second stream of what dl fetches, for decoding apart
+// from what plays: it measures no spectrum, and closing it lets the song
+// go for it alone, leaving the download to the stream that plays.
+func openShared(dl *download, durationMs int64) (stream, error) {
+	if !dl.share() {
+		return nil, errors.New("player: the song is gone")
+	}
+	s, err := openStream(dl, durationMs)
+	if err != nil {
+		dl.release()
+		return nil, err
+	}
+	switch s := s.(type) {
+	case *mp3Stream:
+		s.spec, s.drop = nil, dl.release
+	case *flacStream:
+		s.spec, s.drop = nil, dl.release
+	}
+	return s, nil
+}
+
 // mp3Stream decodes a download for package audio, seeking by bytes: songs
 // are encoded at a constant bit rate, so time and bytes are in proportion.
 // It also measures the spectrum of what it decodes, for the visualizers.
@@ -328,11 +361,12 @@ type mp3Stream struct {
 	skip    int   // bytes of decoded audio to drop after a seek
 	buf     []byte
 	spec    *spectrum
+	drop    func() // lets the download go, as the stream closes
 	closeMu sync.Once
 }
 
 func openMP3Stream(dl *download, durationMs int64) (*mp3Stream, error) {
-	s := &mp3Stream{dl: dl}
+	s := &mp3Stream{dl: dl, drop: dl.Close}
 	dec, err := gomp3.NewDecoder(&downloadReader{d: dl})
 	if err != nil {
 		return nil, err
@@ -421,7 +455,7 @@ func (s *mp3Stream) SetPosition(frame int64) error {
 func (s *mp3Stream) source() (*download, *spectrum) { return s.dl, s.spec }
 
 func (s *mp3Stream) Close() error {
-	s.closeMu.Do(s.dl.Close)
+	s.closeMu.Do(s.drop)
 	return nil
 }
 
@@ -521,8 +555,12 @@ func newSpectrum(rate int, frames int64) *spectrum {
 	return s
 }
 
-// feed takes stereo samples decoded from frame at.
+// feed takes stereo samples decoded from frame at, unless the stream
+// measures no spectrum.
 func (s *spectrum) feed(at int64, stereo []float32) {
+	if s == nil {
+		return
+	}
 	if s.accAt < 0 || at != s.accAt+int64(len(s.acc)) {
 		// The start, or a seek: begin a chunk at a chunk's boundary.
 		s.acc = s.acc[:0]

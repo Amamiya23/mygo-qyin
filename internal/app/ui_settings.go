@@ -154,6 +154,10 @@ func (a *app) settingsView(c *ui.Context) {
 			})
 		})
 
+		if a.captionsShown() {
+			group("播客", func() { a.captionSettings(row, c) })
+		}
+
 		group("缓存", func() {
 			row("歌曲缓存", "听过的歌曲保存在本机，再次播放无需等待，也不耗流量；"+a.cacheUsage(), func() {
 				labels := make([]string, len(cacheLimits))

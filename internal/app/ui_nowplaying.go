@@ -103,12 +103,17 @@ func (a *app) nowPlayingView(c *ui.Context) {
 func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32, pointerIn bool) {
 	pl := a.pl
 	a.commentsFor(tr)
-	// An episode has what it is about in place of lyrics; a song, lyrics in
-	// place of that.
+	// An episode has what it is about and its captions in place of lyrics;
+	// a song, lyrics in place of those.
 	switch program := tr.ProgramID != 0; {
 	case program && (a.npPane == paneLyrics || a.npPane == paneStage):
 		a.npPane = paneProgram
-	case !program && a.npPane == paneProgram:
+		if a.captionsOn() {
+			a.npPane = paneCaptions
+		}
+	case program && a.npPane == paneCaptions && !a.captionsShown():
+		a.npPane = paneProgram
+	case !program && (a.npPane == paneProgram || a.npPane == paneCaptions):
 		a.npPane = a.lyricsPaneChosen()
 	}
 	if a.npPane != paneQueue {
@@ -197,6 +202,8 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 					a.commentsPane(c, tr)
 				case paneProgram:
 					a.programPane(c, tr)
+				case paneCaptions:
+					a.captionsPane(c, tr, h)
 				default:
 					a.queuePane(c)
 				}
@@ -232,11 +239,15 @@ const (
 	paneStage
 	paneComments
 	paneProgram
+	paneCaptions
 )
 
 func (a *app) paneTabs(c *ui.Context) {
 	if tr := a.pl.Current(); tr != nil && tr.ProgramID != 0 {
 		a.paneTab(c, paneProgram, "简介")
+		if a.captionsShown() {
+			a.paneTab(c, paneCaptions, "字幕")
+		}
 		a.paneTab(c, paneQueue, "待播清单")
 		a.paneTab(c, paneComments, a.commentsTab())
 		return
@@ -382,9 +393,26 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 		scroll.Invisible()
 	}
 	defer a.quietCard(c, dim, h*0.18)
+	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: 30, weight: 800, lineHeight: 1.25, quiet: quiet}, nil)
+}
+
+// linesStyle is how timedLines sets its lines: the size, weight and
+// leading of their type; quiet nearly hides them, under a hot comment.
+type linesStyle struct {
+	size       float32
+	weight     int
+	lineHeight float32
+	quiet      bool
+}
+
+// timedLines fills scroll with lines that follow the track playing at
+// pos: the line at cur lit, and brought to a third of the way down once
+// it changes, but none with cur -1 before the first; a click on one seeks
+// to it. The lines are held back by lag, how far the glide to the line
+// lit has still to go (lyricGlide). foot, if set, follows the lines.
+func (a *app) timedLines(c *ui.Context, scroll ui.Element, lines []lyrics.Line, pos time.Duration, cur int, lag float32, st linesStyle, foot func()) {
+	pl := a.pl
 	var active ui.Element
-	// The lines, held back by how far the glide to the line sung has still
-	// to go (lyricGlide).
 	scroll.Children(func() {
 		ui.Column(c).Gap(6).Translate(0, -lag).Children(func() {
 			for i, l := range lines {
@@ -396,7 +424,7 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 				} else if line.Hovered() {
 					alpha = 0.55
 				}
-				if quiet {
+				if st.quiet {
 					// Nearly gone under a hot comment.
 					alpha *= quietFaded
 				}
@@ -416,7 +444,7 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 					text.Children(func() {
 						if on && len(l.Words) > 0 {
 							// The line sung lights up word by word as it is sung.
-							ui.RichText(c.Key("words")).FontSize(30).FontWeight(800).LineHeight(1.25).LetterSpacing(-0.4).Children(func() {
+							ui.RichText(c.Key("words")).FontSize(st.size).FontWeight(st.weight).LineHeight(st.lineHeight).LetterSpacing(-0.4).Children(func() {
 								for wi, wd := range l.Words {
 									lit := clamp01(float32((pos - wd.Start).Seconds() / max(0.05, (wd.End-wd.Start).Seconds())))
 									ui.Text(c.Key(wi), wd.Text).TextColor(white.Alpha(0.38 + 0.62*lit))
@@ -427,7 +455,7 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 								c.After(40 * time.Millisecond)
 							}
 						} else {
-							ui.Text(c, l.Text).FontSize(30).FontWeight(800).LineHeight(1.25).LetterSpacing(-0.4).TextColor(white)
+							ui.Text(c, l.Text).FontSize(st.size).FontWeight(st.weight).LineHeight(st.lineHeight).LetterSpacing(-0.4).TextColor(white)
 						}
 						if l.Translation != "" {
 							ui.Text(c, l.Translation).FontSize(17).FontWeight(600).TextColor(white.Alpha(0.7))
@@ -442,6 +470,9 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 				}
 			}
 		})
+		if foot != nil {
+			foot()
+		}
 	})
 	// Bring the line sung to a third of the way down, once it changed.
 	if cur != a.lyricAt {
