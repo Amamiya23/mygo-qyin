@@ -199,14 +199,26 @@ func TestLikeBurstFrames(t *testing.T) {
 	png.Encode(f, strip)
 }
 
-// With NM_FRAMES set, saves the lyrics stage at moments through a line.
+// With NM_FRAMES set, saves the lyrics stage in each of its styles at
+// moments through a line.
 func TestStageFrames(t *testing.T) {
 	dir := os.Getenv("NM_FRAMES")
 	if dir == "" {
 		t.Skip()
 	}
+	for _, s := range stageStyles {
+		name := "stage.png"
+		if s.id != "" {
+			name = "stage-" + s.id + ".png"
+		}
+		stageFrames(t, s.id, filepath.Join(dir, name))
+	}
+}
+
+func stageFrames(t *testing.T, style, path string) {
 	a := newTestApp()
 	a.settings = defaultSettings()
+	a.settings.StageStyle = style
 	tr := netease.Track{ID: 7, Name: "海屿你", Artists: []netease.Artist{{Name: "马也_Crabbit"}}, Duration: 200000}
 	a.pl.Cue([]netease.Track{tr})
 	a.pl.SetLyrics(lyrics.Build("[00:13.00]我从不主动示弱\n[00:30.56]曾经的那些发生过的开心和难过",
@@ -235,7 +247,7 @@ func TestStageFrames(t *testing.T) {
 		}
 		draw.Draw(grid, image.Rect((i%3)*cw, (i/3)*ch, (i%3+1)*cw, (i/3+1)*ch), small, image.Point{}, draw.Src)
 	}
-	f, _ := os.Create(filepath.Join(dir, "stage.png"))
+	f, _ := os.Create(path)
 	defer f.Close()
 	png.Encode(f, grid)
 }

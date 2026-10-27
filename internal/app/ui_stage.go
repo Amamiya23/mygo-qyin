@@ -66,9 +66,14 @@ func stageShapes(c *ui.Context, l *lyrics.Line, f float32) []wordShape {
 			drift:  (lineRandom(ws, 5) - 0.5) * 10,
 		}
 	}
-	// Room between words, so that a word swelling as it is sung does not
-	// run into the next: half of each one's growth, and how far it is
-	// moved towards the next, as Folia spaces them.
+	spaceWords(shapes, widths, f*0.08)
+	return shapes
+}
+
+// spaceWords leaves room after each word, so that a word swelling as it
+// is sung does not run into the next: half of each one's growth, and how
+// far it is moved towards the next, as Folia spaces them, and gap.
+func spaceWords(shapes []wordShape, widths []float32, gap float32) {
 	for i := range shapes {
 		grow := widths[i] * (shapes[i].scale*1.4 - 1) / 2
 		next, toward := float32(0), float32(0)
@@ -76,9 +81,8 @@ func stageShapes(c *ui.Context, l *lyrics.Line, f float32) []wordShape {
 			next = widths[i+1] * (shapes[i+1].scale*1.4 - 1) / 2
 			toward = shapes[i].x - shapes[i+1].x
 		}
-		shapes[i].margin = max(f*0.16, grow+next+toward+f*0.08)
+		shapes[i].margin = max(2*gap, grow+next+toward+gap)
 	}
-	return shapes
 }
 
 // stage shows the lyrics of tr on the whole stage.
@@ -109,7 +113,12 @@ func (a *app) stage(c *ui.Context, tr *netease.Track, accent ui.Color) {
 	// Under a hot comment there is nothing to move: the quiet asks for
 	// the frame where it ends.
 	if pl.Playing() && !(quiet && dim > 0.98) {
-		stageNextFrame(c, lines, cur, pos)
+		// 倾诉 shows a part of a line a little before it is sung.
+		lead := 80 * time.Millisecond
+		if a.settings.StageStyle == "tilt" {
+			lead = tiltLead
+		}
+		stageNextFrame(c, lines, cur, pos, lead)
 	}
 
 	box.Children(func() {
@@ -148,19 +157,18 @@ func (a *app) stage(c *ui.Context, tr *netease.Track, accent ui.Color) {
 // stageNextFrame asks for the next frame of the stage as soon as it
 // changes: at once while a word springs in or its glow changes, a few
 // times a second while words only drift, and else when the next word is
-// due. Most of a song is the slow kind.
-func stageNextFrame(c *ui.Context, lines []lyrics.Line, cur int, pos time.Duration) {
+// due, lead before it. Most of a song is the slow kind.
+func stageNextFrame(c *ui.Context, lines []lyrics.Line, cur int, pos, lead time.Duration) {
 	if cur < 0 {
 		if len(lines) > 0 {
 			c.After(min(100*time.Millisecond, lines[0].At-pos))
 		}
 		return
 	}
-	const lookahead = 80 * time.Millisecond
 	next, drifting := time.Duration(-1), false
 	for i := max(cur-1, 0); i <= min(cur+1, len(lines)-1); i++ {
 		for _, w := range lines[i].Words {
-			start, end := w.Start-lookahead, max(w.End, w.Start+150*time.Millisecond)
+			start, end := w.Start-lead, max(w.End, w.Start+150*time.Millisecond)
 			switch {
 			case pos >= start && pos < max(start+700*time.Millisecond, end+900*time.Millisecond):
 				// Springing in, filling, or its glow fading.
@@ -183,6 +191,14 @@ func stageNextFrame(c *ui.Context, lines []lyrics.Line, cur int, pos time.Durati
 // stageLine shows the words of l as they are at pos, the whole line at
 // opacity fade.
 func (a *app) stageLine(c *ui.Context, l *lyrics.Line, pos time.Duration, f, w, h, fade float32, accent ui.Color) {
+	switch a.settings.StageStyle {
+	case "partita":
+		a.partitaLine(c, l, pos, f, h, fade, accent)
+		return
+	case "tilt":
+		tiltLine(c, l, pos, w, fade, accent)
+		return
+	}
 	seed := float64(l.At / time.Millisecond)
 	shapes := stageShapes(c, l, f)
 	// Where the line sits: to one side or the middle, a little up or down.

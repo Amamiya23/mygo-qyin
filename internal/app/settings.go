@@ -34,6 +34,9 @@ type settings struct {
 	// LyricsStage shows lyrics on the stage, Folia's style, in Now
 	// Playing, rather than scrolling.
 	LyricsStage bool `json:"lyricsStage"`
+	// StageStyle is how the stage sets its lyrics (stageStyles): empty for
+	// Folia's classic, or the id of another of its visualizers.
+	StageStyle string `json:"stageStyle,omitempty"`
 	// Volume is where the volume was left, from 0 to 1.
 	Volume float64 `json:"volume"`
 	// Normalize evens out the loudness of tracks, by what NetEase

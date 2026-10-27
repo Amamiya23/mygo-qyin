@@ -132,7 +132,10 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 		if a.npPane == paneStage {
 			// The stage takes the whole view: the lyrics are the show, the
 			// controls a slim bar at the foot.
-			reveal(ui.Row(c.Key("tabs")).Absolute().Top(topBar(c)).Right(48).Gap(6), pointerIn).Children(func() { a.paneTabs(c) })
+			reveal(ui.Row(c.Key("tabs")).Absolute().Top(topBar(c)).Right(48).Gap(6), pointerIn).Children(func() {
+				a.stageStyleButton(c)
+				a.paneTabs(c)
+			})
 			a.stage(c, tr, accent)
 			a.stageBar(c, tr, art, accent)
 			return

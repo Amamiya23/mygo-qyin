@@ -63,8 +63,11 @@ func TestNowPlayingFrameBudget(t *testing.T) {
 		t.Errorf("a page under the player: %d frames a second", n)
 	}
 	a.nowPlaying, a.npPane = true, paneStage
-	if n := framesAt(a, tt, 18*time.Second); n > 12 {
-		t.Errorf("the stage between lines: %d frames a second", n)
+	for _, s := range stageStyles {
+		a.settings.StageStyle = s.id
+		if n := framesAt(a, tt, 18*time.Second); n > 12 {
+			t.Errorf("the stage between lines, in %s: %d frames a second", s.label, n)
+		}
 	}
 }
 
