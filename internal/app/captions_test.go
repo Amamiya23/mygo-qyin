@@ -16,25 +16,35 @@ const sec = time.Second
 
 // Transcribing starts where the listener is, or past what is written down
 // there already, and stops where what was written down before begins.
+// With all from there on written down, it goes back for what is not:
+// an episode played to its end, then given the model, wrote down nothing
+// and said it had no speech.
 func TestCaptionStart(t *testing.T) {
-	spans := []span{{0, 60 * sec}, {300 * sec, 400 * sec}}
+	spans := []span{{30 * sec, 60 * sec}, {300 * sec, 400 * sec}}
 	for _, c := range []struct {
 		pos, from, until time.Duration
 		ok               bool
 	}{
-		{10 * sec, 60 * sec, 300 * sec, true},
+		{10 * sec, 10 * sec, 30 * sec, true},
+		{40 * sec, 60 * sec, 300 * sec, true},
 		{100 * sec, 100 * sec, 300 * sec, true},
 		{350 * sec, 400 * sec, 0, true},
 		{500 * sec, 500 * sec, 0, true},
-		{599500 * time.Millisecond, 0, 0, false},
+		{599500 * time.Millisecond, 0, 30 * sec, true},
+		{600 * sec, 0, 30 * sec, true},
 	} {
 		from, until, ok := captionStart(spans, c.pos, 600*sec)
 		if from != c.from || until != c.until || ok != c.ok {
 			t.Errorf("at %v: %v to %v, %v; want %v to %v, %v", c.pos, from, until, ok, c.from, c.until, c.ok)
 		}
 	}
-	if _, _, ok := captionStart([]span{{0, 600 * sec}}, 0, 600*sec); ok {
-		t.Error("an episode written down whole starts again")
+	if from, until, ok := captionStart([]span{{0, 60 * sec}}, 600*sec, 600*sec); from != 60*sec || until != 0 || !ok {
+		t.Errorf("at the end with the start written down: %v to %v, %v", from, until, ok)
+	}
+	for _, pos := range []time.Duration{0, 300 * sec, 600 * sec} {
+		if _, _, ok := captionStart([]span{{0, 600 * sec}}, pos, 600*sec); ok {
+			t.Errorf("at %v: an episode written down whole starts again", pos)
+		}
 	}
 }
 
@@ -142,5 +152,37 @@ func TestCaptionClickSeeks(t *testing.T) {
 	}
 	if got := a.pl.Position(); got != 17*sec {
 		t.Errorf("at %v, want 17s", got)
+	}
+}
+
+// Until an episode's transcription starts, its captions say they are on
+// their way. Its transcript loaded before its audio opened, they said
+// there was no speech, until the transcription started; and before the
+// player told the app the episode changed, they showed the last one's, or
+// after a song, that they had failed.
+func TestCaptionsOnTheirWay(t *testing.T) {
+	a := captionsTestApp(t, true)
+	tt := ui.NewTester(a.view, 1200, 800)
+	for _, c := range []struct {
+		name  string
+		state captionState
+	}{
+		{"after a song", captionState{}},
+		{"after another episode", captionState{program: 41, tr: &transcript{Spans: []span{{0, 600 * sec}}}, lines: speech.Lines([]speech.Segment{{Start: 0, End: sec, Text: "上一期"}})}},
+		{"loaded, the audio not yet", captionState{program: 42, tr: &transcript{Model: speech.ModelName}}},
+	} {
+		a.captions = c.state
+		a.captions.model = modelState{checked: true, installed: true}
+		tt.Frame()
+		tt.Frame()
+		if !tt.HasText("正在识别…") || tt.HasText("上一期") || tt.HasText("这期节目没有识别到语音") || tt.HasText("字幕生成失败") {
+			t.Errorf("%s: %q", c.name, tt.Texts())
+		}
+	}
+	// Written down whole, with nothing said, there is no speech.
+	a.captions = captionState{program: 42, tr: &transcript{Spans: []span{{0, 600 * sec}}}, model: modelState{checked: true, installed: true}}
+	tt.Frame()
+	if !tt.HasText("这期节目没有识别到语音") {
+		t.Errorf("written down whole: %q", tt.Texts())
 	}
 }

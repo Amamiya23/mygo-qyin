@@ -29,16 +29,23 @@ func (a *app) captionsPane(c *ui.Context, tr *netease.Track, h float32) {
 		})
 		return
 	}
-	lines := cs.lines
+	// Until the player says the episode changed, what the app has is the
+	// last one's: none of it shows.
+	var lines []lyrics.Line
+	if cs.program == tr.ProgramID {
+		lines = cs.lines
+	}
 	pos := pl.Position()
 	if len(lines) == 0 {
 		switch {
+		case cs.program != tr.ProgramID:
+			a.captionsNote(c, "正在识别…", "", nil)
 		case cs.failed == cs.program:
 			a.captionsNote(c, "字幕生成失败", "", nil)
-		case a.captionsWriting(pos) || cs.tr == nil:
-			a.captionsNote(c, "正在识别…", "", nil)
-		default:
+		case a.captionsWritten():
 			a.captionsNote(c, "这期节目没有识别到语音", "", nil)
+		default:
+			a.captionsNote(c, "正在识别…", "", nil)
 		}
 		return
 	}

@@ -367,6 +367,17 @@ func (a *app) captionDone(w *captionWork, err error, stopped bool) {
 	a.syncCaptions()
 }
 
+// captionsWritten reports whether all of the episode playing is written
+// down.
+func (a *app) captionsWritten() bool {
+	cs := &a.captions
+	if cs.tr == nil {
+		return false
+	}
+	_, _, ok := captionStart(cs.tr.Spans, 0, a.pl.Duration())
+	return !ok
+}
+
 // captionsWriting reports whether what is at pos is being written down
 // and not yet there.
 func (a *app) captionsWriting(pos time.Duration) bool {
@@ -439,9 +450,19 @@ func (a *app) transcriptWrite() func() {
 
 // captionStart returns where to write down from for a listener at pos of
 // an episode length long, of which spans are written down: pos, or the
-// end of the span it is in; and up to where: the start of the next span,
-// or 0 for the end. It reports false if all from pos on is written down.
+// end of the span it is in, or once all from there on is written down,
+// the first of what is not before it; and up to where: the start of the
+// next span, or 0 for the end. It reports false once all of it is
+// written down.
 func captionStart(spans []span, pos, length time.Duration) (from, until time.Duration, ok bool) {
+	if from, until, ok = captionAfter(spans, pos, length); ok || pos == 0 {
+		return from, until, ok
+	}
+	return captionAfter(spans, 0, length)
+}
+
+// captionAfter is captionStart for what is from pos on alone.
+func captionAfter(spans []span, pos, length time.Duration) (from, until time.Duration, ok bool) {
 	from = pos
 	if end, in := covered(spans, pos); in {
 		from = end
