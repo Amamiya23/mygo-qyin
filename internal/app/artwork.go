@@ -38,6 +38,7 @@ type artCache struct {
 	post  func(func())
 	now   func() time.Time
 	swept time.Time
+	asked time.Time // when a cover was last asked for
 }
 
 // artKeep is how long a cover not asked for stays: the pages scrolled
@@ -48,14 +49,17 @@ func newArtCache(post func(func())) *artCache {
 	return &artCache{art: map[string]*artwork{}, busy: map[string]bool{}, sem: make(chan struct{}, 8), post: post, now: time.Now, swept: time.Now()}
 }
 
-// sweep drops the covers not asked for in artKeep, once a minute.
+// sweep drops the covers not asked for in artKeep before the last one
+// was, once a minute. The time the window draws nothing, idle or in the
+// background, doesn't count: the first frame after it would drop every
+// cover it shows, and they would flash as they load again.
 func (c *artCache) sweep(now time.Time) {
 	if now.Sub(c.swept) < time.Minute {
 		return
 	}
 	c.swept = now
 	for key, a := range c.art {
-		if now.Sub(a.used) > artKeep {
+		if c.asked.Sub(a.used) > artKeep {
 			delete(c.art, key)
 		}
 	}
@@ -72,6 +76,7 @@ func (c *artCache) get(url string, backdrop bool) *artwork {
 	}
 	now := c.now()
 	c.sweep(now)
+	c.asked = now
 	if a, ok := c.art[key]; ok {
 		a.used = now
 		return a

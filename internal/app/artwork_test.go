@@ -33,14 +33,30 @@ func TestArtCacheDropsUnusedCovers(t *testing.T) {
 	c.now, c.swept = func() time.Time { return now }, now
 	c.art["shown"] = &artwork{used: now}
 	c.art["gone"] = &artwork{used: now}
-	for range 6 {
+	for range 7 {
 		now = now.Add(time.Minute)
 		c.get("shown", false)
 	}
 	if _, ok := c.art["gone"]; ok {
-		t.Error("kept a cover not asked for in 6 minutes")
+		t.Error("kept a cover not asked for in 7 minutes")
 	}
 	if _, ok := c.art["shown"]; !ok {
 		t.Error("dropped a cover asked for every minute")
+	}
+}
+
+// The covers showing when the window went idle stay for its next frame.
+// They went: nothing asks for covers while the window draws nothing, so
+// after 5 minutes away the first frame, as the window was focused again,
+// dropped every cover on the page, which flashed as they loaded again.
+func TestArtCacheKeepsCoversWhileIdle(t *testing.T) {
+	now := time.Unix(1e9, 0)
+	c := newArtCache(func(func()) {})
+	c.now, c.swept = func() time.Time { return now }, now
+	c.art["shown"] = &artwork{used: now}
+	c.get("shown", false)
+	now = now.Add(10 * time.Minute)
+	if c.get("shown", false) == nil {
+		t.Error("dropped the covers showing after 10 minutes idle")
 	}
 }
