@@ -77,6 +77,91 @@ func TestAnonymousSearchKeepsMID(t *testing.T) {
 	}
 }
 
+// Logging in used to switch Lite search to the main client's identity, which returned filtered empty lists.
+func TestSearchUsesLiteIdentityWithSession(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind SearchType
+		code int
+		key  string
+		item string
+	}{
+		{"songs", SearchSongs, 7, "item_song", `{"id":101,"mid":"songMid","title":"Song"}`},
+		{"artists", SearchArtists, 1, "singer", `{"id":201,"mid":"artistMid","name":"Artist"}`},
+		{"albums", SearchAlbums, 2, "item_album", `{"id":301,"mid":"albumMid","name":"Album"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withQQServer(t, func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					Comm map[string]any
+					Req  struct {
+						Method string
+						Param  map[string]any
+					} `json:"req_0"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+				}
+				if request.Comm["tmeAppID"] != "qqmusiclight" || request.Comm["cv"] != "1003006" || request.Comm["qq"] != nil || request.Comm["authst"] != nil || r.Header.Get("Cookie") != "tmeLoginType=-1" || r.UserAgent() != "okhttp/3.14.9" {
+					t.Error("public search inherited the account's main-client identity")
+					// This is the successful envelope returned by the filtered main-client search.
+					rpcReply(w, map[string]any{"code": 0, "body": map[string]any{tc.key: []any{}}, "meta": map[string]any{"sum": 0, "is_filter": -9}})
+					return
+				}
+				if request.Req.Method != "DoSearchForQQMusicLite" || request.Req.Param["search_type"] != float64(tc.code) || request.Req.Param["page_num"] != float64(2) || request.Req.Param["num_per_page"] != float64(20) || request.Req.Param["query"] != "周杰伦" {
+					t.Error("wrong search kind, query or pagination")
+				}
+				rpcReply(w, map[string]any{"code": 0, "body": map[string]any{tc.key: []json.RawMessage{json.RawMessage(tc.item)}}, "meta": map[string]any{"sum": 45}})
+			})
+			setSession(Session{MusicID: "123", MusicKey: "fixture-credential", LoginType: 2})
+			result, err := SearchPage(" 周杰伦 ", tc.kind, 20, 20)
+			if err != nil || result.Len() != 1 || result.Total != 45 {
+				t.Fatalf("search became empty: length=%d total=%d error=%v", result.Len(), result.Total, err)
+			}
+			if sessionSnapshot().MusicKey != "fixture-credential" {
+				t.Fatal("search changed the account session")
+			}
+		})
+	}
+}
+
+// Inner search rejections and malformed lists used to appear as successful empty searches.
+func TestSearchResponseValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+		ok   bool
+	}{
+		{"rejected", `{"code":2001,"body":{"singer":[]},"meta":{"sum":0}}`, false},
+		{"invalid status", `{"code":"invalid","body":{"singer":[]},"meta":{"sum":0}}`, false},
+		{"object list", `{"code":0,"body":{"singer":{}},"meta":{"sum":0}}`, false},
+		{"null list", `{"code":0,"body":{"singer":null},"meta":{"sum":0}}`, false},
+		{"null entry", `{"code":0,"body":{"singer":[null]},"meta":{"sum":1}}`, false},
+		{"missing list", `{"code":0,"body":{},"meta":{"sum":0}}`, false},
+		{"invalid meta", `{"code":0,"body":{"singer":[]},"meta":[]}`, false},
+		{"empty search", `{"code":0,"body":{"singer":[]},"meta":{"sum":0}}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withQQServer(t, func(w http.ResponseWriter, r *http.Request) {
+				rpcReply(w, json.RawMessage(tc.data))
+			})
+			result, err := SearchPage("周杰伦", SearchArtists, 20, 0)
+			if (err == nil) != tc.ok {
+				t.Fatalf("error=%v, want success=%v", err, tc.ok)
+			}
+			if tc.name == "rejected" {
+				var protocol *ProtocolError
+				if !errors.As(err, &protocol) || protocol.Code != 2001 {
+					t.Fatalf("lost search rejection: %v", err)
+				}
+			}
+			if tc.ok && (result.Len() != 0 || result.Total != 0) {
+				t.Fatalf("not an empty search: %+v", result)
+			}
+		})
+	}
+}
+
 // A rejected RPC must be surfaced instead of turning into an empty successful search.
 func TestRPCRejectsBusinessAndGatewayCodes(t *testing.T) {
 	for _, body := range []string{`{"code":0,"req_0":{"code":2001,"data":{}}}`, `{"code":1000,"req_0":{"code":0,"data":{}}}`, `{"code":0,"req_0":{"code":0,"subcode":12,"data":{}}}`} {

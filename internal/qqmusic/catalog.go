@@ -323,9 +323,6 @@ func SearchPage(query string, kind SearchType, limit, offset int) (SearchResult,
 	code, key := 7, "item_song"
 	switch kind {
 	case SearchSongs:
-		if sessionSnapshot().MusicKey != "" {
-			code = 0
-		}
 	case SearchAlbums:
 		code, key = 2, "item_album"
 	case SearchArtists:
@@ -333,23 +330,36 @@ func SearchPage(query string, kind SearchType, limit, offset int) (SearchResult,
 	default:
 		return SearchResult{}, ErrUnsupported
 	}
-	var comm map[string]any
-	var headers map[string]string
-	if sessionSnapshot().MusicKey == "" {
-		comm = map[string]any{"ct": 11, "cv": "1003006", "v": "1003006", "tmeAppID": "qqmusiclight", "nettype": "NETWORK_WIFI", "udid": "0", "uid": "0"}
-		headers = map[string]string{"Cookie": "tmeLoginType=-1", "User-Agent": "okhttp/3.14.9"}
-	}
+	// This public Lite endpoint needs its own client identity. The main client's
+	// identity can return successful but filtered empty lists after login.
+	comm := map[string]any{"ct": 11, "cv": "1003006", "v": "1003006", "tmeAppID": "qqmusiclight", "nettype": "NETWORK_WIFI", "udid": "0", "uid": "0"}
+	headers := map[string]string{"Cookie": "tmeLoginType=-1", "User-Agent": "okhttp/3.14.9"}
 	var data object
 	err := rpcWithComm("music.search.SearchCgiService", "DoSearchForQQMusicLite", map[string]any{"search_id": searchID(), "remoteplace": "search.android.keyboard", "query": query, "search_type": code, "num_per_page": limit, "page_num": offset/limit + 1, "highlight": 0, "nqc_flag": 0, "page_id": 1, "grp": 1}, &data, comm, headers)
 	if err != nil {
 		return SearchResult{}, err
 	}
+	if raw, ok := data["code"]; ok {
+		var code int
+		if json.Unmarshal(raw, &code) != nil {
+			return SearchResult{}, fmt.Errorf("qqmusic: invalid search status")
+		}
+		if code != 0 {
+			return SearchResult{}, &ProtocolError{0, code, "music.search.SearchCgiService", "DoSearchForQQMusicLite"}
+		}
+	}
 	body := obj(data["body"])
-	if body == nil || data["meta"] == nil || body[key] == nil {
+	meta := obj(data["meta"])
+	var entries []object
+	if body == nil || meta == nil || json.Unmarshal(body[key], &entries) != nil || entries == nil {
 		return SearchResult{}, fmt.Errorf("qqmusic: malformed search response")
 	}
-	entries := objects(body, key)
-	result := SearchResult{Total: int(number(obj(data["meta"]), "sum"))}
+	for _, entry := range entries {
+		if entry == nil {
+			return SearchResult{}, fmt.Errorf("qqmusic: malformed search entry")
+		}
+	}
+	result := SearchResult{Total: int(number(meta, "sum"))}
 	switch kind {
 	case SearchSongs:
 		result.Songs = convertTracks(entries)
