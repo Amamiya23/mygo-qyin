@@ -10,6 +10,21 @@ import (
 	"lilt/internal/qqmusic"
 )
 
+// Loaded purchases ask for no frames while their songs and albums are idle.
+func TestPurchasedFrameBudget(t *testing.T) {
+	for _, tab := range []int{purchasedSongs, purchasedAlbums} {
+		a := purchasedApp()
+		a.open(route{page: pagePurchased, tab: tab})
+		tt := ui.NewTester(a.view, 1200, 800)
+		tt.Advance(time.Second)
+		tt.Frame()
+		tt.Advance(time.Second)
+		if tt.FramePending() {
+			t.Errorf("purchase tab %d asks for frames while idle", tab)
+		}
+	}
+}
+
 // playingApp is an app playing a track with lyrics, at a position the test
 // sets with pl.Seek, and the number of times its view was built.
 func playingApp() (*app, *ui.Tester, *int) {

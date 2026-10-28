@@ -25,6 +25,7 @@ const (
 	pageUser
 	pagePodcast
 	pagePodcasts
+	pagePurchased
 )
 
 type route struct {
@@ -34,6 +35,8 @@ type route struct {
 	// query and kind are what a search page searched for.
 	query string
 	kind  qqmusic.SearchType
+	// tab selects singles or albums on the purchased music page.
+	tab int
 }
 
 // app is the state both windows show. Everything in it is read and changed
@@ -83,6 +86,7 @@ type app struct {
 	users      map[int64]*userData
 	podcasts   map[int64]*podcastData
 	podcastTab *podcastTab // the podcasts tab's lists
+	purchased  [2]*purchasedData
 	trackList  ui.ListState
 	// Where the page and the sidebar are scrolled, kept while Now Playing
 	// covers them, unbuilt.

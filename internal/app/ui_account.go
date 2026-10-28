@@ -60,6 +60,7 @@ func (a *app) signedIn(prof *qqmusic.Profile) {
 	a.plErr = map[int64]string{}
 	a.artists, a.albums, a.users, a.podcasts = map[int64]*artistData{}, map[int64]*albumData{}, map[int64]*userData{}, map[int64]*podcastData{}
 	a.podcastTab = &podcastTab{}
+	a.purchased = [2]*purchasedData{}
 	a.searches = map[route]*searchData{}
 	a.load(a.route)
 	a.loadHome()
