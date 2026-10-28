@@ -1,6 +1,6 @@
-# QQ 音乐 · MyGo
+# MyGo Q音版
 
-基于 MyGo 云音乐改造的 QQ 音乐客户端。保留 Go 原生界面与播放器，以纯 Go 直接连接 QQ 音乐服务。
+基于 MyGo 云音乐改造的 Q 音客户端。保留 Go 原生界面与播放器，以纯 Go 直接连接 Q音服务。
 ![截图1](assets\image.png)
 
 ## 功能
