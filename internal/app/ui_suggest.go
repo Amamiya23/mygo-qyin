@@ -97,7 +97,7 @@ func (a *app) searchField(c *ui.Context) {
 	if c.Focused(a.searchBox) {
 		field.Background(p.bg).Shadow(0, 0, 0, 3, p.accent.Alpha(0.25)).Border(1, p.accent.Alpha(0.6))
 	} else {
-		field.Background(a.sidebarSurface(c, p.hover, 0.045)).Border(1, a.sidebarSurface(c, p.hairline, 0.04))
+		field.Background(a.sidebarSurface(c, p.hover, 0.035)).Border(1, a.sidebarSurface(c, p.hairline, 0.025))
 	}
 	field.Children(func() {
 		ui.Icon(c, iconSearch).Size(14, 14).TextColor(p.muted)

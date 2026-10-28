@@ -50,15 +50,15 @@ func (a *app) view(c *ui.Context) {
 			side := ui.Column(c).Width(sidebarWidth)
 			if !c.Vibrancy() {
 				side.Background(p.sidebar)
-			} else if runtime.GOOS == "windows" && a.settings.SidebarMaterial == "acrylic" {
-				// A theme-colored veil softens the desktop's contrast while
-				// leaving the system's acrylic visible beneath it.
-				side.Background(p.sidebar.Alpha(0.4))
+			} else if a.acrylicSidebar(c) {
+				// Neutral frost quiets the desktop's color without adding a
+				// green cast, while leaving the system acrylic visible beneath.
+				side.Background(radixGray(p.dark, 2).Alpha(0.5))
 			}
 			side.Children(func() { a.sidebar(c) })
 			// Keyed, so that a popover of the sidebar opening or closing
 			// keeps what the page and its bars hold, their edges' fades.
-			ui.Box(c.Key("main")).Grow(1).Background(p.bg).BorderWidth(0, 0, 0, 1).BorderColor(p.hairline).Children(func() {
+			ui.Box(c.Key("main")).Grow(1).Background(p.bg).BorderWidth(0, 0, 0, 1).BorderColor(a.sidebarSurface(c, p.hairline, 0.06)).Children(func() {
 				a.content(c)
 				// The bars float over the page, which scrolls under them:
 				// positioned, they paint over it.
@@ -235,7 +235,7 @@ func (a *app) styleSidebarItem(c *ui.Context, b ui.Element, selected bool) {
 		if p.dark {
 			bg = radixSage(true, 4).Alpha(0.65)
 		}
-		bg = a.sidebarSurface(c, bg, 0.07)
+		bg = a.sidebarSurface(c, bg, 0.09)
 	case b.Hovered():
 		bg = a.sidebarSurface(c, p.hover.Alpha(0.45), 0.035)
 	}
@@ -247,7 +247,7 @@ func (a *app) styleSidebarItem(c *ui.Context, b ui.Element, selected bool) {
 // sidebarSurface lets the desktop's material show through quiet neutral
 // controls. Other window materials keep their existing surfaces.
 func (a *app) sidebarSurface(c *ui.Context, fallback ui.Color, opacity float32) ui.Color {
-	if runtime.GOOS != "windows" || a.settings.SidebarMaterial != "acrylic" || !c.Vibrancy() {
+	if !a.acrylicSidebar(c) {
 		return fallback
 	}
 	tint := radixInk
@@ -255,6 +255,10 @@ func (a *app) sidebarSurface(c *ui.Context, fallback ui.Color, opacity float32) 
 		tint = radixPaper
 	}
 	return tint.Alpha(opacity)
+}
+
+func (a *app) acrylicSidebar(c *ui.Context) bool {
+	return runtime.GOOS == "windows" && a.settings.SidebarMaterial == "acrylic" && c.Vibrancy()
 }
 
 func (a *app) sidebarNowPlaying(c *ui.Context, tr *qqmusic.Track) {

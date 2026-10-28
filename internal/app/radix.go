@@ -8,6 +8,8 @@ import "github.com/egoist/mygo/ui"
 // uses the same palette in both appearances.
 // https://www.radix-ui.com/colors/docs/palette-composition/understanding-the-scale
 var (
+	radixGrayLight  = [...]string{"#fcfcfc", "#f9f9f9", "#f0f0f0", "#e8e8e8", "#e0e0e0", "#d9d9d9", "#cecece", "#bbbbbb", "#8d8d8d", "#838383", "#646464", "#202020"}
+	radixGrayDark   = [...]string{"#111111", "#191919", "#222222", "#2a2a2a", "#313131", "#3a3a3a", "#484848", "#606060", "#6e6e6e", "#7b7b7b", "#b4b4b4", "#eeeeee"}
 	radixSageLight  = [...]string{"#fbfdfc", "#f7f9f8", "#eef1f0", "#e6e9e8", "#dfe2e0", "#d7dad9", "#cbcfcd", "#b8bcba", "#868e8b", "#7c8481", "#5f6563", "#1a211e"}
 	radixSageDark   = [...]string{"#101211", "#171918", "#202221", "#272a29", "#2e3130", "#373b39", "#444947", "#5b625f", "#63706b", "#717d79", "#adb5b2", "#eceeed"}
 	radixGreenLight = [...]string{"#fbfefc", "#f4fbf6", "#e6f6eb", "#d6f1df", "#c4e8d1", "#adddc0", "#8eceaa", "#5bb98b", "#30a46c", "#2b9a66", "#218358", "#193b2d"}
@@ -29,6 +31,13 @@ var (
 	radixPurple9 = ui.Hex("#8e4ec6")
 	radixCyan9   = ui.Hex("#00a2c7")
 )
+
+func radixGray(dark bool, step int) ui.Color {
+	if dark {
+		return ui.Hex(radixGrayDark[step-1])
+	}
+	return ui.Hex(radixGrayLight[step-1])
+}
 
 func radixSage(dark bool, step int) ui.Color {
 	if dark {
