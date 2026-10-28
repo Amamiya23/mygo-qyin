@@ -6,3 +6,10 @@ mygo_windows_*.syso
 /.tools/
 /qqmusic-mygo
 /qqmusic-mygo.exe
+
+# Local development configuration
+/AGENTS.md
+/.agents/
+/.codex/
+/.trellis/
+/.gitattributes

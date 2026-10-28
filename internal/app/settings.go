@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/egoist/mygo"
 )
@@ -28,6 +29,8 @@ type settings struct {
 	Quality string `json:"quality"`
 	// Appearance is light, dark, or system to follow the system.
 	Appearance string `json:"appearance"`
+	// SidebarMaterial selects mica (also when empty) or acrylic on Windows.
+	SidebarMaterial string `json:"sidebarMaterial,omitempty"`
 	// Smoke makes the progress bars comets trailing smoke as music plays,
 	// for a few percent of a core: the listener turns it on.
 	Smoke bool `json:"smoke"`
@@ -143,6 +146,18 @@ func (s settings) save() error {
 		return err
 	}
 	return os.WriteFile(path, b, 0o600)
+}
+
+// sidebarVibrancy keeps the Windows material choice across launches while
+// preserving the platform's sidebar material elsewhere.
+func (s settings) sidebarVibrancy() mygo.Vibrancy {
+	if runtime.GOOS != "windows" {
+		return mygo.VibrancySidebar
+	}
+	if s.SidebarMaterial == "acrylic" {
+		return mygo.VibrancyAcrylic
+	}
+	return mygo.VibrancyMica
 }
 
 // applyAppearance makes the windows light, dark, or follow the system.

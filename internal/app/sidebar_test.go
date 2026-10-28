@@ -1,12 +1,60 @@
 package app
 
 import (
+	"image/png"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
 	"qqmusic-mygo/internal/qqmusic"
 )
+
+// With NM_FRAMES set, previews Acrylic controls over a synthetic soft backdrop, without claiming to render the Windows material.
+func TestAcrylicSidebarFrames(t *testing.T) {
+	dir := os.Getenv("NM_FRAMES")
+	if dir == "" || runtime.GOOS != "windows" {
+		t.Skip()
+	}
+	for _, dark := range []bool{false, true} {
+		a := editTestApp()
+		a.settings.SidebarMaterial = "acrylic"
+		a.pl.Cue(a.playlists[10].Tracks)
+		tt := ui.NewTester(func(c *ui.Context) {
+			p := paletteFor(c.Theme())
+			ui.Box(c).Fill().Draw(func(painter *ui.Painter, r ui.Rect) {
+				painter.FillGradient(r, ui.LinearGradient{Angle: 160, Stops: []ui.GradientStop{
+					{Color: radixGreen(dark, 4).Mix(p.sidebar, 0.7), At: 0},
+					{Color: radixAmber(dark, 4).Mix(p.sidebar, 0.7), At: 0.5},
+					{Color: radixRed(dark, 4).Mix(p.sidebar, 0.7), At: 1},
+				}}, 0)
+			}).Children(func() { a.view(c) })
+		}, 1180, 780)
+		tt.SetDark(dark)
+		tt.SetVibrancy(true)
+		tt.Advance(400 * time.Millisecond)
+		tt.Frame()
+		name := "acrylic-sidebar-light.png"
+		if dark {
+			name = "acrylic-sidebar-dark.png"
+		}
+		f, err := os.Create(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = png.Encode(f, tt.Image())
+		closeErr := f.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+	}
+}
 
 // Each playlist header hides only its own rows without changing the page
 // or queue, and Enter restores their navigation.

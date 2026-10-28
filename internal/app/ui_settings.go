@@ -193,6 +193,22 @@ func (a *app) settingsView(c *ui.Context) {
 					a.changed()
 				}
 			})
+			if runtime.GOOS == "windows" {
+				row("侧边栏材质", "", func() {
+					i := 0
+					if s.SidebarMaterial == "acrylic" {
+						i = 1
+					}
+					if segmented(c.Key("sidebar-material"), &i, "Mica", "亚克力") {
+						s.SidebarMaterial = []string{"mica", "acrylic"}[i]
+						if a.win != nil {
+							a.win.SetVibrancy(s.sidebarVibrancy())
+						}
+						s.save()
+						a.redraw()
+					}
+				})
+			}
 		})
 
 		group("实验性功能", func() {

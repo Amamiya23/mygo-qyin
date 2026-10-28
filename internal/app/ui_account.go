@@ -250,7 +250,7 @@ func (a *app) accountRow(c *ui.Context) {
 	p := a.pal
 	b := ui.ButtonBase(c.Key("account")).Height(40).PaddingX(8).Gap(10).Radius(10).AlignItems(ui.Center).Justify(ui.Start).FocusRing(false)
 	if b.Hovered() || a.accountOpen && a.profile != nil {
-		b.Background(p.hover)
+		b.Background(a.sidebarSurface(c, p.hover, 0.035))
 	}
 	if a.profile == nil {
 		a.accountOpen = false
@@ -345,7 +345,7 @@ func (a *app) myPlaylists(c *ui.Context, title string, lists []qqmusic.Playlist,
 		}
 		b.Expanded(!*collapsed)
 		if b.Hovered() {
-			b.Background(p.hover)
+			b.Background(a.sidebarSurface(c, p.hover, 0.035))
 		}
 		b.Children(func() {
 			ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(p.faint).Grow(1)
@@ -365,16 +365,11 @@ func (a *app) myPlaylists(c *ui.Context, title string, lists []qqmusic.Playlist,
 	for i := range lists {
 		pl := &lists[i]
 		selected := a.route.page == pagePlaylist && a.route.id == pl.ID && !a.nowPlaying
-		b := ui.ButtonBase(c.Key(pl.ID)).Height(34).PaddingX(8).Gap(10).Radius(8).AlignItems(ui.Center).Justify(ui.Start).FocusRing(false).Label(pl.Name)
-		switch {
-		case selected:
-			b.Background(p.press)
-		case b.Hovered():
-			b.Background(p.hover)
-		}
+		b := ui.ButtonBase(c.Key(pl.ID)).Height(34).PaddingX(7).Gap(10).Radius(8).AlignItems(ui.Center).Justify(ui.Start).FocusRing(false).Label(pl.Name)
+		a.styleSidebarItem(c, b, selected)
 		b.Children(func() {
 			a.cover(c, pl.Cover(), 80, 22, 5)
-			ui.Text(c, pl.Name).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
+			ui.Text(c, pl.Name).FontSize(13).TextColor(p.text).SingleLine().Shrink(1).MinWidth(0)
 		})
 		if mine && pl.SpecialType != 5 {
 			b.ContextMenu(func(m *ui.Menu) {

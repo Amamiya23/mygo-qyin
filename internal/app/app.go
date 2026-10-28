@@ -229,7 +229,7 @@ func Run() error {
 			// Inset from the corner, within the sidebar, as macOS 26's
 			// apps with a sidebar place them.
 			TrafficLightPosition: &mygo.Point{X: 20, Y: 20},
-			Vibrancy:             mygo.VibrancySidebar,
+			Vibrancy:             a.settings.sidebarVibrancy(),
 			BackgroundColor:      "light-dark(#fbfdfc, #101211)",
 			Content:              ui.View(a.view),
 		})

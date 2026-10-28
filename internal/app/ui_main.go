@@ -50,6 +50,10 @@ func (a *app) view(c *ui.Context) {
 			side := ui.Column(c).Width(sidebarWidth)
 			if !c.Vibrancy() {
 				side.Background(p.sidebar)
+			} else if runtime.GOOS == "windows" && a.settings.SidebarMaterial == "acrylic" {
+				// A theme-colored veil softens the desktop's contrast while
+				// leaving the system's acrylic visible beneath it.
+				side.Background(p.sidebar.Alpha(0.4))
 			}
 			side.Children(func() { a.sidebar(c) })
 			// Keyed, so that a popover of the sidebar opening or closing
@@ -202,15 +206,8 @@ func (a *app) sidebar(c *ui.Context) {
 func (a *app) navItem(c *ui.Context, icon *ui.SVG, label string, r route) {
 	p := a.pal
 	selected := a.route.page == r.page && !a.nowPlaying
-	b := ui.ButtonBase(c.Key(label)).Height(34).PaddingX(10).Gap(10).Radius(8).AlignItems(ui.Center).Justify(ui.Start).FocusRing(false)
-	bg := ui.Transparent
-	switch {
-	case selected:
-		bg = p.press
-	case b.Hovered():
-		bg = p.hover
-	}
-	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
+	b := ui.ButtonBase(c.Key(label)).Height(34).PaddingX(9).Gap(10).Radius(8).AlignItems(ui.Center).Justify(ui.Start).FocusRing(false)
+	a.styleSidebarItem(c, b, selected)
 	color := p.text
 	if selected {
 		color = p.accent
@@ -224,12 +221,45 @@ func (a *app) navItem(c *ui.Context, icon *ui.SVG, label string, r route) {
 	}
 }
 
+// styleSidebarItem gives navigation and playlists the same selection cue,
+// distinct from hover even over a colorful desktop material.
+func (a *app) styleSidebarItem(c *ui.Context, b ui.Element, selected bool) {
+	p := a.pal
+	bg := ui.Transparent
+	switch {
+	case selected:
+		bg = p.bg.Alpha(0.4)
+		if p.dark {
+			bg = radixSage(true, 4).Alpha(0.65)
+		}
+		bg = a.sidebarSurface(c, bg, 0.07)
+	case b.Hovered():
+		bg = a.sidebarSurface(c, p.hover.Alpha(0.45), 0.035)
+	}
+	// Keep the existing inset without drawing a frame around the selection.
+	b.Selected(selected).Border(1, ui.Transparent).
+		Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
+}
+
+// sidebarSurface lets the desktop's material show through quiet neutral
+// controls. Other window materials keep their existing surfaces.
+func (a *app) sidebarSurface(c *ui.Context, fallback ui.Color, opacity float32) ui.Color {
+	if runtime.GOOS != "windows" || a.settings.SidebarMaterial != "acrylic" || !c.Vibrancy() {
+		return fallback
+	}
+	tint := radixInk
+	if a.pal.dark {
+		tint = radixPaper
+	}
+	return tint.Alpha(opacity)
+}
+
 func (a *app) sidebarNowPlaying(c *ui.Context, tr *qqmusic.Track) {
 	p := a.pal
 	card := ui.ButtonBase(c.Key("np-card")).Gap(10).Padding(8).Radius(12).AlignItems(ui.Center).FocusRing(false).Label("正在播放")
-	bg := p.hover
+	bg := a.sidebarSurface(c, p.hover, 0.03)
 	if card.Hovered() {
-		bg = p.press
+		bg = a.sidebarSurface(c, p.press, 0.06)
 	}
 	card.Background(card.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
 	card.Children(func() {
