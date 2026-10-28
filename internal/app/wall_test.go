@@ -11,7 +11,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // wallApp is an app showing the wall of a queue of n songs, the at-th
@@ -19,9 +19,9 @@ import (
 func wallApp(t *testing.T, n, at int) (*app, *ui.Tester) {
 	a := newTestApp()
 	a.settings = defaultSettings()
-	var tracks []netease.Track
+	var tracks []qqmusic.Track
 	for i := range n {
-		tracks = append(tracks, netease.Track{ID: int64(i + 1), Name: fmt.Sprintf("歌%03d", i), Duration: 200000})
+		tracks = append(tracks, qqmusic.Track{ID: int64(i + 1), Name: fmt.Sprintf("歌%03d", i), Duration: 200000})
 	}
 	a.pl.Cue(tracks)
 	if at > 0 {
@@ -162,7 +162,7 @@ func TestWallFrames(t *testing.T) {
 		for i := range a.pl.Queue() {
 			url := fmt.Sprintf("art%d", i)
 			a.pl.Queue()[i].Album.PicURL = url
-			a.art.art[netease.Sized(url, 240)] = &artwork{bmp: solidBitmap(colors[i%len(colors)]), tint: colors[i%len(colors)]}
+			a.art.art[qqmusic.Sized(url, 240)] = &artwork{bmp: solidBitmap(colors[i%len(colors)]), tint: colors[i%len(colors)]}
 		}
 		tt.Advance(time.Second)
 		tt.Frame()

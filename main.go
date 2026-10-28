@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"netease-music-mygo/internal/app"
+	"qqmusic-mygo/internal/app"
 )
 
 func main() {

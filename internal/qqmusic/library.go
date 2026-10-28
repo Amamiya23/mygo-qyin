@@ -1,0 +1,394 @@
+package qqmusic
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"unicode"
+)
+
+var ErrInPlaylist = errors.New("歌曲已在歌单中")
+
+func signedSession() (Session, error) {
+	s := sessionSnapshot()
+	if !s.valid() {
+		return s, errors.New("请先登录 QQ 音乐")
+	}
+	return s, nil
+}
+func ownedPlaylists() (object, error) {
+	s, err := signedSession()
+	if err != nil {
+		return nil, err
+	}
+	var data object
+	err = rpc("music.musicasset.PlaylistBaseRead", "GetPlaylistByUin", map[string]any{"uin": s.MusicID}, &data)
+	return data, err
+}
+func libraryPlaylist(o object) Playlist {
+	p := Playlist{ID: number(o, "tid", "dissid", "id"), Name: text(o, "dirName", "title", "dissname"), CoverURL: text(o, "bigpicUrl", "picUrl", "picurl", "coverUrl", "logo", "albumPicUrl"), Description: text(o, "desc"), TrackCount: int(number(o, "songNum", "songnum", "song_cnt")), PlayCount: float64(number(o, "play_cnt", "playCount"))}
+	p.Creator.UserID = number(o, "uin")
+	p.Creator.Nickname = text(o, "nick", "nickname")
+	if number(o, "dirId", "dirid") == 201 {
+		p.SpecialType = 5
+	}
+	if number(o, "dirShow", "dir_show") == 2 {
+		p.Privacy = 10
+	}
+	return p
+}
+
+func UserPlaylists(uid int64) (made, saved []Playlist, err error) {
+	s, err := signedSession()
+	if err != nil {
+		return nil, nil, err
+	}
+	if strconv.FormatInt(uid, 10) != s.MusicID {
+		return nil, nil, ErrUnsupported
+	}
+	data, err := ownedPlaylists()
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, o := range objects(data, "v_playlist") {
+		p := libraryPlaylist(o)
+		p.Creator.UserID = uid
+		if p.ID > 0 {
+			RememberOwnedPlaylist(p.ID)
+			if p.SpecialType == 5 {
+				made = append([]Playlist{p}, made...)
+			} else {
+				made = append(made, p)
+			}
+		}
+	}
+	if s.EncryptUin == "" {
+		return made, nil, nil
+	}
+	seen := map[int64]bool{}
+	for offset := 0; offset < 10000; {
+		var page object
+		if err = rpc("music.musicasset.PlaylistFavRead", "CgiGetPlaylistFavInfo", map[string]any{"uin": s.EncryptUin, "offset": offset, "size": 100}, &page); err != nil {
+			return made, saved, err
+		}
+		items := objects(page, "v_list")
+		fresh := 0
+		for _, o := range items {
+			p := libraryPlaylist(o)
+			if p.ID > 0 && !seen[p.ID] {
+				seen[p.ID] = true
+				saved = append(saved, p)
+				fresh++
+			}
+		}
+		if !libraryMore(page) || len(items) == 0 || fresh == 0 {
+			return made, saved, nil
+		}
+		offset += len(items)
+	}
+	return made, saved, errors.New("QQ 音乐收藏歌单过多，未能完整读取")
+}
+
+func libraryMore(o object) bool                 { return number(o, "hasmore") == 1 || string(o["hasmore"]) == "true" }
+func RecommendedPlaylists() ([]Playlist, error) { return FeaturedPlaylists(25) }
+func DailySongs() ([]Track, error) {
+	if _, err := signedSession(); err != nil {
+		return nil, err
+	}
+	var data object
+	if err := rpc("music.srfDissInfo.aiDissInfo", "uniform_get_Dissinfo", map[string]any{"dirid": 202, "optype": 3, "tag": 1, "userinfo": 0, "pic_dpi": 300}, &data); err != nil {
+		return nil, err
+	}
+	if code, ok := data["code"]; ok && string(code) != "0" {
+		return nil, fmt.Errorf("qqmusic: daily songs code %s", code)
+	}
+	return convertTracks(objects(data, "songlist")), nil
+}
+
+func LikedIDs(uid int64) ([]int64, error) {
+	s, err := signedSession()
+	if err != nil {
+		return nil, err
+	}
+	if strconv.FormatInt(uid, 10) != s.MusicID {
+		return nil, ErrUnsupported
+	}
+	if s.EncryptUin == "" {
+		return nil, errors.New("QQ 音乐登录凭证缺少账号标识，请重新登录")
+	}
+	var ids []int64
+	seen := map[int64]bool{}
+	for offset := 0; offset < 100000; {
+		var page object
+		if err = rpc("music.srfDissInfo.DissInfo", "CgiGetDiss", map[string]any{"disstid": 0, "dirid": 201, "tag": true, "song_begin": offset, "song_num": 100, "userinfo": true, "orderlist": true, "enc_host_uin": s.EncryptUin}, &page); err != nil {
+			return nil, err
+		}
+		if code, ok := page["code"]; ok && string(code) != "0" {
+			return nil, fmt.Errorf("qqmusic: liked songs code %s", code)
+		}
+		items := objects(page, "songlist")
+		fresh := 0
+		for _, track := range convertTracks(items) {
+			if track.ID > 0 && !seen[track.ID] {
+				seen[track.ID] = true
+				ids = append(ids, track.ID)
+				fresh++
+			}
+		}
+		if !libraryMore(page) || number(page, "total_song_num") > 0 && int64(len(ids)) >= number(page, "total_song_num") {
+			return ids, nil
+		}
+		if len(items) == 0 || fresh == 0 {
+			return nil, errors.New("QQ 音乐喜欢歌曲列表未能完整读取")
+		}
+		offset += len(items)
+	}
+	return nil, errors.New("QQ 音乐喜欢歌曲列表过多，未能完整读取")
+}
+
+func writeResult(module, method string, param any) (object, error) {
+	var data object
+	if err := rpc(module, method, param, &data); err != nil {
+		return nil, err
+	}
+	if raw, ok := data["retCode"]; !ok || string(raw) != "0" {
+		return nil, fmt.Errorf("qqmusic: %s rejected (retCode %s)", method, data["retCode"])
+	}
+	result := obj(data["result"])
+	if result == nil {
+		return nil, fmt.Errorf("qqmusic: %s has no result", method)
+	}
+	return result, nil
+}
+func Like(id int64, liked bool) error {
+	if _, err := signedSession(); err != nil {
+		return err
+	}
+	tracks, err := SongDetails([]int64{id})
+	if err != nil {
+		return err
+	}
+	if len(tracks) != 1 || tracks[0].ID != id || tracks[0].MID == "" {
+		return errors.New("qqmusic: song identity not found")
+	}
+	mid := tracks[0].MID
+	read := func() (bool, error) {
+		var data object
+		if err := rpc("music.musicasset.SongFavRead", "IsSongFanByMid", map[string]any{"v_songMid": []string{mid}}, &data); err != nil {
+			return false, err
+		}
+		var value bool
+		raw, ok := obj(data["m_fan"])[mid]
+		if !ok || json.Unmarshal(raw, &value) != nil {
+			return false, errors.New("qqmusic: invalid liked status")
+		}
+		return value, nil
+	}
+	current, err := read()
+	if err != nil || current == liked {
+		return err
+	}
+	method := "DelSonglist"
+	if liked {
+		method = "AddSonglist"
+	}
+	if _, err = writeResult("music.musicasset.PlaylistDetailWrite", method, map[string]any{"dirId": 201, "v_songInfo": []map[string]any{{"songId": id, "songType": 0}}}); err != nil {
+		return err
+	}
+	current, err = read()
+	if err != nil {
+		return err
+	}
+	if current != liked {
+		return errors.New("QQ 音乐未确认喜欢状态的更改")
+	}
+	return nil
+}
+
+func playlistName(name string) error {
+	if strings.TrimSpace(name) == "" || len([]rune(name)) > 20 {
+		return errors.New("歌单名称应为 1–20 个字符")
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return errors.New("歌单名称含无效字符")
+		}
+	}
+	return nil
+}
+func ordinaryPlaylist(id int64) (object, error) {
+	data, err := ownedPlaylists()
+	if err != nil {
+		return nil, err
+	}
+	var found object
+	matches := 0
+	for _, o := range objects(data, "v_playlist") {
+		if number(o, "tid") == id {
+			found = o
+			matches++
+		}
+	}
+	if matches != 1 || number(found, "dirId") <= 0 || number(found, "dirId") >= 200 || number(found, "dirType") != 0 {
+		return nil, errors.New("只能编辑自己创建的普通歌单")
+	}
+	if uin := text(found, "uin"); uin != "" && uin != sessionSnapshot().MusicID {
+		return nil, errors.New("不能编辑其他用户的歌单")
+	}
+	return found, nil
+}
+
+func CreatePlaylist(name string) (*Playlist, error) {
+	if _, err := signedSession(); err != nil {
+		return nil, err
+	}
+	if err := playlistName(name); err != nil {
+		return nil, err
+	}
+	result, err := writeResult("music.musicasset.PlaylistBaseWrite", "AddPlaylist", map[string]any{"dirName": name})
+	if err != nil {
+		return nil, err
+	}
+	id := number(result, "tid")
+	dir := number(result, "dirId")
+	if id <= 0 || dir <= 0 || dir >= 200 {
+		return nil, errors.New("QQ 音乐未返回新歌单标识")
+	}
+	entry, err := ordinaryPlaylist(id)
+	if err != nil {
+		return nil, fmt.Errorf("歌单创建后未能确认，请刷新歌单后检查: %w", err)
+	}
+	if number(entry, "dirId") != dir {
+		return nil, errors.New("QQ 音乐新歌单标识不一致")
+	}
+	p := libraryPlaylist(entry)
+	p.Creator.UserID, _ = strconv.ParseInt(sessionSnapshot().MusicID, 10, 64)
+	RememberOwnedPlaylist(p.ID)
+	return &p, nil
+}
+
+func RenamePlaylist(id int64, name string) error {
+	if err := playlistName(name); err != nil {
+		return err
+	}
+	entry, err := ordinaryPlaylist(id)
+	if err != nil {
+		return err
+	}
+	dir := number(entry, "dirId")
+	read := func() (object, error) {
+		var data object
+		err := rpc("music.srfDissInfo.aiDissInfo", "uniform_get_Dissinfo", map[string]any{"dirid": dir, "optype": 3, "tag": 1, "userinfo": 0, "pic_dpi": 300}, &data)
+		if err != nil {
+			return nil, err
+		}
+		info := obj(data["dirinfo"])
+		if info == nil || number(info, "dirid") != dir {
+			return nil, errors.New("QQ 音乐未返回歌单设置")
+		}
+		for _, field := range []string{"title", "desc", "picurl", "picurl2"} {
+			var value string
+			if json.Unmarshal(info[field], &value) != nil {
+				return nil, errors.New("QQ 音乐歌单设置不完整，无法保留后更名")
+			}
+		}
+		var tags []json.RawMessage
+		if json.Unmarshal(info["tag"], &tags) != nil || len(tags) > 3 {
+			return nil, errors.New("QQ 音乐歌单标签设置不完整")
+		}
+		return info, nil
+	}
+	before, err := read()
+	if err != nil {
+		return err
+	}
+	show := number(before, "dir_show")
+	if show != 1 && show != 2 || text(before, "picurl2") != "" {
+		return errors.New("当前歌单设置暂不支持保留后重命名")
+	}
+	var tags []string
+	for _, tag := range objects(before, "tag") {
+		tagID := number(tag, "id")
+		if tagID <= 0 {
+			return errors.New("QQ 音乐歌单标签无效")
+		}
+		tags = append(tags, strconv.FormatInt(tagID, 10))
+	}
+	result, err := writeResult("music.musicasset.PlaylistBaseWrite", "EditPlaylist", map[string]any{"dirId": dir, "mask": 95, "dirNewName": name, "dirNewDesc": text(before, "desc"), "dirNewPicUrl": text(before, "picurl"), "dirNewPicUrl2": "", "dirNewtaglist": strings.Join(tags, ","), "dirShow": show})
+	if err != nil {
+		return err
+	}
+	if number(result, "tid") != id || number(result, "dirId") != dir {
+		return errors.New("QQ 音乐未确认歌单更名")
+	}
+	after, err := read()
+	if err != nil {
+		return err
+	}
+	if text(after, "title") != name || text(after, "desc") != text(before, "desc") || text(after, "picurl") != text(before, "picurl") || number(after, "dir_show") != show {
+		return errors.New("QQ 音乐未确认歌单设置，请刷新后检查")
+	}
+	return nil
+}
+
+func AddToPlaylist(id int64, songs ...int64) error      { return editPlaylistSongs(id, true, songs) }
+func RemoveFromPlaylist(id int64, songs ...int64) error { return editPlaylistSongs(id, false, songs) }
+func editPlaylistSongs(id int64, add bool, songs []int64) error {
+	if len(songs) == 0 || len(songs) > 100 {
+		return errors.New("一次请选择 1–100 首歌曲")
+	}
+	entry, err := ordinaryPlaylist(id)
+	if err != nil {
+		return err
+	}
+	dir := number(entry, "dirId")
+	values := make([]map[string]any, len(songs))
+	for i, song := range songs {
+		if song <= 0 {
+			return errors.New("qqmusic: invalid song ID")
+		}
+		values[i] = map[string]any{"songId": song, "songType": 0}
+	}
+	method := "DelSonglist"
+	if add {
+		method = "AddSonglist"
+	}
+	result, err := writeResult("music.musicasset.PlaylistDetailWrite", method, map[string]any{"dirId": dir, "v_songInfo": values})
+	if err != nil {
+		return err
+	}
+	if number(result, "tid") == id && number(result, "dirId") == dir {
+		return nil
+	}
+	if number(result, "tid") == 0 && number(result, "dirId") == 0 {
+		return errors.New("QQ 音乐未确认歌单歌曲的更改，请刷新后检查")
+	}
+	return errors.New("QQ 音乐歌单写入结果不一致")
+}
+
+func DeletePlaylist(id int64) error {
+	entry, err := ordinaryPlaylist(id)
+	if err != nil {
+		return err
+	}
+	dir := number(entry, "dirId")
+	result, err := writeResult("music.musicasset.PlaylistBaseWrite", "DelPlaylist", map[string]any{"dirId": dir})
+	if err != nil {
+		return err
+	}
+	if number(result, "tid") != id || number(result, "dirId") != dir || number(result, "updateTime") != 0 {
+		return errors.New("QQ 音乐未确认删除歌单")
+	}
+	data, err := ownedPlaylists()
+	if err != nil {
+		return err
+	}
+	for _, o := range objects(data, "v_playlist") {
+		if number(o, "tid") == id || number(o, "dirId") == dir {
+			return errors.New("QQ 音乐删除后仍返回此歌单")
+		}
+	}
+	return nil
+}

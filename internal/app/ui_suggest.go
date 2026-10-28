@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // suggestDelay is how long typing pauses before suggestions are asked for.
@@ -62,11 +62,11 @@ func (a *app) dismissSuggestions() {
 
 // suggestionList is the first ten suggestions, the kinds in the order
 // NetEase ranks them.
-func suggestionList(res netease.Suggestions) []suggestion {
+func suggestionList(res qqmusic.Suggestions) []suggestion {
 	byKind := map[string][]suggestion{}
 	for _, t := range res.Songs {
 		byKind["songs"] = append(byKind["songs"], suggestion{fmt.Sprint("song:", t.ID), t.Name, t.ArtistNames(), "单曲",
-			route{page: pageSearch, query: t.Name, kind: netease.SearchSongs}})
+			route{page: pageSearch, query: t.Name, kind: qqmusic.SearchSongs}})
 	}
 	for _, ar := range res.Artists {
 		byKind["artists"] = append(byKind["artists"], suggestion{fmt.Sprint("artist:", ar.ID), ar.Name, "", "歌手",
@@ -103,7 +103,7 @@ func (a *app) searchField(c *ui.Context) {
 		ui.Icon(c, iconSearch).Size(14, 14).TextColor(p.muted)
 		cb := ui.ComboboxBase(c.Key("search"), &a.query)
 		in := cb.Input.Bind(&a.searchBox).Grow(1).MinWidth(0).
-			Placeholder("搜索歌曲、歌手、播客").FontSize(13).Label("搜索")
+			Placeholder("搜索歌曲、歌手、专辑").FontSize(13).Label("搜索")
 		q := strings.TrimSpace(a.query)
 		s := &a.suggestions
 		switch {
@@ -120,7 +120,7 @@ func (a *app) searchField(c *ui.Context) {
 			panel.AttachTo(field, ui.AnchorBottomStart, ui.AnchorTopStart).
 				Width(360).Padding(6).Margin(8, 0, 0, 0).Radius(12).
 				Background(p.bg).Border(1, p.hairline).
-				Shadow(0, 8, 24, -4, ui.RGBA(0, 0, 0, 0.2))
+				Shadow(0, 8, 24, -4, radixInk.Alpha(0.2))
 			option := func(key, label string) ui.Element {
 				row := cb.Item(key).MinHeight(36).Padding(6, 10).Gap(10).Radius(7).AlignItems(ui.Center).Label(label)
 				if row.Highlighted() {

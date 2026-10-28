@@ -7,8 +7,8 @@ import (
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/lyrics"
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/lyrics"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // The wall lays the queue out as a wall of its covers, under the song
@@ -95,7 +95,7 @@ func (l wallLayout) shows(i int, off ui.Point, w, h, top, foot float32) bool {
 
 // wallPane fills Now Playing with the wall, the song playing over it and
 // the controls along its foot.
-func (a *app) wallPane(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32, pointerIn bool) {
+func (a *app) wallPane(c *ui.Context, tr *qqmusic.Track, art *artwork, accent ui.Color, w, h float32, pointerIn bool) {
 	top := topBar(c)
 	songH := min(max(h*0.36, 200), 320)
 	// The wall goes on under the foot of the song, into the frost; at
@@ -108,7 +108,7 @@ func (a *app) wallPane(c *ui.Context, tr *netease.Track, art *artwork, accent ui
 	// backdrop, painted again over them, opaque by the frost's top: there
 	// it shows what shows above it, so that no edge does.
 	ui.Box(c.Key("wall-frost")).Absolute().Top(wallY).Left(0).Right(0).Height(frost).PassThrough().
-		Material(glass.Blur{Radius: 16, Mask: &ui.LinearGradient{From: ui.RGB(0, 0, 0), To: ui.Transparent, Angle: 180}}).
+		Material(glass.Blur{Radius: 16, Mask: &ui.LinearGradient{From: radixInk, To: ui.Transparent, Angle: 180}}).
 		Draw(func(p *ui.Painter, r ui.Rect) {
 			a.backdropOver(p, ui.Rect{W: w, H: h}, r, func(t float32) float32 {
 				return 1 - smoothstep(0.1, 0.85, t)
@@ -117,7 +117,7 @@ func (a *app) wallPane(c *ui.Context, tr *netease.Track, art *artwork, accent ui
 	// Down under the controls, they blur and fade most of the way, for
 	// the controls to read over them.
 	ui.Box(c.Key("wall-foot")).Absolute().Left(0).Right(0).Bottom(0).Height(foot).PassThrough().
-		Material(glass.Blur{Radius: 14, Mask: &ui.LinearGradient{From: ui.RGB(0, 0, 0), To: ui.Transparent, Angle: 0}}).
+		Material(glass.Blur{Radius: 14, Mask: &ui.LinearGradient{From: radixInk, To: ui.Transparent, Angle: 0}}).
 		Draw(func(p *ui.Painter, r ui.Rect) {
 			a.backdropOver(p, ui.Rect{W: w, H: h}, r, func(t float32) float32 { return 0.7 * smoothstep(0, 0.9, t) })
 		})
@@ -129,14 +129,14 @@ func (a *app) wallPane(c *ui.Context, tr *netease.Track, art *artwork, accent ui
 // wallSong is the song playing, over the wall: its cover, which breathes
 // as Now Playing's does, its name, and the line of its lyrics sung, with
 // the next.
-func (a *app) wallSong(c *ui.Context, tr *netease.Track, art *artwork, top, h float32) {
+func (a *app) wallSong(c *ui.Context, tr *qqmusic.Track, art *artwork, top, h float32) {
 	pl := a.pl
 	ui.Row(c.Key("wall-song")).Absolute().Top(top).Left(0).Right(0).Height(h).Padding(0, 72).Gap(36).
 		Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 		// Not Now Playing's cover, which the pointer tilts and flings: here
 		// the wall is what the pointer moves.
 		size := h - 48
-		cov := ui.Box(c.Key(coverKey{tr.ID, 0})).Size(size, size).Radius(16).Shadow(0, 24, 50, -12, ui.RGBA(0, 0, 0, 0.55))
+		cov := ui.Box(c.Key(coverKey{tr.ID, 0})).Size(size, size).Radius(16).Shadow(0, 24, 50, -12, radixInk.Alpha(0.55))
 		scale := float32(1)
 		if !pl.Playing() {
 			scale = 0.92
@@ -327,7 +327,7 @@ func rowSwayTarget(r int, now time.Time) (float32, time.Duration) {
 // wallTile is the cover of the i-th song of the queue, tr, x along its
 // row, scaled to lift: the song playing stands out,
 // ringed, and the one under the pointer says what it is.
-func (a *app) wallTile(c *ui.Context, tr *netease.Track, i int, x float32, playing, hovered bool, lift float32) {
+func (a *app) wallTile(c *ui.Context, tr *qqmusic.Track, i int, x float32, playing, hovered bool, lift float32) {
 	tile := ui.Box(c.Key(i)).Absolute().Left(x).Top(0).Size(wallTile, wallTile).Radius(12).
 		Label(tr.Name).ContextMenu(a.songItems(tr, 0))
 	tile.AnimatePose(ui.Pose{Scale: lift}, ui.Animation{Spring: ui.SpringOptions{Duration: 400 * time.Millisecond, Bounce: 0.2}})
@@ -335,7 +335,7 @@ func (a *app) wallTile(c *ui.Context, tr *netease.Track, i int, x float32, playi
 		tile.Opacity(0.4)
 	}
 	if playing {
-		tile.Shadow(0, 14, 30, -8, ui.RGBA(0, 0, 0, 0.6))
+		tile.Shadow(0, 14, 30, -8, radixInk.Alpha(0.6))
 	}
 	tile.Children(func() {
 		a.cover(c, tr.Album.PicURL, 240, wallTile, 12)
@@ -344,7 +344,7 @@ func (a *app) wallTile(c *ui.Context, tr *netease.Track, i int, x float32, playi
 			// cover, so that they move with it.
 			ui.Column(c.Key("caption")).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(12).Padding(8).Gap(1).
 				Justify(ui.End).PassThrough().TextColor(white).
-				Gradient(ui.RGBA(0, 0, 0, 0.78), ui.Transparent, 0).
+				Gradient(radixInk.Alpha(0.78), ui.Transparent, 0).
 				Children(func() {
 					ui.Text(c, tr.Name).FontSize(12).FontWeight(700).SingleLine()
 					if names := tr.ArtistNames(); names != "" {

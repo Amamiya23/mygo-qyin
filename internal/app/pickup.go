@@ -5,8 +5,8 @@ import (
 	"slices"
 	"time"
 
-	"netease-music-mygo/internal/netease"
-	"netease-music-mygo/internal/player"
+	"qqmusic-mygo/internal/qqmusic"
+	"qqmusic-mygo/internal/player"
 )
 
 // Signed in, the listener finds what they played last, on their phone or
@@ -14,7 +14,7 @@ import (
 // its title.
 
 // recentPlays returns the listener's recent plays; tests replace it.
-var recentPlays = netease.RecentPlays
+var recentPlays = qqmusic.RecentPlays
 
 // pickedUp is the song a login picked up, while it waits to play.
 type pickedUp struct {
@@ -55,9 +55,9 @@ func (a *app) pickUp(uid int64) {
 // device, each song within half an hour of the next, the last in the past
 // week. Songs they may not play are left out, and songs played twice show
 // where they played last.
-func lastStretch(plays []netease.Play, now time.Time) (songs []netease.Track, last netease.Play, ok bool) {
+func lastStretch(plays []qqmusic.Play, now time.Time) (songs []qqmusic.Track, last qqmusic.Play, ok bool) {
 	if len(plays) == 0 || now.Sub(plays[0].At) > 7*24*time.Hour {
-		return nil, netease.Play{}, false
+		return nil, qqmusic.Play{}, false
 	}
 	seen := map[int64]bool{}
 	for i, p := range plays {
@@ -78,7 +78,7 @@ func lastStretch(plays []netease.Play, now time.Time) (songs []netease.Track, la
 }
 
 // heardAt says when and where a song was played.
-func heardAt(p netease.Play, now time.Time) string {
+func heardAt(p qqmusic.Play, now time.Time) string {
 	d := now.Sub(p.At)
 	var when string
 	switch {

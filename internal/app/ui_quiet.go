@@ -6,8 +6,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/lyrics"
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/lyrics"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // Through the quiet parts of a song, its intro, an interlude or its outro,
@@ -31,12 +31,12 @@ type quietState struct {
 	track  int64
 	lines  int // how many lines they were found among
 	quiets []lyrics.Quiet
-	cm     *netease.Comment
+	cm     *qqmusic.Comment
 }
 
 // quietComment returns the hot comment to show at pos, nil for none, and
 // how long until that changes, 0 for never.
-func (a *app) quietComment(tr *netease.Track, lines []lyrics.Line, loaded bool, pos time.Duration) (*netease.Comment, time.Duration) {
+func (a *app) quietComment(tr *qqmusic.Track, lines []lyrics.Line, loaded bool, pos time.Duration) (*qqmusic.Comment, time.Duration) {
 	if !a.settings.HotComments {
 		return nil, 0
 	}
@@ -51,7 +51,7 @@ func (a *app) quietComment(tr *netease.Track, lines []lyrics.Line, loaded bool, 
 			qs.quiets = []lyrics.Quiet{}
 		}
 	}
-	var hot []*netease.Comment
+	var hot []*qqmusic.Comment
 	if cs := &a.comments; cs.track == tr.ID {
 		for i := range cs.hot {
 			if n := utf8.RuneCountInString(cs.hot[i].Content); n > 0 && n <= quietRunes {
@@ -87,7 +87,7 @@ func (a *app) quietComment(tr *netease.Track, lines []lyrics.Line, loaded bool, 
 // quietShown returns how far a hot comment has come in on el, the
 // lyrics, from 0 to 1, keeping it to show as it goes, and whether one
 // shows now.
-func (a *app) quietShown(c *ui.Context, el ui.Element, tr *netease.Track, lines []lyrics.Line, loaded bool) (float32, bool) {
+func (a *app) quietShown(c *ui.Context, el ui.Element, tr *qqmusic.Track, lines []lyrics.Line, loaded bool) (float32, bool) {
 	pl := a.pl
 	cm, next := a.quietComment(tr, lines, loaded, pl.Position())
 	if pl.Playing() && next > 0 {

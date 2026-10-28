@@ -7,7 +7,7 @@ import (
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 const sidebarWidth = 232
@@ -184,7 +184,6 @@ func (a *app) sidebar(c *ui.Context) {
 			a.navItem(c, iconDaily, "每日推荐", route{page: pageDaily})
 			a.navItem(c, iconRadio, "私人 FM", route{page: pageFM})
 			a.navItem(c, iconCharts, "排行榜", route{page: pageCharts})
-			a.navItem(c, iconPodcast, "播客", route{page: pagePodcasts})
 			if a.searched.query != "" {
 				a.navItem(c, iconSearch, "搜索结果", a.searched)
 			}
@@ -225,7 +224,7 @@ func (a *app) navItem(c *ui.Context, icon *ui.SVG, label string, r route) {
 	}
 }
 
-func (a *app) sidebarNowPlaying(c *ui.Context, tr *netease.Track) {
+func (a *app) sidebarNowPlaying(c *ui.Context, tr *qqmusic.Track) {
 	p := a.pal
 	card := ui.ButtonBase(c.Key("np-card")).Gap(10).Padding(8).Radius(12).AlignItems(ui.Center).FocusRing(false).Label("正在播放")
 	bg := p.hover
@@ -393,12 +392,12 @@ func (a *app) loadHome() {
 	signedIn := a.profile != nil
 	at := time.Now()
 	go func() {
-		featured, err1 := netease.FeaturedPlaylists(30)
-		charts, err2 := netease.Charts()
-		daily, _ := netease.DailySongs()
-		var rec []netease.Playlist
+		featured, err1 := qqmusic.FeaturedPlaylists(30)
+		charts, err2 := qqmusic.Charts()
+		daily, _ := qqmusic.DailySongs()
+		var rec []qqmusic.Playlist
 		if signedIn {
-			rec, _ = netease.RecommendedPlaylists()
+			rec, _ = qqmusic.RecommendedPlaylists()
 		}
 		a.post(func() {
 			a.homeLoading = false
@@ -406,7 +405,7 @@ func (a *app) loadHome() {
 				// Loading the new day's again, what shows stays, to try
 				// once more.
 				if len(a.featured) == 0 && len(a.charts) == 0 {
-					a.homeErr = "无法连接网易云音乐，请检查网络"
+					a.homeErr = "无法连接 QQ 音乐，请检查网络"
 				}
 				return
 			}
@@ -451,7 +450,7 @@ func (a *app) loadPlaylist(id int64, thenPlay bool) {
 	a.loadingPl[id] = true
 	delete(a.plErr, id)
 	go func() {
-		pl, err := netease.PlaylistDetail(id)
+		pl, err := qqmusic.PlaylistDetail(id)
 		a.post(func() {
 			delete(a.loadingPl, id)
 			if err != nil {
@@ -466,7 +465,7 @@ func (a *app) loadPlaylist(id int64, thenPlay bool) {
 	}()
 }
 
-func firstPlayable(tracks []netease.Track) int {
+func firstPlayable(tracks []qqmusic.Track) int {
 	for i := range tracks {
 		if tracks[i].Playable() {
 			return i

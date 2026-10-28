@@ -6,7 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"netease-music-mygo/internal/lyrics"
+	"qqmusic-mygo/internal/lyrics"
 )
 
 // How long a caption's line is, in characters: it ends at a sentence's

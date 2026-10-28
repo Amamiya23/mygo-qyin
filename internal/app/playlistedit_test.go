@@ -9,7 +9,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // editTestApp is signed in, with liked songs, two playlists of their own
@@ -17,16 +17,16 @@ import (
 func editTestApp() *app {
 	a := newTestApp()
 	a.settings = defaultSettings()
-	a.profile = &netease.Profile{UserID: 1, Nickname: "小明"}
-	a.mine = []netease.Playlist{
+	a.profile = &qqmusic.Profile{UserID: 1, Nickname: "小明"}
+	a.mine = []qqmusic.Playlist{
 		{ID: 5, Name: "小明喜欢的音乐", SpecialType: 5},
 		{ID: 10, Name: "通勤"},
 		{ID: 11, Name: "睡前"},
 	}
-	a.saved = []netease.Playlist{{ID: 20, Name: "飙升榜"}}
-	a.playlists[10] = &netease.Playlist{ID: 10, Name: "通勤", Tracks: []netease.Track{
-		{ID: 1, Name: "一张相片", Artists: []netease.Artist{{Name: "林宥嘉"}}, Duration: 200000},
-		{ID: 2, Name: "宝船", Artists: []netease.Artist{{Name: "DOUDOU"}}, Duration: 200000},
+	a.saved = []qqmusic.Playlist{{ID: 20, Name: "飙升榜"}}
+	a.playlists[10] = &qqmusic.Playlist{ID: 10, Name: "通勤", Tracks: []qqmusic.Track{
+		{ID: 1, Name: "一张相片", Artists: []qqmusic.Artist{{Name: "林宥嘉"}}, Duration: 200000},
+		{ID: 2, Name: "宝船", Artists: []qqmusic.Artist{{Name: "DOUDOU"}}, Duration: 200000},
 	}}
 	a.route = route{page: pagePlaylist, id: 10}
 	return a
@@ -39,7 +39,7 @@ func TestAddSongToPlaylist(t *testing.T) {
 	type add struct{ pid, song int64 }
 	calls := make(chan add, 1)
 	addToPlaylist = func(pid int64, songs ...int64) error { calls <- add{pid, songs[0]}; return nil }
-	defer func() { addToPlaylist = netease.AddToPlaylist }()
+	defer func() { addToPlaylist = qqmusic.AddToPlaylist }()
 
 	a := editTestApp()
 	tt := ui.NewTester(a.view, 1200, 800)
@@ -68,7 +68,7 @@ func TestRemoveSongFromPlaylist(t *testing.T) {
 	type del struct{ pid, song int64 }
 	calls := make(chan del, 1)
 	removeFromPlaylist = func(pid int64, songs ...int64) error { calls <- del{pid, songs[0]}; return nil }
-	defer func() { removeFromPlaylist = netease.RemoveFromPlaylist }()
+	defer func() { removeFromPlaylist = qqmusic.RemoveFromPlaylist }()
 
 	a := editTestApp()
 	// Playing the id: the queue keeps the song.
@@ -96,7 +96,7 @@ func TestRemoveSongFromPlaylist(t *testing.T) {
 // A playlist the listener saved, not made, offers no removing.
 func TestNoRemovingFromSavedPlaylist(t *testing.T) {
 	a := editTestApp()
-	a.playlists[20] = &netease.Playlist{ID: 20, Name: "飙升榜", Tracks: a.playlists[10].Tracks}
+	a.playlists[20] = &qqmusic.Playlist{ID: 20, Name: "飙升榜", Tracks: a.playlists[10].Tracks}
 	a.route = route{page: pagePlaylist, id: 20}
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
@@ -112,11 +112,11 @@ func TestNoRemovingFromSavedPlaylist(t *testing.T) {
 // named.
 func TestCreatePlaylist(t *testing.T) {
 	names := make(chan string, 1)
-	createPlaylist = func(name string) (*netease.Playlist, error) {
+	createPlaylist = func(name string) (*qqmusic.Playlist, error) {
 		names <- name
-		return &netease.Playlist{ID: 12, Name: name}, nil
+		return &qqmusic.Playlist{ID: 12, Name: name}, nil
 	}
-	defer func() { createPlaylist = netease.CreatePlaylist }()
+	defer func() { createPlaylist = qqmusic.CreatePlaylist }()
 
 	a := editTestApp()
 	tt := ui.NewTester(a.view, 1200, 800)
@@ -161,7 +161,7 @@ func TestRenamePlaylist(t *testing.T) {
 	}
 	calls := make(chan rename, 1)
 	renamePlaylist = func(id int64, name string) error { calls <- rename{id, name}; return nil }
-	defer func() { renamePlaylist = netease.RenamePlaylist }()
+	defer func() { renamePlaylist = qqmusic.RenamePlaylist }()
 
 	a := editTestApp()
 	a.route = route{page: pageHome}
@@ -211,7 +211,7 @@ func TestNoRenamingLikedSongs(t *testing.T) {
 func TestDeletePlaylist(t *testing.T) {
 	ids := make(chan int64, 1)
 	deletePlaylist = func(id int64) error { ids <- id; return nil }
-	defer func() { deletePlaylist = netease.DeletePlaylist }()
+	defer func() { deletePlaylist = qqmusic.DeletePlaylist }()
 
 	a := editTestApp()
 	a.homeLoading = true
@@ -250,7 +250,7 @@ func TestDeletePlaylist(t *testing.T) {
 // Cancelling the confirmation deletes nothing.
 func TestCancelDeletingPlaylist(t *testing.T) {
 	deletePlaylist = func(int64) error { t.Error("deleted the playlist"); return nil }
-	defer func() { deletePlaylist = netease.DeletePlaylist }()
+	defer func() { deletePlaylist = qqmusic.DeletePlaylist }()
 
 	a := editTestApp()
 	a.route = route{page: pageHome}

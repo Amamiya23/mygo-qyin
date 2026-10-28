@@ -5,20 +5,43 @@ import (
 	"testing"
 	"time"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
+// A real public QQ MP3 decodes incrementally and supports seeking while downloading.
 func TestStreamLive(t *testing.T) {
 	if os.Getenv("LIVE") == "" {
 		t.Skip()
 	}
-	st, err := netease.SongURL(2652820720, "exhigh")
+	featured, err := qqmusic.FeaturedPlaylists(1)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(featured) == 0 {
+		t.Fatal("QQ returned no public playlist")
+	}
+	playlist, err := qqmusic.PlaylistDetail(featured[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st *qqmusic.Stream
+	var duration int64
+	for _, track := range playlist.Tracks[:min(len(playlist.Tracks), 50)] {
+		if track.Duration < 140000 {
+			continue
+		}
+		candidate, e := qqmusic.SongURL(track.ID, "standard")
+		if e == nil && candidate.Type == "mp3" {
+			st, duration = candidate, track.Duration
+			break
+		}
+	}
+	if st == nil {
+		t.Fatal("QQ returned no public MP3 long enough to seek")
+	}
 	start := time.Now()
 	dl := startDownload(st.URL, st.Size, nil, nil)
-	s, err := openMP3Stream(dl, 278961)
+	s, err := openMP3Stream(dl, duration)
 	if err != nil {
 		t.Fatal(err)
 	}

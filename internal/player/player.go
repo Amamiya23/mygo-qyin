@@ -9,8 +9,8 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/audio"
 
-	"netease-music-mygo/internal/lyrics"
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/lyrics"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 type RepeatMode int
@@ -36,7 +36,7 @@ type Player struct {
 	// plays changed.
 	Changed func()
 
-	queue   []netease.Track
+	queue   []qqmusic.Track
 	order   []int // the queue's indices in play order: shuffled or not
 	at      int   // where in order the current track is, -1 for none
 	shuffle bool
@@ -46,15 +46,15 @@ type Player struct {
 	// A radio goes on with the tracks its feed gives, as the queue nears
 	// its end, for as long as nothing else is played.
 	radio    string
-	feed     func(got func([]netease.Track))
+	feed     func(got func([]qqmusic.Track))
 	radioGen int  // counts radios, to drop what an old one gives
 	feeding  bool // the feed is asked
 	awaiting bool // at the queue's end, for what the feed gives
 
-	track   *netease.Track
+	track   *qqmusic.Track
 	out     *audio.Player
 	stream  stream
-	info    *netease.Stream // what the current track streams
+	info    *qqmusic.Stream // what the current track streams
 	fade    fader
 	gain    float64 // the current track's normalizing gain
 	loading bool
@@ -115,7 +115,7 @@ func (p *Player) sync() {
 }
 
 // announce shows the system the track, and its cover once loaded.
-func (p *Player) announce(t *netease.Track, artwork []byte) {
+func (p *Player) announce(t *qqmusic.Track, artwork []byte) {
 	state := mygo.PlaybackPaused
 	if p.playing {
 		state = mygo.PlaybackPlaying
@@ -151,13 +151,13 @@ func (p *Player) ended() {
 }
 
 // PlayQueue replaces the queue with tracks and plays the one at start.
-func (p *Player) PlayQueue(tracks []netease.Track, start int) {
+func (p *Player) PlayQueue(tracks []qqmusic.Track, start int) {
 	if len(tracks) == 0 {
 		return
 	}
 	p.endRadio()
 	start = min(max(start, 0), len(tracks)-1)
-	p.queue = append([]netease.Track(nil), tracks...)
+	p.queue = append([]qqmusic.Track(nil), tracks...)
 	p.order = make([]int, len(p.queue))
 	for i := range p.order {
 		p.order[i] = i
@@ -173,7 +173,7 @@ func (p *Player) PlayQueue(tracks []netease.Track, start int) {
 // PlayRadio plays tracks in their order, then goes on with those feed
 // gives as the queue nears its end, until something else is played. The
 // radio's name says which it is. feed calls got on the main thread.
-func (p *Player) PlayRadio(name string, tracks []netease.Track, feed func(got func([]netease.Track))) {
+func (p *Player) PlayRadio(name string, tracks []qqmusic.Track, feed func(got func([]qqmusic.Track))) {
 	if len(tracks) == 0 {
 		return
 	}
@@ -187,18 +187,18 @@ func (p *Player) PlayRadio(name string, tracks []netease.Track, feed func(got fu
 // RadioFrom makes the track playing the first of a radio's queue, which
 // goes on with tracks, then with those feed gives: without starting it
 // over.
-func (p *Player) RadioFrom(name string, tracks []netease.Track, feed func(got func([]netease.Track))) {
+func (p *Player) RadioFrom(name string, tracks []qqmusic.Track, feed func(got func([]qqmusic.Track))) {
 	if p.track == nil {
 		return
 	}
-	p.queue, p.order, p.at = []netease.Track{*p.track}, []int{0}, 0
+	p.queue, p.order, p.at = []qqmusic.Track{*p.track}, []int{0}, 0
 	p.appendTracks(tracks)
 	p.AttachRadio(name, feed)
 }
 
 // AttachRadio makes the queue the radio name's, which feed goes on with,
 // as after restoring a session that played it.
-func (p *Player) AttachRadio(name string, feed func(got func([]netease.Track))) {
+func (p *Player) AttachRadio(name string, feed func(got func([]qqmusic.Track))) {
 	p.endRadio()
 	p.radio, p.feed = name, feed
 	p.refill()
@@ -213,7 +213,7 @@ func (p *Player) EndRadio() {
 	awaiting := p.awaiting
 	p.endRadio()
 	if p.at >= 0 && p.at+1 < len(p.order) {
-		kept := make([]netease.Track, p.at+1)
+		kept := make([]qqmusic.Track, p.at+1)
 		for i, k := range p.order[:p.at+1] {
 			kept[i] = p.queue[k]
 		}
@@ -244,7 +244,7 @@ func (p *Player) refill() {
 	}
 	p.feeding = true
 	gen := p.radioGen
-	p.feed(func(more []netease.Track) {
+	p.feed(func(more []qqmusic.Track) {
 		if gen != p.radioGen {
 			return
 		}
@@ -271,7 +271,7 @@ func (p *Player) awaitFeed() {
 }
 
 // appendTracks adds tracks to the end of the queue, but those in it.
-func (p *Player) appendTracks(tracks []netease.Track) {
+func (p *Player) appendTracks(tracks []qqmusic.Track) {
 	in := make(map[int64]bool, len(p.queue))
 	for _, t := range p.queue {
 		in[t.ID] = true
@@ -315,10 +315,10 @@ func (p *Player) ToggleShuffle() {
 func (p *Player) CycleRepeat() { p.repeat = (p.repeat + 1) % 3 }
 
 // Current returns the track playing or loading, or nil.
-func (p *Player) Current() *netease.Track { return p.track }
+func (p *Player) Current() *qqmusic.Track { return p.track }
 
 // Queue returns the tracks queued, in the order they were given.
-func (p *Player) Queue() []netease.Track { return p.queue }
+func (p *Player) Queue() []qqmusic.Track { return p.queue }
 
 // Playing reports what the listener wants: false while paused.
 func (p *Player) Playing() bool { return p.playing }
@@ -333,7 +333,7 @@ func (p *Player) Ready() bool { return p.out != nil }
 func (p *Player) Err() string { return p.err }
 
 // Stream returns what the current track streams, once loaded, or nil.
-func (p *Player) Stream() *netease.Stream { return p.info }
+func (p *Player) Stream() *qqmusic.Stream { return p.info }
 
 func (p *Player) Shuffle() bool      { return p.shuffle }
 func (p *Player) Repeat() RepeatMode { return p.repeat }
@@ -519,7 +519,7 @@ const normPreamp = 4
 
 // normGain is the gain that brings a track as loud as others, as NetEase
 // measured it, but never so loud that its peaks would clip.
-func normGain(st *netease.Stream) float64 {
+func normGain(st *qqmusic.Stream) float64 {
 	if st == nil || st.Gain == 0 && st.Peak == 0 {
 		return 1
 	}
@@ -591,7 +591,7 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 	p.refill()
 
 	go func() {
-		cover, err := netease.Fetch(netease.Sized(t.Album.PicURL, 600))
+		cover, err := qqmusic.Fetch(qqmusic.Sized(t.Album.PicURL, 600))
 		if err == nil {
 			p.post(func() {
 				if gen == p.gen {
@@ -602,7 +602,7 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 	}()
 
 	go func() {
-		lrc, trans, yrc, err := netease.Lyrics(t.ID)
+		lrc, trans, yrc, err := qqmusic.Lyrics(t.ID)
 		var lines []lyrics.Line
 		if err == nil {
 			lines = lyrics.Build(lrc, trans, yrc)
@@ -631,7 +631,7 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 			if err != nil {
 				p.err = err.Error()
 				switch {
-				case err != netease.ErrUnavailable:
+				case err != qqmusic.ErrUnavailable:
 				case t.ProgramID != 0:
 					p.err = "这期节目需要购买才能收听"
 				default:
@@ -682,11 +682,11 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 
 // open opens track t's audio at level: kept in the cache, or else
 // streamed into it, and kept once it has all come in.
-func (p *Player) open(t netease.Track, level string) (*netease.Stream, stream, error) {
+func (p *Player) open(t qqmusic.Track, level string) (*qqmusic.Stream, stream, error) {
 	dl, info, ok := p.Cache.lookup(t.ID, level)
 	if !ok {
 		var err error
-		info, err = netease.SongURL(t.ID, level)
+		info, err = qqmusic.SongURL(t.ID, level)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -702,7 +702,7 @@ func (p *Player) open(t netease.Track, level string) (*netease.Stream, stream, e
 
 // Session is where playback was left, to pick up again.
 type Session struct {
-	Queue    []netease.Track `json:"queue"`
+	Queue    []qqmusic.Track `json:"queue"`
 	Order    []int           `json:"order"`
 	At       int             `json:"at"`
 	Shuffle  bool            `json:"shuffle"`

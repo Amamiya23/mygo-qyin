@@ -5,15 +5,15 @@ import (
 
 	"github.com/egoist/mygo/audio"
 
-	"netease-music-mygo/internal/lyrics"
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/lyrics"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // These set a player up as it would be after loading, without loading
 // anything, for the tests of the views that show it.
 
 // Cue makes tracks the queue, in order, with the first current.
-func (p *Player) Cue(tracks []netease.Track) {
+func (p *Player) Cue(tracks []qqmusic.Track) {
 	p.queue = tracks
 	p.order = make([]int, len(tracks))
 	for i := range p.order {
@@ -42,4 +42,4 @@ func (p *Player) Attach(out *audio.Player) {
 }
 
 // SetStream makes st what the current track streams.
-func (p *Player) SetStream(st *netease.Stream) { p.info = st }
+func (p *Player) SetStream(st *qqmusic.Stream) { p.info = st }

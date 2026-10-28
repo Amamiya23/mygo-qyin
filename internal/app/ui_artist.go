@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // artistLinks shows a track's artists as its credits read, each a link to
@@ -15,7 +15,7 @@ import (
 // with album, a link to its album. An artist NetEase has no page for,
 // credited by name alone, is plain text. An episode's host and podcast,
 // in its artists' and album's place, link to the podcast's page.
-func (a *app) artistLinks(c *ui.Context, tr *netease.Track, color, hover ui.Color, album ...bool) ui.Element {
+func (a *app) artistLinks(c *ui.Context, tr *qqmusic.Track, color, hover ui.Color, album ...bool) ui.Element {
 	podcast := route{page: pagePodcast, id: tr.PodcastID}
 	return ui.RichText(c).TextColor(color).Children(func() {
 		for i, ar := range tr.Artists {
@@ -69,26 +69,26 @@ func (a *app) openArtist(id int64) { a.openPage(route{page: pageArtist, id: id})
 // These load an artist, their songs, albums and events from NetEase, and
 // follow them; tests replace them.
 var (
-	artistDetail      = netease.ArtistDetail
-	artistLatestSongs = netease.ArtistLatestSongs
-	albumsBy          = netease.ArtistAlbums
-	accountEvents     = netease.Events
-	followArtist      = netease.FollowArtist
+	artistDetail      = qqmusic.ArtistDetail
+	artistLatestSongs = qqmusic.ArtistLatestSongs
+	albumsBy          = qqmusic.ArtistAlbums
+	accountEvents     = qqmusic.Events
+	followArtist      = qqmusic.FollowArtist
 )
 
 // artistData is what the app has of an artist: who they are, with their
 // most popular songs, and their newest songs, albums and events once
 // asked for.
 type artistData struct {
-	profile       *netease.ArtistProfile
+	profile       *qqmusic.ArtistProfile
 	loading       bool
 	err           string
-	latest        []netease.Track
+	latest        []qqmusic.Track
 	latestLoading bool
 	latestErr     string
-	albums        []netease.AlbumProfile
+	albums        []qqmusic.AlbumProfile
 	albumsPage    paged
-	events        []netease.Event
+	events        []qqmusic.Event
 	eventsPage    paged
 	eventsBefore  int64 // the time of the last event loaded, the next page's start
 	following     bool  // a follow or unfollow is on its way
@@ -378,20 +378,13 @@ func (a *app) artistHeader(c *ui.Context, d *artistData) {
 					}
 					a.pl.PlayQueue(songs, firstPlayable(songs))
 				}
-				icon, label := iconPlus, "关注"
-				if ar.Followed {
-					icon, label = iconCheck, "已关注"
-				}
-				if pillButton(c.Key("follow"), icon, label, p.hover.Over(p.bg), p.text).Clicked() {
-					a.toggleFollow(ar.ID)
-				}
 			})
 		})
 	})
 	ui.Row(c).AlignItems(ui.Center).Margin(34, 0, 14, 0).Children(func() {
 		ui.Text(c, artistTabTitles[a.artistTab]).FontSize(19).FontWeight(700).LetterSpacing(-0.3)
 		ui.Spacer(c)
-		if segmented(c.Key("tab"), &a.artistTab, "热门", "最新", "专辑", "动态") {
+		if segmented(c.Key("tab"), &a.artistTab, "热门", "最新", "专辑") {
 			a.loadArtist(ar.ID)
 		}
 	})

@@ -25,7 +25,7 @@ const (
 
 // pageShimmer is the shimmer of the pages, on their background.
 func (a *app) pageShimmer(c *ui.Context) shimmer {
-	s := shimmer{base: ui.RGBA(0, 0, 0, 0.06), sheen: ui.RGBA(0, 0, 0, 0.022)}
+	s := shimmer{base: radixInk.Alpha(0.06), sheen: radixInk.Alpha(0.022)}
 	if a.pal.dark {
 		s.base, s.sheen = white.Alpha(0.07), white.Alpha(0.13)
 	}

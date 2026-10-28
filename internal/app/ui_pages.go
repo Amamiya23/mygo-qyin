@@ -7,8 +7,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
-	"netease-music-mygo/internal/player"
+	"qqmusic-mygo/internal/player"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 const pagePad = 40
@@ -125,7 +125,7 @@ func (a *app) chartsPage(c *ui.Context) {
 
 // playlistCard is a square cover with the playlist's name below: it lifts
 // under the pointer, where a play button shows on it.
-func (a *app) playlistCard(c *ui.Context, pl *netease.Playlist) {
+func (a *app) playlistCard(c *ui.Context, pl *qqmusic.Playlist) {
 	if a.coverCard(c, pl.Name, pl.Cover(), pl.PlayCount, pl.UpdateFreq, func() { a.loadPlaylist(pl.ID, true) }) {
 		a.open(route{page: pagePlaylist, id: pl.ID})
 	}
@@ -154,7 +154,7 @@ func (a *app) coverCard(c *ui.Context, name, cover string, playCount float64, su
 			a.coverFill(c, cover, 400, 10)
 			if playCount > 0 {
 				ui.Row(c).Absolute().Top(8).Right(8).Padding(2, 7).Radius(999).Gap(3).AlignItems(ui.Center).
-					Background(ui.RGBA(0, 0, 0, 0.35)).TextColor(ui.RGB(255, 255, 255)).Children(func() {
+					Background(radixInk.Alpha(0.35)).TextColor(radixPaper).Children(func() {
 					ui.Icon(c, iconHeadset).Size(10, 10)
 					ui.Text(c, plays(playCount)).FontSize(10.5).FontWeight(600)
 				})
@@ -173,7 +173,7 @@ func (a *app) coverCard(c *ui.Context, name, cover string, playCount float64, su
 // The cover rounds itself rather than its parent clipping it: a clip moved
 // by a transform, as a card lifting under the pointer, is drawn on the CPU.
 func (a *app) coverFill(c *ui.Context, url string, px int, radius float32) {
-	bmp := bitmap(a.art.get(netease.Sized(url, px), false))
+	bmp := bitmap(a.art.get(qqmusic.Sized(url, px), false))
 	box := ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(radius)
 	in := artIn(box, bmp)
 	if in < 1 {
@@ -186,8 +186,8 @@ func (a *app) coverFill(c *ui.Context, url string, px int, radius float32) {
 // opening it.
 func (a *app) coverPlayButton(c *ui.Context, shown bool, play func()) {
 	b := ui.ButtonBase(c.Key("play")).Absolute().Bottom(10).Right(10).Size(38, 38).Radius(999).Center().
-		Background(a.pal.accent).TextColor(ui.RGB(255, 255, 255)).Label("播放").FocusRing(false).
-		Shadow(0, 4, 12, 0, ui.RGBA(0, 0, 0, 0.3))
+		Background(a.pal.accent).TextColor(radixPaper).Label("播放").FocusRing(false).
+		Shadow(0, 4, 12, 0, radixInk.Alpha(0.3))
 	pose := ui.Pose{Fade: 1, Scale: 0.8, Y: 6}
 	if shown || b.Hovered() {
 		pose = ui.Pose{Scale: 1}
@@ -203,7 +203,7 @@ func (a *app) coverPlayButton(c *ui.Context, shown bool, play func()) {
 }
 
 // chartCard shows a chart with its top three songs beside its cover.
-func (a *app) chartCard(c *ui.Context, pl *netease.Playlist) {
+func (a *app) chartCard(c *ui.Context, pl *qqmusic.Playlist) {
 	p := a.pal
 	card := ui.ButtonBase(c).Gap(14).Padding(12).Radius(14).AlignItems(ui.Center).FocusRing(false).Label(pl.Name)
 	hovered := card.Hovered()
@@ -252,7 +252,7 @@ func (a *app) playlistPage(c *ui.Context) {
 	a.trackRows(c, pl.Tracks, true, func(c *ui.Context) { a.playlistHeader(c, pl) })
 }
 
-func (a *app) playlistHeader(c *ui.Context, pl *netease.Playlist) {
+func (a *app) playlistHeader(c *ui.Context, pl *qqmusic.Playlist) {
 	p := a.pal
 	ui.Row(c).Gap(28).AlignItems(ui.End).Padding(0, 0, 26, 0).Children(func() {
 		ui.Box(c).Size(212, 212).Radius(14).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
@@ -302,21 +302,6 @@ func (a *app) playlistHeader(c *ui.Context, pl *netease.Playlist) {
 						}
 					})
 				}
-				switch {
-				case pl.SpecialType != 5:
-				case a.pl.Radio() == heartRadio:
-					if pillButton(c.Key("heart"), iconX, "退出心动模式", p.hover.Over(p.bg), p.text).Clicked() {
-						a.exitRadio()
-					}
-				default:
-					label := "心动模式"
-					if a.radioStarting == heartRadio {
-						label = "正在开启…"
-					}
-					if pillButton(c.Key("heart"), iconHeartFill, label, p.hover.Over(p.bg), p.text).Clicked() {
-						a.startHeartMode()
-					}
-				}
 			})
 		})
 	})
@@ -324,7 +309,7 @@ func (a *app) playlistHeader(c *ui.Context, pl *netease.Playlist) {
 
 // trackRows lists tracks under a header, which scrolls with them; a click
 // plays the list from the track clicked.
-func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, header func(c *ui.Context), footer ...func(c *ui.Context)) {
+func (a *app) trackRows(c *ui.Context, tracks []qqmusic.Track, covers bool, header func(c *ui.Context), footer ...func(c *ui.Context)) {
 	p := a.pal
 	cur := a.pl.Current()
 	// A song's menu can take it out of the playlist it is listed in.

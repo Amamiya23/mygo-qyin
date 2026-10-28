@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // Radios play on without end: the personal FM, in one of its modes, as
@@ -16,9 +16,7 @@ import (
 const heartRadio = "heart"
 
 var fmModes = []struct{ mode, label string }{
-	{netease.FMDefault, "推荐"},
-	{netease.FMFamiliar, "熟悉"},
-	{netease.FMExplore, "探索"},
+	{qqmusic.FMDefault, "推荐"},
 }
 
 func fmRadio(mode string) string { return "fm:" + mode }
@@ -36,8 +34,8 @@ func radioLabel(name string) string {
 	return "私人 FM"
 }
 
-func playable(tracks []netease.Track) []netease.Track {
-	var out []netease.Track
+func playable(tracks []qqmusic.Track) []qqmusic.Track {
+	var out []qqmusic.Track
 	for _, t := range tracks {
 		if t.Playable() {
 			out = append(out, t)
@@ -59,13 +57,13 @@ func (a *app) likedPlaylist() int64 {
 // radioFeed returns what gives the radio name more tracks: it loads them
 // on a goroutine, and gives them to got on the main thread, none if it
 // cannot.
-func (a *app) radioFeed(name string) func(got func([]netease.Track)) {
-	return func(got func([]netease.Track)) {
-		var fetch func() ([]netease.Track, error)
+func (a *app) radioFeed(name string) func(got func([]qqmusic.Track)) {
+	return func(got func([]qqmusic.Track)) {
+		var fetch func() ([]qqmusic.Track, error)
 		switch {
 		case strings.HasPrefix(name, "fm:"):
 			mode := strings.TrimPrefix(name, "fm:")
-			fetch = func() ([]netease.Track, error) { return netease.PersonalFM(mode) }
+			fetch = func() ([]qqmusic.Track, error) { return qqmusic.PersonalFM(mode) }
 		case name == heartRadio:
 			// More like the last song queued, from the song it began with.
 			q, pid := a.pl.Queue(), a.likedPlaylist()
@@ -74,7 +72,7 @@ func (a *app) radioFeed(name string) func(got func([]netease.Track)) {
 				return
 			}
 			start, last := q[0].ID, q[len(q)-1].ID
-			fetch = func() ([]netease.Track, error) { return netease.HeartMode(last, start, pid) }
+			fetch = func() ([]qqmusic.Track, error) { return qqmusic.HeartMode(last, start, pid) }
 		default:
 			got(nil)
 			return
@@ -82,7 +80,7 @@ func (a *app) radioFeed(name string) func(got func([]netease.Track)) {
 		go func() {
 			// The FM gives a song or three at a time, some of them VIP
 			// songs the listener may not play: ask again for those.
-			var tracks []netease.Track
+			var tracks []qqmusic.Track
 			for tries := 0; tries < 3 && len(tracks) == 0; tries++ {
 				more, err := fetch()
 				if err != nil {
@@ -97,6 +95,10 @@ func (a *app) radioFeed(name string) func(got func([]netease.Track)) {
 
 // playFM plays the personal FM in the mode chosen, or goes on playing it.
 func (a *app) playFM() {
+	if a.profile == nil {
+		a.openLogin()
+		return
+	}
 	name := fmRadio(fmModes[a.fmMode].mode)
 	if a.pl.Radio() == name {
 		if !a.pl.Playing() {
@@ -106,7 +108,7 @@ func (a *app) playFM() {
 	}
 	a.radioStarting = name
 	feed := a.radioFeed(name)
-	feed(func(tracks []netease.Track) {
+	feed(func(tracks []qqmusic.Track) {
 		if a.radioStarting != name {
 			return
 		}
@@ -141,7 +143,7 @@ func (a *app) trashFM() {
 	}
 	id := tr.ID
 	a.pl.Next()
-	go netease.FMTrash(id)
+	go qqmusic.FMTrash(id)
 }
 
 // startHeartMode plays songs like one the listener likes: the one playing,
@@ -161,7 +163,7 @@ func (a *app) startHeartMode() {
 		a.nowPlaying = true
 		return
 	}
-	var seed *netease.Track
+	var seed *qqmusic.Track
 	fromPlaying := false
 	if cur := a.pl.Current(); cur != nil && a.liked[cur.ID] {
 		s := *cur
@@ -172,7 +174,7 @@ func (a *app) startHeartMode() {
 	go func() {
 		if seed == nil {
 			if liked == nil {
-				liked, _ = netease.PlaylistDetail(pid)
+				liked, _ = qqmusic.PlaylistDetail(pid)
 			}
 			if liked != nil {
 				if ok := playable(liked.Tracks); len(ok) > 0 {
@@ -180,10 +182,10 @@ func (a *app) startHeartMode() {
 				}
 			}
 		}
-		var more []netease.Track
+		var more []qqmusic.Track
 		var err error
 		if seed != nil {
-			more, err = netease.HeartMode(seed.ID, seed.ID, pid)
+			more, err = qqmusic.HeartMode(seed.ID, seed.ID, pid)
 		}
 		a.post(func() {
 			if a.radioStarting != heartRadio {
@@ -199,7 +201,7 @@ func (a *app) startHeartMode() {
 				a.pl.RadioFrom(heartRadio, more, a.radioFeed(heartRadio))
 				return
 			}
-			a.pl.PlayRadio(heartRadio, append([]netease.Track{*seed}, more...), a.radioFeed(heartRadio))
+			a.pl.PlayRadio(heartRadio, append([]qqmusic.Track{*seed}, more...), a.radioFeed(heartRadio))
 		})
 	}()
 }
@@ -207,7 +209,6 @@ func (a *app) startHeartMode() {
 // fmPage is the personal FM: what it plays, large, over its cover's
 // colors, with the FM's own controls, and heart mode below.
 func (a *app) fmPage(c *ui.Context) {
-	p := a.pal
 	top, bottom := a.insets(c)
 	ui.Scroll(c.Key("fm")).TrackScroll(&a.pageScroll).Grow(1).Padding(top+pageGap, pagePad, bottom+48, pagePad).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
 		a.startMark(c)
@@ -236,8 +237,6 @@ func (a *app) fmPage(c *ui.Context) {
 			})
 		})
 		a.fmCard(c)
-		a.section(c, "心动模式")
-		a.heartCard(c, p)
 	})
 }
 
@@ -245,27 +244,27 @@ func (a *app) fmPage(c *ui.Context) {
 func (a *app) fmCard(c *ui.Context) {
 	pl := a.pl
 	onFM := strings.HasPrefix(pl.Radio(), "fm:")
-	var tr *netease.Track
+	var tr *qqmusic.Track
 	if onFM {
 		tr = pl.Current()
 	}
 	var art *artwork
 	if tr != nil {
-		art = a.art.get(netease.Sized(tr.Album.PicURL, 600), true)
+		art = a.art.get(qqmusic.Sized(tr.Album.PicURL, 600), true)
 	}
-	card := ui.Box(c.Key("fm-card")).Height(320).Radius(24).Background(ui.Hex("#232328")).TextColor(white).
+	card := ui.Box(c.Key("fm-card")).Height(320).Radius(24).Background(radixSage(true, 3)).TextColor(white).
 		Shadow(0, 18, 44, -16, a.pal.cardShade)
 	in := artIn(card, backdrop(art))
 	card.Children(func() {
 		if in < 1 {
 			ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(24).
-				LinearGradient(ui.LinearGradient{Angle: 135, Oklab: true, From: ui.Oklch(0.42, 0.14, 20), To: ui.Oklch(0.3, 0.1, 300)})
+				LinearGradient(ui.LinearGradient{Angle: 135, Oklab: true, From: radixGreen(true, 6), To: radixSage(true, 2)})
 		}
 		artImage(c, backdrop(art), 24, in)
 		ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(24).
 			LinearGradient(ui.LinearGradient{Angle: 90, Stops: []ui.GradientStop{
-				{Color: ui.RGBA(0, 0, 0, 0.35), At: 0},
-				{Color: ui.RGBA(0, 0, 0, 0.1), At: 1},
+				{Color: radixInk.Alpha(0.35), At: 0},
+				{Color: radixInk.Alpha(0.1), At: 1},
 			}})
 		ui.Row(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Padding(36, 40).Gap(40).AlignItems(ui.Center).Children(func() {
 			a.fmCovers(c, tr)
@@ -286,7 +285,7 @@ func (a *app) fmCard(c *ui.Context) {
 						if a.radioStarting != "" && strings.HasPrefix(a.radioStarting, "fm:") {
 							label = "正在调频…"
 						}
-						if pillButton(c.Key("start"), iconPlay, label, white, ui.Hex("#1d1d1f")).Clicked() {
+						if pillButton(c.Key("start"), iconPlay, label, white, radixSage(false, 12)).Clicked() {
 							a.playFM()
 						}
 					})
@@ -302,13 +301,8 @@ func (a *app) fmCard(c *ui.Context) {
 					a.artistLinks(c, tr, white.Alpha(0.7), white, true).FontSize(14).SingleLine()
 				}
 				ui.Row(c).Gap(14).AlignItems(ui.Center).Margin(20, 0, 0, -8).Children(func() {
-					if a.profile != nil {
-						if iconButton(c.Key("trash"), iconTrash, 20, white.Alpha(0.8), "不喜欢").Clicked() {
-							a.trashFM()
-						}
-					}
 					a.likeButton(c.Key("like"), tr, 20, white.Alpha(0.8))
-					play := ui.ButtonBase(c.Key("play")).Size(56, 56).Center().Radius(999).Background(white).TextColor(ui.Hex("#1d1d1f")).Label("播放/暂停")
+					play := ui.ButtonBase(c.Key("play")).Size(56, 56).Center().Radius(999).Background(white).TextColor(radixSage(false, 12)).Label("播放/暂停")
 					pose := ui.Pose{}
 					if play.Pressed() {
 						pose.Scale = 0.92
@@ -331,10 +325,10 @@ func (a *app) fmCard(c *ui.Context) {
 
 // fmCovers stacks the cover playing over the next one's, which peeks out
 // behind it, tilted, as the FM's own player shows them.
-func (a *app) fmCovers(c *ui.Context, tr *netease.Track) {
+func (a *app) fmCovers(c *ui.Context, tr *qqmusic.Track) {
 	const size = 232
 	ui.Box(c).Size(size+36, size).Shrink(0).Children(func() {
-		var next *netease.Track
+		var next *qqmusic.Track
 		if tr != nil {
 			if order, at := a.pl.PlayOrder(); at >= 0 && at+1 < len(order) {
 				next = &a.pl.Queue()[order[at+1]]
@@ -342,12 +336,12 @@ func (a *app) fmCovers(c *ui.Context, tr *netease.Track) {
 		}
 		if next != nil {
 			back := ui.Box(c.Key(next.ID)).Absolute().Top(16).Left(36).Size(size-32, size-32).Radius(14).Opacity(0.55).Background(white.Alpha(0.12)).
-				Shadow(0, 10, 24, -8, ui.RGBA(0, 0, 0, 0.4))
+				Shadow(0, 10, 24, -8, radixInk.Alpha(0.4))
 			back.AnimatePose(ui.Pose{Rotate: 6, X: 14}, ui.Animation{Spring: ui.SpringOptions{Duration: 500 * time.Millisecond, Bounce: 0.2}})
 			back.Children(func() { a.coverFill(c, next.Album.PicURL, 400, 14) })
 		}
 		front := ui.Box(c.Key("front")).Absolute().Top(0).Left(0).Size(size, size).Radius(16).
-			Background(white.Alpha(0.12)).Shadow(0, 20, 44, -10, ui.RGBA(0, 0, 0, 0.55))
+			Background(white.Alpha(0.12)).Shadow(0, 20, 44, -10, radixInk.Alpha(0.55))
 		if tr == nil {
 			front.Center().Children(func() {
 				ui.Icon(c, iconRadio).Size(64, 64).TextColor(white.Alpha(0.85))
@@ -371,7 +365,7 @@ func (a *app) heartCard(c *ui.Context, p palette) {
 	on := a.pl.Radio() == heartRadio
 	ui.Row(c).Padding(22, 26).Gap(20).Radius(18).AlignItems(ui.Center).Background(p.hover).Children(func() {
 		ui.Box(c).Size(56, 56).Radius(16).Center().Shrink(0).
-			LinearGradient(ui.LinearGradient{Angle: 135, Oklab: true, From: ui.Oklch(0.72, 0.17, 10), To: ui.Oklch(0.58, 0.22, 350)}).
+			LinearGradient(ui.LinearGradient{Angle: 135, Oklab: true, From: radixGreen(false, 9), To: radixGreen(false, 10)}).
 			TextColor(white).Children(func() { ui.Icon(c, iconHeartFill).Size(26, 26) })
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
 			ui.Text(c, "从你喜欢的音乐出发").FontSize(15).FontWeight(700)

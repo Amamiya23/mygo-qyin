@@ -7,8 +7,8 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
-	"netease-music-mygo/internal/player"
+	"qqmusic-mygo/internal/player"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 type pageKind int
@@ -33,7 +33,7 @@ type route struct {
 	id int64
 	// query and kind are what a search page searched for.
 	query string
-	kind  netease.SearchType
+	kind  qqmusic.SearchType
 }
 
 // app is the state both windows show. Everything in it is read and changed
@@ -50,9 +50,9 @@ type app struct {
 	history []route
 	forward []route // the pages gone back from, the last first to go to
 
-	profile      *netease.Profile
-	mine, saved  []netease.Playlist // the listener's playlists: made, and saved
-	recPlaylists []netease.Playlist // the day's playlists picked for the listener
+	profile      *qqmusic.Profile
+	mine, saved  []qqmusic.Playlist // the listener's playlists: made, and saved
+	recPlaylists []qqmusic.Playlist // the day's playlists picked for the listener
 	login        loginState
 	accountOpen  bool           // the dropdown of the account row shows
 	naming       nameDialog     // the name of a playlist asked for
@@ -65,16 +65,16 @@ type app struct {
 	// answered, and those asked about: see ui_like.go.
 	likedPrograms, askedPrograms map[int64]bool
 
-	daily       []netease.Track
+	daily       []qqmusic.Track
 	dailySpin   spinState // the record on the daily card
 	dailyBars   barState  // the bars on its play button
-	featured    []netease.Playlist
-	charts      []netease.Playlist
+	featured    []qqmusic.Playlist
+	charts      []qqmusic.Playlist
 	homeErr     string
 	homeLoading bool
 	homeAt      time.Time // when what the home page shows was asked for
 
-	playlists  map[int64]*netease.Playlist
+	playlists  map[int64]*qqmusic.Playlist
 	loadingPl  map[int64]bool
 	plErr      map[int64]string
 	artists    map[int64]*artistData
@@ -186,7 +186,7 @@ func (a *app) showMain() {
 // Run runs the app until it quits.
 func Run() error {
 	a := &app{
-		playlists:  map[int64]*netease.Playlist{},
+		playlists:  map[int64]*qqmusic.Playlist{},
 		loadingPl:  map[int64]bool{},
 		plErr:      map[int64]string{},
 		artists:    map[int64]*artistData{},
@@ -199,8 +199,6 @@ func Run() error {
 		queueAt:    -1,
 		cacheUsed:  -1,
 	}
-	moveOldData()
-	a.useUpdater()
 	mygo.App.WhenReady(func() {
 		a.settings = loadSettings()
 		a.settings.applyAppearance()
@@ -232,7 +230,7 @@ func Run() error {
 			// apps with a sidebar place them.
 			TrafficLightPosition: &mygo.Point{X: 20, Y: 20},
 			Vibrancy:             mygo.VibrancySidebar,
-			BackgroundColor:      "light-dark(#ffffff, #141416)",
+			BackgroundColor:      "light-dark(#fbfdfc, #101211)",
 			Content:              ui.View(a.view),
 		})
 		a.setMenu()

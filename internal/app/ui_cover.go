@@ -8,7 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/shader"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // The cover of Now Playing is a thing to touch. It tilts toward the
@@ -88,7 +88,7 @@ const swipeRest = 140 * time.Millisecond
 
 // npCover shows the cover of tr, size across, which the pointer tilts,
 // drags and flings.
-func (a *app) npCover(c *ui.Context, tr *netease.Track, art *artwork, size float32) {
+func (a *app) npCover(c *ui.Context, tr *qqmusic.Track, art *artwork, size float32) {
 	cs, pl := &a.npCoverState, a.pl
 	far := size * 1.5 // where a cover flies off to
 	fling := func(dir int) {
@@ -217,7 +217,7 @@ func (a *app) npCover(c *ui.Context, tr *netease.Track, art *artwork, size float
 		if over {
 			scale *= 1.02
 		}
-		box := ui.Box(c).Fill().Radius(16).Shadow(0, 30, 60, -12, ui.RGBA(0, 0, 0, 0.55))
+		box := ui.Box(c).Fill().Radius(16).Shadow(0, 30, 60, -12, radixInk.Alpha(0.55))
 		if math.Abs(float64(rx))+math.Abs(float64(ry)) > 0.05 {
 			// In depth only while tilted: flat, it draws as an image does.
 			box.RotateX(rx).RotateY(ry).Perspective(900)

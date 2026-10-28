@@ -68,7 +68,7 @@ type settings struct {
 }
 
 func defaultSettings() settings {
-	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8, Normalize: true, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true}
+	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true}
 }
 
 func settingsPath() (string, error) {
@@ -160,10 +160,8 @@ func (s settings) applyAppearance() {
 // qualityLevel is the stream level NetEase names a quality by.
 var qualityLevels = []struct{ level, label string }{
 	{"standard", "标准（128k）"},
-	{"higher", "较高（192k）"},
 	{"exhigh", "极高（320k）"},
 	{"lossless", "无损（FLAC）"},
-	{"hires", "Hi-Res"},
 }
 
 // cacheLimits are the sizes the song cache may take, in megabytes.

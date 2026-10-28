@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // The listener's own playlists: making them, renaming them, deleting them,
@@ -15,11 +15,11 @@ import (
 
 // These edit playlists with NetEase; tests replace them.
 var (
-	createPlaylist     = netease.CreatePlaylist
-	renamePlaylist     = netease.RenamePlaylist
-	addToPlaylist      = netease.AddToPlaylist
-	removeFromPlaylist = netease.RemoveFromPlaylist
-	deletePlaylist     = netease.DeletePlaylist
+	createPlaylist     = qqmusic.CreatePlaylist
+	renamePlaylist     = qqmusic.RenamePlaylist
+	addToPlaylist      = qqmusic.AddToPlaylist
+	removeFromPlaylist = qqmusic.RemoveFromPlaylist
+	deletePlaylist     = qqmusic.DeletePlaylist
 )
 
 // nameDialog asks for a playlist's name: a new one's, or one's new name.
@@ -27,7 +27,7 @@ type nameDialog struct {
 	open   bool
 	name   string
 	rename int64          // the playlist renamed, or 0 to make one
-	add    *netease.Track // the song to add to the playlist made, if any
+	add    *qqmusic.Track // the song to add to the playlist made, if any
 	busy   bool           // NetEase is making the playlist
 }
 
@@ -40,7 +40,7 @@ type deleteDialog struct {
 
 // editable returns the listener's playlist id if they may edit its songs
 // and name, or nil: the liked songs' are their hearts'.
-func (a *app) editable(id int64) *netease.Playlist {
+func (a *app) editable(id int64) *qqmusic.Playlist {
 	for i := range a.mine {
 		if a.mine[i].ID == id && a.mine[i].SpecialType != 5 {
 			return &a.mine[i]
@@ -52,7 +52,7 @@ func (a *app) editable(id int64) *netease.Playlist {
 // loadMine loads the playlists the listener uid made and saved.
 func (a *app) loadMine(uid int64) {
 	go func() {
-		made, saved, err := netease.UserPlaylists(uid)
+		made, saved, err := qqmusic.UserPlaylists(uid)
 		a.post(func() {
 			if err == nil && a.profile != nil && a.profile.UserID == uid {
 				a.mine, a.saved = made, saved
@@ -75,7 +75,7 @@ func (a *app) playlistChanged(id int64) {
 
 // newPlaylist asks for the name of a playlist to make, then adds tr to it
 // if set. Signed out, it asks the listener to sign in.
-func (a *app) newPlaylist(tr *netease.Track) {
+func (a *app) newPlaylist(tr *qqmusic.Track) {
 	if a.profile == nil {
 		a.showMain()
 		a.openLogin()
@@ -85,7 +85,7 @@ func (a *app) newPlaylist(tr *netease.Track) {
 }
 
 // startRename asks for a new name for the listener's playlist pl.
-func (a *app) startRename(pl *netease.Playlist) {
+func (a *app) startRename(pl *qqmusic.Playlist) {
 	a.naming = nameDialog{open: true, name: pl.Name, rename: pl.ID}
 }
 
@@ -145,7 +145,7 @@ func (a *app) submitName() {
 }
 
 // confirmDelete asks whether to delete the listener's playlist pl.
-func (a *app) confirmDelete(pl *netease.Playlist) {
+func (a *app) confirmDelete(pl *qqmusic.Playlist) {
 	a.deleting = deleteDialog{open: true, id: pl.ID, name: pl.Name}
 }
 
@@ -155,7 +155,7 @@ func (a *app) confirmDelete(pl *netease.Playlist) {
 func (a *app) deleteChosen() {
 	id := a.deleting.id
 	a.deleting.open = false
-	i := slices.IndexFunc(a.mine, func(pl netease.Playlist) bool { return pl.ID == id })
+	i := slices.IndexFunc(a.mine, func(pl qqmusic.Playlist) bool { return pl.ID == id })
 	if i < 0 || a.mine[i].SpecialType == 5 {
 		return
 	}
@@ -196,13 +196,13 @@ func (a *app) setPlaylistName(id int64, name string) {
 }
 
 // addTo adds tr to the listener's playlist pid; a toast says how it went.
-func (a *app) addTo(pid int64, tr *netease.Track) {
+func (a *app) addTo(pid int64, tr *qqmusic.Track) {
 	id := tr.ID
 	go func() {
 		err := addToPlaylist(pid, id)
 		a.post(func() {
 			switch {
-			case errors.Is(err, netease.ErrInPlaylist):
+			case errors.Is(err, qqmusic.ErrInPlaylist):
 				a.toast = "歌曲已在歌单中"
 			case err != nil:
 				a.toast = "添加失败，请稍后再试"
@@ -216,14 +216,14 @@ func (a *app) addTo(pid int64, tr *netease.Track) {
 
 // removeFrom takes tr out of the listener's playlist pid, at once in the
 // app and then with NetEase, which may refuse: the song comes back then.
-func (a *app) removeFrom(pid int64, tr *netease.Track) {
+func (a *app) removeFrom(pid int64, tr *qqmusic.Track) {
 	id := tr.ID
 	pl := a.playlists[pid]
-	var before []netease.Track
+	var before []qqmusic.Track
 	if pl != nil {
 		// A new list: the player may be playing the old one.
 		before = pl.Tracks
-		pl.Tracks = slices.DeleteFunc(slices.Clone(before), func(t netease.Track) bool { return t.ID == id })
+		pl.Tracks = slices.DeleteFunc(slices.Clone(before), func(t qqmusic.Track) bool { return t.ID == id })
 	}
 	go func() {
 		err := removeFromPlaylist(pid, id)
@@ -247,7 +247,7 @@ func (a *app) removeFrom(pid int64, tr *netease.Track) {
 // playlistItems are the items of a song's menu that put it in the
 // listener's playlists, or take it out of pid, the one it is listed in, if
 // set.
-func (a *app) playlistItems(m *ui.Menu, tr *netease.Track, pid int64) {
+func (a *app) playlistItems(m *ui.Menu, tr *qqmusic.Track, pid int64) {
 	if a.profile == nil {
 		return
 	}
@@ -256,7 +256,7 @@ func (a *app) playlistItems(m *ui.Menu, tr *netease.Track, pid int64) {
 		if m.Item("新建歌单…").Chosen() {
 			a.newPlaylist(tr)
 		}
-		var to []*netease.Playlist
+		var to []*qqmusic.Playlist
 		for i := range a.mine {
 			if pl := &a.mine[i]; pl.SpecialType != 5 && pl.ID != pid {
 				to = append(to, pl)
@@ -282,9 +282,9 @@ func (a *app) playlistNameDialog(c *ui.Context) {
 	p := a.pal
 	d := &a.naming
 	ui.DialogBase(c.Key("playlist-name"), &d.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.35))
+		backdrop.Background(radixInk.Alpha(0.35))
 		panel.Width(360).Padding(24).Radius(18).Gap(16).
-			Background(p.bg).Border(1, p.hairline).Shadow(0, 24, 60, -12, ui.RGBA(0, 0, 0, 0.4)).
+			Background(p.bg).Border(1, p.hairline).Shadow(0, 24, 60, -12, radixInk.Alpha(0.4)).
 			Transition(ui.ElementTransition{Animation: &ui.Snappy, Enter: &ui.Motion{Scale: 0.94}, Exit: &ui.Motion{Scale: 0.96}})
 		title, action := "新建歌单", "创建"
 		if d.rename != 0 {
@@ -319,9 +319,9 @@ func (a *app) deletePlaylistDialog(c *ui.Context) {
 	p := a.pal
 	d := &a.deleting
 	ui.DialogBase(c.Key("playlist-delete"), &d.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.35))
+		backdrop.Background(radixInk.Alpha(0.35))
 		panel.Width(360).Padding(24).Radius(18).Gap(8).
-			Background(p.bg).Border(1, p.hairline).Shadow(0, 24, 60, -12, ui.RGBA(0, 0, 0, 0.4)).
+			Background(p.bg).Border(1, p.hairline).Shadow(0, 24, 60, -12, radixInk.Alpha(0.4)).
 			Transition(ui.ElementTransition{Animation: &ui.Snappy, Enter: &ui.Motion{Scale: 0.94}, Exit: &ui.Motion{Scale: 0.96}})
 		ui.Text(c, "删除歌单").FontSize(17).FontWeight(700)
 		ui.Text(c, "确定删除歌单“"+d.name+"”吗？删除后无法恢复。").FontSize(13).TextColor(p.muted).LineHeight(1.45)

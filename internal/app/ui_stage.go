@@ -6,8 +6,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/lyrics"
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/lyrics"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // The stage shows lyrics as Folia's classic visualizer does: one line at a
@@ -91,7 +91,7 @@ func spaceWords(shapes []wordShape, widths []float32, gap float32) {
 }
 
 // stage shows the lyrics of tr on the whole stage.
-func (a *app) stage(c *ui.Context, tr *netease.Track, accent ui.Color) {
+func (a *app) stage(c *ui.Context, tr *qqmusic.Track, accent ui.Color) {
 	pl := a.pl
 	lines, loaded := pl.Lyrics()
 	w, h := c.Size()

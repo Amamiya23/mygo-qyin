@@ -5,14 +5,14 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // The side buttons of a mouse go back and forward between pages.
 func TestBackAndForward(t *testing.T) {
 	a := newTestApp()
 	a.settings = defaultSettings()
-	a.playlists[42] = &netease.Playlist{ID: 42, Name: "飙升榜", Tracks: []netease.Track{{ID: 1, Name: "一张相片"}}}
+	a.playlists[42] = &qqmusic.Playlist{ID: 42, Name: "飙升榜", Tracks: []qqmusic.Track{{ID: 1, Name: "一张相片"}}}
 	tt := ui.NewTester(a.view, 1200, 800)
 	charts, list := route{page: pageCharts}, route{page: pagePlaylist, id: 42}
 	a.open(charts)
@@ -31,7 +31,7 @@ func TestBackAndForward(t *testing.T) {
 	}
 
 	// Back closes Now Playing before it leaves the page under it.
-	a.pl.Cue([]netease.Track{{ID: 1, Name: "一张相片"}})
+	a.pl.Cue([]qqmusic.Track{{ID: 1, Name: "一张相片"}})
 	a.nowPlaying = true
 	tt.Frame()
 	tt.Key(0, ui.KeyBack)

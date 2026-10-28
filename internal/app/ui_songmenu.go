@@ -5,14 +5,14 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // copyText puts text on the clipboard; tests replace it.
 var copyText = func(text string) error { return mygo.Clipboard.Write(transfer.TextData(text)) }
 
 // songMenu is three dots that open the menu of tr.
-func (a *app) songMenu(c *ui.Context, tr *netease.Track, size float32, color ui.Color) ui.Element {
+func (a *app) songMenu(c *ui.Context, tr *qqmusic.Track, size float32, color ui.Color) ui.Element {
 	b := iconButton(c, iconMore, size, color, "更多")
 	b.Menu(a.songItems(tr, 0))
 	return b
@@ -23,7 +23,7 @@ func (a *app) songMenu(c *ui.Context, tr *netease.Track, size float32, color ui.
 // artists, or the link to its page, opening its artists' or album's, and,
 // signed in, adding it to a playlist or taking it out of pid, the playlist
 // it is listed in, if set.
-func (a *app) songItems(tr *netease.Track, pid int64) func(m *ui.Menu) {
+func (a *app) songItems(tr *qqmusic.Track, pid int64) func(m *ui.Menu) {
 	return func(m *ui.Menu) {
 		if tr.ProgramID != 0 {
 			a.programItems(m, tr)
@@ -61,7 +61,7 @@ func (a *app) songItems(tr *netease.Track, pid int64) func(m *ui.Menu) {
 
 // programItems builds the menu of an episode: copying its title or the
 // link to its page, or opening its podcast's.
-func (a *app) programItems(m *ui.Menu, tr *netease.Track) {
+func (a *app) programItems(m *ui.Menu, tr *qqmusic.Track) {
 	if m.Item("复制节目名").Chosen() {
 		copyText(tr.Name)
 	}

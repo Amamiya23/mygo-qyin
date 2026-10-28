@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // A login picks up the last stretch of listening on one device, oldest
@@ -12,10 +12,14 @@ import (
 // an hour, and leaves out songs they may not play and songs played again.
 func TestLastStretch(t *testing.T) {
 	now := time.Date(2026, 10, 26, 22, 0, 0, 0, time.Local)
-	play := func(id int64, ago time.Duration, device string, fee int) netease.Play {
-		return netease.Play{Track: netease.Track{ID: id, Fee: fee}, At: now.Add(-ago), Device: device}
+	play := func(id int64, ago time.Duration, device string, fee int) qqmusic.Play {
+		track := qqmusic.Track{ID: id}
+		if fee != 0 {
+			track.Privilege = &qqmusic.Privilege{ID: id, Pl: 0}
+		}
+		return qqmusic.Play{Track: track, At: now.Add(-ago), Device: device}
 	}
-	plays := []netease.Play{
+	plays := []qqmusic.Play{
 		play(5, 3*time.Minute, "android", 0),
 		play(4, 6*time.Minute, "android", 1), // VIP only
 		play(3, 9*time.Minute, "android", 0),
@@ -43,7 +47,7 @@ func TestLastStretch(t *testing.T) {
 	if songs, last, _ := lastStretch(plays[:1], now); len(songs) != 0 || last.Track.ID != 0 {
 		t.Errorf("picked a song that may not play: %v", songs)
 	}
-	if _, _, ok := lastStretch([]netease.Play{play(1, 8*24*time.Hour, "iphone", 0)}, now); ok {
+	if _, _, ok := lastStretch([]qqmusic.Play{play(1, 8*24*time.Hour, "iphone", 0)}, now); ok {
 		t.Error("picked up a week-old song")
 	}
 }

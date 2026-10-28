@@ -9,7 +9,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // skeletonScenes are the views that load, as they show while they do.
@@ -25,11 +25,11 @@ var skeletonScenes = []struct {
 		a.loadingPl[7] = true
 	}},
 	{"search", func(a *app) {
-		a.route = route{page: pageSearch, query: "春日影", kind: netease.SearchSongs}
+		a.route = route{page: pageSearch, query: "春日影", kind: qqmusic.SearchSongs}
 		a.searches[a.route] = &searchData{page: paged{loading: true}}
 	}},
 	{"artists", func(a *app) {
-		a.route = route{page: pageSearch, query: "春日影", kind: netease.SearchArtists}
+		a.route = route{page: pageSearch, query: "春日影", kind: qqmusic.SearchArtists}
 		a.searches[a.route] = &searchData{page: paged{loading: true}}
 	}},
 	{"login", func(a *app) { a.login = loginState{open: true} }},
@@ -39,7 +39,7 @@ var skeletonScenes = []struct {
 	}},
 	{"more-comments", func(a *app) {
 		a.nowPlaying, a.npPane = true, paneComments
-		a.comments = commentState{track: 1, loading: true, loaded: true, total: 1, latest: []netease.Comment{{ID: 1, Content: "好听"}}}
+		a.comments = commentState{track: 1, loading: true, loaded: true, total: 1, latest: []qqmusic.Comment{{ID: 1, Content: "好听"}}}
 	}},
 	{"lyrics", func(a *app) { a.nowPlaying, a.npPane = true, paneLyrics }},
 	{"stage", func(a *app) { a.nowPlaying, a.npPane = true, paneStage }},
@@ -49,7 +49,7 @@ func skeletonApp(set func(a *app)) *app {
 	a := newTestApp()
 	a.settings = defaultSettings()
 	a.homeLoading = true
-	a.pl.Cue([]netease.Track{{ID: 1, Name: "春日影"}})
+	a.pl.Cue([]qqmusic.Track{{ID: 1, Name: "春日影"}})
 	set(a)
 	return a
 }

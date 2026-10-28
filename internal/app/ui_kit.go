@@ -6,8 +6,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
-	"netease-music-mygo/internal/player"
+	"qqmusic-mygo/internal/player"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // palette holds the app's colors, for the light and the dark appearance.
@@ -27,34 +27,23 @@ type palette struct {
 }
 
 func paletteFor(t *ui.Theme) palette {
+	shade := radixBlack(3)
 	if t.Dark {
-		return palette{
-			dark:      true,
-			bg:        ui.Hex("#141416"),
-			sidebar:   ui.Hex("#1c1c1f"),
-			text:      ui.Hex("#f5f5f7"),
-			muted:     ui.RGBA(235, 235, 245, 0.56),
-			faint:     ui.RGBA(235, 235, 245, 0.3),
-			hairline:  ui.RGBA(255, 255, 255, 0.07),
-			hover:     ui.RGBA(255, 255, 255, 0.06),
-			press:     ui.RGBA(255, 255, 255, 0.1),
-			accent:    ui.Oklch(0.66, 0.2, 22),
-			onAccent:  ui.Hex("#ffffff"),
-			cardShade: ui.RGBA(0, 0, 0, 0.45),
-		}
+		shade = radixBlack(7)
 	}
 	return palette{
-		bg:        ui.Hex("#ffffff"),
-		sidebar:   ui.Hex("#f4f4f6"),
-		text:      ui.Hex("#1d1d1f"),
-		muted:     ui.RGBA(60, 60, 67, 0.62),
-		faint:     ui.RGBA(60, 60, 67, 0.32),
-		hairline:  ui.RGBA(0, 0, 0, 0.07),
-		hover:     ui.RGBA(0, 0, 0, 0.04),
-		press:     ui.RGBA(0, 0, 0, 0.08),
-		accent:    ui.Oklch(0.6, 0.21, 24),
-		onAccent:  ui.Hex("#ffffff"),
-		cardShade: ui.RGBA(0, 0, 0, 0.16),
+		dark:      t.Dark,
+		bg:        radixSage(t.Dark, 1),
+		sidebar:   radixSage(t.Dark, 2),
+		text:      radixSage(t.Dark, 12),
+		muted:     radixSage(t.Dark, 11),
+		faint:     radixSage(t.Dark, 11),
+		hairline:  radixSage(t.Dark, 6),
+		hover:     radixSage(t.Dark, 3),
+		press:     radixSage(t.Dark, 5),
+		accent:    radixGreen(t.Dark, 9),
+		onAccent:  radixPaper,
+		cardShade: shade,
 	}
 }
 
@@ -102,7 +91,7 @@ func roundButton(c *ui.Context, size float32, color ui.Color, label string) ui.E
 	b := ui.ButtonBase(c).Size(size+16, size+16).Center().Radius(999).Label(label).TextColor(color)
 	bg := ui.Transparent
 	if b.Hovered() {
-		bg = ui.RGBA(128, 128, 128, 0.14)
+		bg = radixSage(c.Theme().Dark, 3)
 	}
 	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
 	pose := ui.Pose{}
@@ -118,7 +107,11 @@ func pillButton(c *ui.Context, icon *ui.SVG, label string, bg, fg ui.Color) ui.E
 	b := ui.ButtonBase(c).Height(36).PaddingX(18).Gap(8).Radius(999).AlignItems(ui.Center).TextColor(fg)
 	fill := bg
 	if b.Hovered() {
-		fill = bg.Mix(ui.RGB(255, 255, 255), 0.12)
+		if bg == radixGreen(c.Theme().Dark, 9) {
+			fill = radixGreen(c.Theme().Dark, 10)
+		} else {
+			fill = bg.Mix(radixSage(c.Theme().Dark, 5), 0.2)
+		}
 	}
 	b.Background(b.AnimateColor("bg", fill, ui.Animation{Duration: 120 * time.Millisecond}))
 	pose := ui.Pose{}
@@ -139,7 +132,7 @@ func pillButton(c *ui.Context, icon *ui.SVG, label string, bg, fg ui.Color) ui.E
 func (a *app) cover(c *ui.Context, url string, px int, size, radius float32) ui.Element {
 	p := a.pal
 	box := ui.Box(c).Size(size, size).Radius(radius).Center()
-	bmp := bitmap(a.art.get(netease.Sized(url, px), false))
+	bmp := bitmap(a.art.get(qqmusic.Sized(url, px), false))
 	in := artIn(box, bmp)
 	if in < 1 {
 		box.Background(p.hover)
@@ -292,9 +285,9 @@ func segmented(c *ui.Context, selected *int, labels ...string) bool {
 		w, _ := c.MeasureText(0, ui.Span{Text: l, Size: 13})
 		width = max(width, w+26)
 	}
-	track, capsule, divider := ui.RGBA(0, 0, 0, 0.06), ui.RGB(255, 255, 255), ui.RGBA(0, 0, 0, 0.13)
+	track, capsule, divider := radixSage(t.Dark, 3), radixSage(t.Dark, 1), radixSage(t.Dark, 6)
 	if t.Dark {
-		track, capsule, divider = ui.RGBA(255, 255, 255, 0.08), ui.RGBA(255, 255, 255, 0.24), ui.RGBA(255, 255, 255, 0.13)
+		capsule = radixSage(true, 5)
 	}
 	before := *selected
 	parts := ui.SegmentedBase(c, selected, len(labels))
@@ -312,8 +305,8 @@ func segmented(c *ui.Context, selected *int, labels ...string) bool {
 		}
 		pill := ui.Rect{X: r.X + inset + at*width, Y: r.Y + inset, W: width, H: r.H - 2*inset}
 		if !dark {
-			p.Shadow(pill, radius-1, 0, 0.5, 1, 0, ui.RGBA(0, 0, 0, 0.2))
-			p.Shadow(pill, radius-1, 0, 1, 3, 0, ui.RGBA(0, 0, 0, 0.06))
+			p.Shadow(pill, radius-1, 0, 0.5, 1, 0, radixBlack(4))
+			p.Shadow(pill, radius-1, 0, 1, 3, 0, radixBlack(1))
 		}
 		p.Fill(pill, capsule, radius-1)
 	}).Children(func() {

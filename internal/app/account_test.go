@@ -11,7 +11,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // Clicking the account row drops its menu, which takes the focus so the
@@ -19,7 +19,7 @@ import (
 func TestAccountMenu(t *testing.T) {
 	a := newTestApp()
 	a.settings = defaultSettings()
-	a.profile = &netease.Profile{UserID: 1, Nickname: "小明"}
+	a.profile = &qqmusic.Profile{UserID: 1, Nickname: "小明"}
 	tt := ui.NewTester(a.view, 1000, 700)
 	tt.Frame()
 
@@ -59,12 +59,12 @@ func TestAccountMenu(t *testing.T) {
 func TestAccountMenuOpensOwnPage(t *testing.T) {
 	detail, playlists := userDetail, userPlaylists
 	defer func() { userDetail, userPlaylists = detail, playlists }()
-	userDetail = func(id int64) (*netease.User, error) { return &netease.User{UserID: id, Nickname: "小明"}, nil }
-	userPlaylists = func(int64) ([]netease.Playlist, []netease.Playlist, error) { return nil, nil, nil }
+	userDetail = func(id int64) (*qqmusic.User, error) { return &qqmusic.User{UserID: id, Nickname: "小明"}, nil }
+	userPlaylists = func(int64) ([]qqmusic.Playlist, []qqmusic.Playlist, error) { return nil, nil, nil }
 
 	a := newTestApp()
 	a.settings = defaultSettings()
-	a.profile = &netease.Profile{UserID: 42, Nickname: "小明"}
+	a.profile = &qqmusic.Profile{UserID: 42, Nickname: "小明"}
 	tt := ui.NewTester(a.view, 1000, 700)
 	tt.Frame()
 	tt.Click("小明")
@@ -87,8 +87,8 @@ func fakeSubscriptions(t *testing.T) chan struct{} {
 	asked := make(chan struct{}, 8)
 	ars, pods := followedArtists, subscribedPodcasts
 	t.Cleanup(func() { followedArtists, subscribedPodcasts = ars, pods })
-	followedArtists = func() ([]netease.ArtistProfile, error) { asked <- struct{}{}; return nil, nil }
-	subscribedPodcasts = func() ([]netease.Podcast, error) { return nil, nil }
+	followedArtists = func() ([]qqmusic.ArtistProfile, error) { asked <- struct{}{}; return nil, nil }
+	subscribedPodcasts = func() ([]qqmusic.Podcast, error) { return nil, nil }
 	return asked
 }
 
@@ -96,14 +96,14 @@ func fakeSubscriptions(t *testing.T) chan struct{} {
 func ownPageApp() *app {
 	a := newTestApp()
 	a.settings = defaultSettings()
-	a.profile = &netease.Profile{UserID: 9, Nickname: "听歌的人"}
-	user := netease.User{UserID: 9, Nickname: "听歌的人", Signature: "在音乐里，寻找同路的人。", Follows: 12, Followeds: 24}
+	a.profile = &qqmusic.Profile{UserID: 9, Nickname: "听歌的人"}
+	user := qqmusic.User{UserID: 9, Nickname: "听歌的人", Signature: "在音乐里，寻找同路的人。", Follows: 12, Followeds: 24}
 	a.users[9] = &userData{
 		user:      &user,
-		playlists: []netease.Playlist{{ID: 30, Name: "通勤路上", TrackCount: 40}},
-		artists:   []netease.ArtistProfile{{Artist: netease.Artist{ID: 7, Name: "MyGO!!!!!"}}, {Artist: netease.Artist{ID: 10, Name: "Ave Mujica"}}},
-		podcasts: []netease.Podcast{
-			{ID: 5, Name: "夜航电台", DJ: netease.User{Nickname: "主播"}, ProgramCount: 120, Description: "每晚陪你说说话。"},
+		playlists: []qqmusic.Playlist{{ID: 30, Name: "通勤路上", TrackCount: 40}},
+		artists:   []qqmusic.ArtistProfile{{Artist: qqmusic.Artist{ID: 7, Name: "MyGO!!!!!"}}, {Artist: qqmusic.Artist{ID: 10, Name: "Ave Mujica"}}},
+		podcasts: []qqmusic.Podcast{
+			{ID: 5, Name: "夜航电台", DJ: qqmusic.User{Nickname: "主播"}, ProgramCount: 120, Description: "每晚陪你说说话。"},
 			{ID: 6, Name: "通勤十分钟", ProgramCount: 48},
 		},
 		artistsShown: true, podcastsShown: true,
@@ -137,7 +137,7 @@ func TestOwnPageFollows(t *testing.T) {
 func TestOthersPageHidesFollows(t *testing.T) {
 	asked := fakeSubscriptions(t)
 	a := ownPageApp()
-	a.profile = &netease.Profile{UserID: 1}
+	a.profile = &qqmusic.Profile{UserID: 1}
 	a.open(route{page: pageUser, id: 9})
 	tt := ui.NewTester(a.view, 1200, 1200)
 	tt.Frame()
@@ -198,7 +198,7 @@ func TestAccountMenuFrames(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		a := newTestApp()
 		a.settings = defaultSettings()
-		a.profile = &netease.Profile{UserID: 1, Nickname: "小明"}
+		a.profile = &qqmusic.Profile{UserID: 1, Nickname: "小明"}
 		tt := ui.NewTester(a.view, 1000, 600)
 		tt.SetDark(dark)
 		tt.Frame()

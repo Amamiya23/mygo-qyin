@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"netease-music-mygo/internal/lyrics"
+	"qqmusic-mygo/internal/lyrics"
 )
 
 // Choosing a style from the stage's menu sets its lyrics in it, and

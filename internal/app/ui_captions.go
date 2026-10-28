@@ -6,15 +6,15 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/lyrics"
-	"netease-music-mygo/internal/netease"
-	"netease-music-mygo/internal/speech"
+	"qqmusic-mygo/internal/lyrics"
+	"qqmusic-mygo/internal/qqmusic"
+	"qqmusic-mygo/internal/speech"
 )
 
 // captionsPane shows the episode playing's captions as lyrics show, in
 // Now Playing: written down on the device as it plays. Without the model,
 // it offers to download it.
-func (a *app) captionsPane(c *ui.Context, tr *netease.Track, h float32) {
+func (a *app) captionsPane(c *ui.Context, tr *qqmusic.Track, h float32) {
 	pl := a.pl
 	cs := &a.captions
 	if !a.modelReady() {
@@ -110,14 +110,14 @@ func (a *app) modelCard(c *ui.Context) {
 			return
 		}
 		if m.err != "" {
-			ui.Text(c, m.err).FontSize(13).TextColor(ui.Hex("#ff8a80"))
+			ui.Text(c, m.err).FontSize(13).TextColor(radixRed(true, 11))
 		}
 		label := "下载模型"
 		if m.err != "" {
 			label = "重试"
 		}
 		ui.Row(c).Margin(6, 0, 0, 0).Children(func() {
-			if pillButton(c.Key("download"), nil, label, white, ui.Hex("#141416")).Clicked() {
+			if pillButton(c.Key("download"), nil, label, white, radixSage(false, 12)).Clicked() {
 				a.startModelDownload()
 			}
 		})

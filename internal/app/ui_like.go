@@ -6,7 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // likes are the songs and episodes the listener likes, which hearts show
@@ -15,15 +15,15 @@ import (
 // These like or unlike a song or an episode with NetEase, and ask which
 // episodes the listener likes; tests replace them.
 var (
-	likeSong      = netease.Like
-	likeProgram   = netease.LikeProgram
-	programsLiked = netease.ProgramsLiked
+	likeSong      = qqmusic.Like
+	likeProgram   = qqmusic.LikeProgram
+	programsLiked = qqmusic.ProgramsLiked
 )
 
 // loadLiked loads the listener's liked songs.
 func (a *app) loadLiked(uid int64) {
 	go func() {
-		ids, err := netease.LikedIDs(uid)
+		ids, err := qqmusic.LikedIDs(uid)
 		a.post(func() {
 			if err != nil || a.profile == nil || a.profile.UserID != uid {
 				return
@@ -39,7 +39,7 @@ func (a *app) loadLiked(uid int64) {
 // toggleLike likes a song or an episode, or unlikes it, at once in the app
 // and then with NetEase, which may refuse: the heart goes back then. Signed
 // out, it asks the listener to sign in.
-func (a *app) toggleLike(tr *netease.Track) {
+func (a *app) toggleLike(tr *qqmusic.Track) {
 	if a.profile == nil {
 		a.showMain()
 		a.openLogin()
@@ -90,7 +90,7 @@ func (a *app) toggleProgramLike(id int64) {
 }
 
 // isLiked reports whether the listener likes tr, a song or an episode.
-func (a *app) isLiked(tr *netease.Track) bool {
+func (a *app) isLiked(tr *qqmusic.Track) bool {
 	if tr.ProgramID != 0 {
 		return a.likedPrograms[tr.ProgramID]
 	}
@@ -181,14 +181,14 @@ func (a *app) programLikesAnswered(uid int64, asked []int64, liked map[int64]boo
 // likeButton is a heart that likes tr: filled in red once liked. Liking
 // pops it in on a spring while a ring swells around it and confetti flies
 // out; unliking lets it give a little.
-func (a *app) likeButton(c *ui.Context, tr *netease.Track, size float32, color ui.Color) ui.Element {
+func (a *app) likeButton(c *ui.Context, tr *qqmusic.Track, size float32, color ui.Color) ui.Element {
 	if tr.ProgramID != 0 {
 		a.askProgramLikes([]int64{tr.ProgramID})
 	}
 	liked := a.isLiked(tr)
 	icon, label := iconHeart, "喜欢"
 	if liked {
-		icon, color, label = iconHeartFill, a.pal.accent, "取消喜欢"
+		icon, color, label = iconHeartFill, radixRed(a.pal.dark, 9), "取消喜欢"
 	}
 	// The burst goes on a wrapper, which the heart's pop does not scale.
 	wrap := ui.Box(c).Center()
@@ -209,7 +209,7 @@ func (a *app) likeButton(c *ui.Context, tr *netease.Track, size float32, color u
 		a.toggleLike(tr)
 	}
 	if !burst.IsZero() {
-		start, accent := *burst, a.pal.accent
+		start, accent := *burst, radixRed(a.pal.dark, 9)
 		wrap.DrawOver(func(p *ui.Painter, r ui.Rect) {
 			if drawBurst(p, r, size, p.Now().Sub(start), accent) {
 				p.AnimationFrame()
@@ -221,8 +221,8 @@ func (a *app) likeButton(c *ui.Context, tr *netease.Track, size float32, color u
 
 // burstColors are the confetti's colors, around the heart's red.
 var burstColors = []ui.Color{
-	ui.Hex("#ff4d6d"), ui.Hex("#ff9f1c"), ui.Hex("#ffd166"),
-	ui.Hex("#c77dff"), ui.Hex("#4cc9f0"), ui.Hex("#ff70a6"),
+	radixRed(false, 9), radixOrange9, radixAmber(false, 9),
+	radixPurple9, radixCyan9, radixPink9,
 }
 
 const burstTime = 750 * time.Millisecond

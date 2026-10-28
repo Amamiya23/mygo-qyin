@@ -6,7 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 func TestCommentTime(t *testing.T) {
@@ -28,36 +28,22 @@ func TestCommentTime(t *testing.T) {
 	}
 }
 
-// Heart mode playing, its card and Now Playing offer to leave it, which
-// keeps the song playing.
-func TestExitHeartMode(t *testing.T) {
+// Leaving QQ's personal radio from Now Playing keeps its current song.
+func TestExitQQRadio(t *testing.T) {
 	a := newTestApp()
 	a.settings = defaultSettings()
-	a.profile = &netease.Profile{UserID: 1, Nickname: "听众"}
-	a.pl.Cue([]netease.Track{{ID: 1, Name: "晚风"}, {ID: 2, Name: "推荐的歌"}})
-	a.pl.AttachRadio(heartRadio, func(got func([]netease.Track)) {})
-	a.route = route{page: pageFM}
+	a.profile = &qqmusic.Profile{UserID: 1, Nickname: "听众"}
+	a.pl.Cue([]qqmusic.Track{{ID: 1, Name: "晚风"}, {ID: 2, Name: "推荐的歌"}})
+	a.pl.AttachRadio(fmRadio(qqmusic.FMDefault), func(got func([]qqmusic.Track)) {})
+	a.nowPlaying = true
 	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Advance(time.Second)
 	tt.Frame()
-	if err := tt.Click("退出心动模式"); err != nil {
+	if err := tt.Click("退出私人 FM"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
 	if a.pl.Radio() != "" || a.pl.Current().ID != 1 || len(a.pl.Queue()) != 1 {
 		t.Fatalf("radio %q, current %v, queue %d", a.pl.Radio(), a.pl.Current(), len(a.pl.Queue()))
-	}
-	if !tt.HasText("开启心动模式") {
-		t.Errorf("card still on: %q", tt.Texts())
-	}
-
-	a.pl.AttachRadio(heartRadio, func(got func([]netease.Track)) {})
-	a.nowPlaying = true
-	tt.Advance(time.Second)
-	tt.Frame()
-	if err := tt.Click("退出心动模式"); err != nil {
-		t.Fatal(err)
-	}
-	if a.pl.Radio() != "" || a.pl.Current().ID != 1 {
-		t.Fatalf("from Now Playing: radio %q, current %v", a.pl.Radio(), a.pl.Current())
 	}
 }

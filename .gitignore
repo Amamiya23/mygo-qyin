@@ -3,3 +3,6 @@
 mygo_windows_*.syso
 /netease-music-mygo
 /node_modules/
+/.tools/
+/qqmusic-mygo
+/qqmusic-mygo.exe

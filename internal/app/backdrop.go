@@ -8,7 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/shader"
 
-	"netease-music-mygo/internal/player"
+	"qqmusic-mygo/internal/player"
 )
 
 // The backdrop of Now Playing paints the cover's colors behind it, as
@@ -216,7 +216,7 @@ func drawBackdrop(p *ui.Painter, r ui.Rect, art *artwork, tint ui.Color) {
 	}
 	// Darker toward the foot, under the controls.
 	p.FillGradient(r, ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
-		{Color: ui.RGBA(0, 0, 0, 0), At: 0.55}, {Color: ui.RGBA(0, 0, 0, 0.18), At: 1},
+		{Color: radixInk.Alpha(0), At: 0.55}, {Color: radixInk.Alpha(0.18), At: 1},
 	}}, 0)
 }
 

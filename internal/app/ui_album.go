@@ -7,15 +7,15 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // albumDetail loads an album from NetEase; tests replace it.
-var albumDetail = netease.AlbumDetail
+var albumDetail = qqmusic.AlbumDetail
 
 // albumData is what the app has of an album.
 type albumData struct {
-	album   *netease.AlbumProfile
+	album   *qqmusic.AlbumProfile
 	loading bool
 	err     string
 }
@@ -58,7 +58,7 @@ func (a *app) albumPage(c *ui.Context) {
 	a.trackRows(c, d.album.Songs, false, func(c *ui.Context) { a.albumHeader(c, d.album) })
 }
 
-func (a *app) albumHeader(c *ui.Context, al *netease.AlbumProfile) {
+func (a *app) albumHeader(c *ui.Context, al *qqmusic.AlbumProfile) {
 	p := a.pal
 	ui.Row(c).Gap(28).AlignItems(ui.End).Padding(0, 0, 26, 0).Children(func() {
 		ui.Box(c).Size(212, 212).Radius(14).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
@@ -96,7 +96,7 @@ func (a *app) albumHeader(c *ui.Context, al *netease.AlbumProfile) {
 }
 
 // albumGrid shows albums as cards, each opening its page.
-func (a *app) albumGrid(c *ui.Context, albums []netease.AlbumProfile) {
+func (a *app) albumGrid(c *ui.Context, albums []qqmusic.AlbumProfile) {
 	ui.Grid(c).Columns(a.columns(c, 156)).GapX(20).GapY(28).Children(func() {
 		for i := range albums {
 			a.albumCard(c.Key(albums[i].ID), &albums[i])
@@ -106,7 +106,7 @@ func (a *app) albumGrid(c *ui.Context, albums []netease.AlbumProfile) {
 
 // albumCard is an album's cover, lifting under the pointer, over its name
 // and the year it came out.
-func (a *app) albumCard(c *ui.Context, al *netease.AlbumProfile) {
+func (a *app) albumCard(c *ui.Context, al *qqmusic.AlbumProfile) {
 	p := a.pal
 	card := ui.ButtonBase(c).Column().Gap(10).AlignItems(ui.Stretch).FocusRing(false).Label(al.Name)
 	hovered := card.Hovered()

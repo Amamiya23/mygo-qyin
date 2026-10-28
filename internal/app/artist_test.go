@@ -7,22 +7,22 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // Each artist's name opens their page: from Now Playing, which closes, and
 // from a song's row, which doesn't play the song as the row's click would.
 func TestArtistNameOpensTheirPage(t *testing.T) {
-	artistDetail = func(int64) (*netease.ArtistProfile, error) { return nil, errors.New("offline") }
-	defer func() { artistDetail = netease.ArtistDetail }()
+	artistDetail = func(int64) (*qqmusic.ArtistProfile, error) { return nil, errors.New("offline") }
+	defer func() { artistDetail = qqmusic.ArtistDetail }()
 	a := newTestApp()
 	a.settings = defaultSettings()
-	duet := netease.Track{ID: 1, Name: "广寒宫", Artists: []netease.Artist{{ID: 11, Name: "甲"}, {ID: 12, Name: "乙"}}, Duration: 200000}
-	a.pl.Cue([]netease.Track{duet})
+	duet := qqmusic.Track{ID: 1, Name: "广寒宫", Artists: []qqmusic.Artist{{ID: 11, Name: "甲"}, {ID: 12, Name: "乙"}}, Duration: 200000}
+	a.pl.Cue([]qqmusic.Track{duet})
 	a.pl.SetLyrics(nil)
-	a.artists[12] = &artistData{profile: &netease.ArtistProfile{
-		Artist: netease.Artist{ID: 12, Name: "乙"},
-		Songs:  []netease.Track{{ID: 2, Name: "起风了", Artists: []netease.Artist{{ID: 13, Name: "丙"}}, Duration: 200000}},
+	a.artists[12] = &artistData{profile: &qqmusic.ArtistProfile{
+		Artist: qqmusic.Artist{ID: 12, Name: "乙"},
+		Songs:  []qqmusic.Track{{ID: 2, Name: "起风了", Artists: []qqmusic.Artist{{ID: 13, Name: "丙"}}, Duration: 200000}},
 	}}
 	tt := ui.NewTester(a.view, 1200, 800)
 	a.nowPlaying = true
@@ -64,14 +64,14 @@ func TestArtistNameOpensTheirPage(t *testing.T) {
 // on one plays the list shown.
 func TestArtistSongsByLatest(t *testing.T) {
 	asked := make(chan int64, 4)
-	artistLatestSongs = func(id int64, _ int) ([]netease.Track, error) { asked <- id; return nil, errors.New("offline") }
-	defer func() { artistLatestSongs = netease.ArtistLatestSongs }()
+	artistLatestSongs = func(id int64, _ int) ([]qqmusic.Track, error) { asked <- id; return nil, errors.New("offline") }
+	defer func() { artistLatestSongs = qqmusic.ArtistLatestSongs }()
 	a := newTestApp()
 	a.settings = defaultSettings()
-	song := func(id int64, name string) netease.Track {
-		return netease.Track{ID: id, Name: name, Artists: []netease.Artist{{ID: 12, Name: "乙"}}, Duration: 200000}
+	song := func(id int64, name string) qqmusic.Track {
+		return qqmusic.Track{ID: id, Name: name, Artists: []qqmusic.Artist{{ID: 12, Name: "乙"}}, Duration: 200000}
 	}
-	d := &artistData{profile: &netease.ArtistProfile{Artist: netease.Artist{ID: 12, Name: "乙"}, Songs: []netease.Track{song(1, "老歌")}}}
+	d := &artistData{profile: &qqmusic.ArtistProfile{Artist: qqmusic.Artist{ID: 12, Name: "乙"}, Songs: []qqmusic.Track{song(1, "老歌")}}}
 	a.artists[12] = d
 	a.open(route{page: pageArtist, id: 12})
 	tt := ui.NewTester(a.view, 1200, 800)
@@ -90,7 +90,7 @@ func TestArtistSongsByLatest(t *testing.T) {
 		t.Fatal("the newest songs weren't asked for")
 	}
 	// As the answer lands, which post drops without a window.
-	d.latest, d.latestLoading = []netease.Track{song(2, "新歌"), song(3, "更新的歌")}, false
+	d.latest, d.latestLoading = []qqmusic.Track{song(2, "新歌"), song(3, "更新的歌")}, false
 	tt.Frame()
 	if err := tt.Click("新歌"); err != nil {
 		t.Fatal(err)

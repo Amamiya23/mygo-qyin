@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 func TestFrameSize(t *testing.T) {
@@ -187,7 +187,7 @@ func TestStreamIntoCache(t *testing.T) {
 	c := NewCache(dir, 1<<30)
 	ref := decodeAll(t, b)
 
-	st := &netease.Stream{URL: srv.URL + "/whole", Size: int64(len(b)), Level: "exhigh", Type: "mp3"}
+	st := &qqmusic.Stream{URL: srv.URL + "/whole", Size: int64(len(b)), Level: "exhigh", Type: "mp3"}
 	s, err := openStream(c.download(1, st), int64(len(ref)/2)*1000/44100)
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +211,7 @@ func TestStreamIntoCache(t *testing.T) {
 		dl.Close()
 	}
 
-	cut := c.download(2, &netease.Stream{URL: srv.URL + "/cut", Size: int64(len(b)), Level: "exhigh", Type: "mp3"})
+	cut := c.download(2, &qqmusic.Stream{URL: srv.URL + "/cut", Size: int64(len(b)), Level: "exhigh", Type: "mp3"})
 	cut.waitFor(int64(len(b) / 2))
 	cut.Close()
 	for start := time.Now(); time.Since(start) < 2*time.Second; time.Sleep(10 * time.Millisecond) {
@@ -252,7 +252,7 @@ func TestSharedStream(t *testing.T) {
 		}
 	}
 
-	dl := c.download(1, &netease.Stream{URL: srv.URL, Size: int64(len(b)), Level: "exhigh", Type: "mp3"})
+	dl := c.download(1, &qqmusic.Stream{URL: srv.URL, Size: int64(len(b)), Level: "exhigh", Type: "mp3"})
 	playing, err := openStream(dl, ms)
 	if err != nil {
 		t.Fatal(err)
@@ -300,7 +300,7 @@ func TestCacheKeepsOnlyKnownLevels(t *testing.T) {
 	dir := filepath.Join(root, "cache")
 	c := NewCache(dir, 1<<30)
 
-	dl := c.download(1, &netease.Stream{URL: srv.URL, Size: int64(len(b)), Level: "/../../pwned", Type: "mp3"})
+	dl := c.download(1, &qqmusic.Stream{URL: srv.URL, Size: int64(len(b)), Level: "/../../pwned", Type: "mp3"})
 	dl.waitFor(int64(len(b)))
 	dl.Close()
 	for start := time.Now(); time.Since(start) < 2*time.Second; time.Sleep(10 * time.Millisecond) {

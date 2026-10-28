@@ -5,7 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // Each playlist header hides only its own rows without changing the page
@@ -20,7 +20,7 @@ func TestSidebarPlaylistCollapse(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := editTestApp()
-			a.playlists[tc.playlist] = &netease.Playlist{ID: tc.playlist, Name: tc.row}
+			a.playlists[tc.playlist] = &qqmusic.Playlist{ID: tc.playlist, Name: tc.row}
 			a.pl.Cue(a.playlists[10].Tracks)
 			before := a.route
 			tt := ui.NewTester(a.view, 1200, 800)

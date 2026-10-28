@@ -6,26 +6,26 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/lyrics"
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/lyrics"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // quietApp is Now Playing a song sung from 20 s to 30 s, quiet before and
 // after, with two hot comments.
-func quietApp(pos time.Duration) (*app, netease.Track, []lyrics.Line) {
+func quietApp(pos time.Duration) (*app, qqmusic.Track, []lyrics.Line) {
 	a := newTestApp()
 	a.settings = defaultSettings()
 	a.settings.HotComments = true
-	tr := netease.Track{ID: 9, Name: "晴天", Duration: 60000}
+	tr := qqmusic.Track{ID: 9, Name: "晴天", Duration: 60000}
 	lines := []lyrics.Line{
 		{At: 0, End: 2 * time.Second, Text: "作词：周杰伦"},
 		{At: 20 * time.Second, End: 25 * time.Second, Text: "故事的小黄花"},
 		{At: 25 * time.Second, End: 30 * time.Second, Text: "从出生那年就飘着"},
 	}
-	a.pl.Cue([]netease.Track{tr})
+	a.pl.Cue([]qqmusic.Track{tr})
 	a.pl.SetLyrics(lines)
 	a.pl.Hold(pos)
-	hot := []netease.Comment{
+	hot := []qqmusic.Comment{
 		{ID: 1, Content: "刮风这天，我试过握着你手", LikedCount: 52000},
 		{ID: 2, Content: "从前从前，有个人爱你很久", LikedCount: 31000},
 	}

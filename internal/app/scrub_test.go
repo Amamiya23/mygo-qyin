@@ -7,7 +7,7 @@ import (
 	"github.com/egoist/mygo/audio"
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // Dragging the progress bar seeks once, where it is let go: not as the
@@ -16,8 +16,8 @@ import (
 func TestScrubSeeksOnRelease(t *testing.T) {
 	a := newTestApp()
 	a.settings = defaultSettings()
-	tr := netease.Track{ID: 7, Name: "宝船", Duration: 200000}
-	a.pl.Cue([]netease.Track{tr, {ID: 8, Name: "下一首"}})
+	tr := qqmusic.Track{ID: 7, Name: "宝船", Duration: 200000}
+	a.pl.Cue([]qqmusic.Track{tr, {ID: 8, Name: "下一首"}})
 	a.pl.SetLyrics(nil)
 	out := audio.NewPlayer(&silence{})
 	out.SetVolume(0)

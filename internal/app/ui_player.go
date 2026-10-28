@@ -7,7 +7,7 @@ import (
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/player"
+	"qqmusic-mygo/internal/player"
 )
 
 // scrubState is a progress bar's own: the value dragged, while it is, and
@@ -110,7 +110,7 @@ func (a *app) scrubber(c *ui.Context, st *scrubState, track, fill ui.Color, heig
 		}
 		if knob > 0.01 {
 			k := 12 * knob
-			p.Shadow(ui.Rect{X: head - k/2, Y: r.Y + (r.H-k)/2, W: k, H: k}, k/2, 0, 1, 3, 0, ui.RGBA(0, 0, 0, 0.3))
+			p.Shadow(ui.Rect{X: head - k/2, Y: r.Y + (r.H-k)/2, W: k, H: k}, k/2, 0, 1, 3, 0, radixInk.Alpha(0.3))
 			p.Fill(ui.Rect{X: head - k/2, Y: r.Y + (r.H-k)/2, W: k, H: k}, fill, k/2)
 		}
 		switch {
@@ -187,7 +187,7 @@ func (a *app) volumeButton(c *ui.Context, color ui.Color) {
 	ui.PopoverBase(c.Key("volume-popover"), b, &a.volumeOpen, func(panel ui.Element) {
 		const arrow = 7
 		panel.AttachTo(b, ui.AnchorTop, ui.AnchorBottom).Margin(0, 0, arrow+3, 0).Width(52).Padding(11, 0, 12, 0).
-			Radius(12).Background(pop.fill).Border(0.5, pop.edge).Shadow(0, 8, 24, -4, ui.RGBA(0, 0, 0, 0.2)).
+			Radius(12).Background(pop.fill).Border(0.5, pop.edge).Shadow(0, 8, 24, -4, radixInk.Alpha(0.2)).
 			AlignItems(ui.Center).Gap(8).Label("音量")
 		panel.Draw(func(p *ui.Painter, r ui.Rect) {
 			// The arrow pointing at the speaker, its sides edged as the
@@ -211,10 +211,7 @@ type popover struct {
 }
 
 func popoverColors(dark bool) popover {
-	if dark {
-		return popover{fill: ui.Hex("#2b2b2e"), edge: ui.RGBA(255, 255, 255, 0.14), track: ui.RGBA(255, 255, 255, 0.16), knob: ui.Hex("#ececec")}
-	}
-	return popover{fill: ui.Hex("#f6f6f6"), edge: ui.RGBA(0, 0, 0, 0.12), track: ui.RGBA(0, 0, 0, 0.12), knob: ui.Hex("#ffffff")}
+	return popover{fill: radixSage(dark, 2), edge: radixSage(dark, 6), track: radixSage(dark, 5), knob: radixPaper}
 }
 
 // nativeVolumeSlider is a vertical slider as AppKit draws one: a thin
@@ -237,14 +234,14 @@ func (a *app) nativeVolumeSlider(c *ui.Context, pop popover) {
 		p.Fill(ui.Rect{X: x, Y: top - track/2, W: track, H: foot - top + track}, pop.track, track/2)
 		p.Fill(ui.Rect{X: x, Y: y, W: track, H: foot - y + track/2}, accent, track/2)
 		k := ui.Rect{X: r.X + (r.W-knob)/2, Y: y - knob/2, W: knob, H: knob}
-		p.Shadow(k, knob/2, 0, 0.5, 1.5, 0, ui.RGBA(0, 0, 0, 0.3))
-		p.Shadow(k, knob/2, 0, 1, 4, 0, ui.RGBA(0, 0, 0, 0.12))
+		p.Shadow(k, knob/2, 0, 0.5, 1.5, 0, radixInk.Alpha(0.3))
+		p.Shadow(k, knob/2, 0, 1, 4, 0, radixInk.Alpha(0.12))
 		fill := pop.knob
 		if pressed {
-			fill = fill.Mix(ui.RGB(0, 0, 0), 0.06)
+			fill = fill.Mix(radixInk, 0.06)
 		}
 		p.Fill(k, fill, knob/2)
-		p.Stroke(k, ui.RGBA(0, 0, 0, 0.08), knob/2, 0.5)
+		p.Stroke(k, radixInk.Alpha(0.08), knob/2, 0.5)
 	})
 }
 
@@ -381,7 +378,7 @@ func (a *app) playerBar(c *ui.Context) {
 					a.cover(c, tr.Album.PicURL, 120, 48, 8).Shadow(0, 2, 8, 0, p.cardShade)
 					if hovered {
 						ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(8).Center().
-							Background(ui.RGBA(0, 0, 0, 0.35)).TextColor(ui.RGB(255, 255, 255)).Children(func() {
+							Background(radixInk.Alpha(0.35)).TextColor(radixPaper).Children(func() {
 							ui.Icon(c, iconDown).Size(18, 18).Rotate(180)
 						})
 					}

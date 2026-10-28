@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // artistEvents lists what an artist posted, a page at a time.
@@ -30,7 +30,7 @@ func (a *app) artistEvents(c *ui.Context, d *artistData) {
 
 // event is a post: who posted it, when, what it says, its pictures and
 // what it shares, which opens its page.
-func (a *app) event(c *ui.Context, e *netease.Event) {
+func (a *app) event(c *ui.Context, e *qqmusic.Event) {
 	p := a.pal
 	ui.Column(c).Gap(12).Padding(20, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hairline).Children(func() {
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {

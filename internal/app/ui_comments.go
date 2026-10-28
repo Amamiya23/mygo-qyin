@@ -6,14 +6,14 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // These load a page of a thread's comments, and like a comment or unlike
 // it, with NetEase; tests replace them.
 var (
-	threadComments = netease.ThreadComments
-	likeComment    = netease.LikeComment
+	threadComments = qqmusic.ThreadComments
+	likeComment    = qqmusic.LikeComment
 )
 
 // commentState is the comments of the song or episode Now Playing shows:
@@ -21,8 +21,8 @@ var (
 type commentState struct {
 	track   int64
 	thread  string // whose comments they are, as NetEase names it
-	hot     []netease.Comment
-	latest  []netease.Comment
+	hot     []qqmusic.Comment
+	latest  []qqmusic.Comment
 	total   int
 	more    bool
 	loaded  bool
@@ -37,7 +37,7 @@ const commentPage = 30
 // commentsFor makes the comments those of tr, loading their first page
 // once it changed: Now Playing does it as it shows, for the count on the
 // pane's tab.
-func (a *app) commentsFor(tr *netease.Track) *commentState {
+func (a *app) commentsFor(tr *qqmusic.Track) *commentState {
 	cs := &a.comments
 	if cs.track != tr.ID {
 		*cs = commentState{track: tr.ID, thread: tr.Thread()}
@@ -171,7 +171,7 @@ type commentKey struct {
 
 // commentsPane lists the comments of tr: the hot ones, then the latest,
 // which load on as they scroll into view.
-func (a *app) commentsPane(c *ui.Context, tr *netease.Track) {
+func (a *app) commentsPane(c *ui.Context, tr *qqmusic.Track) {
 	cs := a.commentsFor(tr)
 	if len(cs.hot) == 0 && len(cs.latest) == 0 {
 		if cs.loading || !cs.loaded && cs.err == "" {
@@ -244,14 +244,16 @@ func commentHeading(c *ui.Context, title string) {
 
 // commentRow is a comment: who wrote it, what, and what it replies to,
 // when, from where, and how many liked it, with a thumb to like it too.
-func (a *app) commentRow(c *ui.Context, cm *netease.Comment, now time.Time) {
+func (a *app) commentRow(c *ui.Context, cm *qqmusic.Comment, now time.Time) {
 	ui.Row(c).Padding(12).Gap(12).Radius(12).AlignItems(ui.Start).Children(func() {
 		a.avatar(c, cm.User.AvatarURL, 34, white.Alpha(0.1))
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(6).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, cm.User.Nickname).FontSize(13).FontWeight(600).TextColor(white.Alpha(0.6)).SingleLine().Shrink(1).MinWidth(0)
 				ui.Spacer(c)
-				a.commentLike(c.Key("like"), cm)
+				if cm.LikedCount > 0 {
+					ui.Text(c, count(cm.LikedCount)+" 赞").FontSize(12).TextColor(white.Alpha(0.6))
+				}
 			})
 			ui.Text(c, cm.Content).FontSize(15).LineHeight(1.55).TextColor(white.Alpha(0.92))
 			if len(cm.BeReplied) > 0 {
@@ -274,7 +276,7 @@ func (a *app) commentRow(c *ui.Context, cm *netease.Comment, now time.Time) {
 
 // commentLike is a comment's thumb, with how many liked it, which likes it
 // or unlikes it: in red once liked.
-func (a *app) commentLike(c *ui.Context, cm *netease.Comment) {
+func (a *app) commentLike(c *ui.Context, cm *qqmusic.Comment) {
 	label, fg := "赞", white.Alpha(0.42)
 	if cm.Liked {
 		label, fg = "取消赞", a.pal.accent
@@ -325,8 +327,8 @@ func (a *app) toggleCommentLike(id int64) {
 }
 
 // find returns the comment id, hot or latest, or nil.
-func (cs *commentState) find(id int64) *netease.Comment {
-	for _, list := range [][]netease.Comment{cs.hot, cs.latest} {
+func (cs *commentState) find(id int64) *qqmusic.Comment {
+	for _, list := range [][]qqmusic.Comment{cs.hot, cs.latest} {
 		for i := range list {
 			if list[i].ID == id {
 				return &list[i]
@@ -339,7 +341,7 @@ func (cs *commentState) find(id int64) *netease.Comment {
 // setLiked marks the comment id liked, or not, counting the listener in or
 // out, both where it is hot and where it is latest.
 func (cs *commentState) setLiked(id int64, like bool) {
-	for _, list := range [][]netease.Comment{cs.hot, cs.latest} {
+	for _, list := range [][]qqmusic.Comment{cs.hot, cs.latest} {
 		for i := range list {
 			if cm := &list[i]; cm.ID == id && cm.Liked != like {
 				cm.Liked = like
@@ -355,7 +357,7 @@ func (cs *commentState) setLiked(id int64, like bool) {
 
 // avatar shows a listener's picture, round, over empty while it loads.
 func (a *app) avatar(c *ui.Context, url string, size float32, empty ui.Color) {
-	bmp := bitmap(a.art.get(netease.Sized(url, int(size*3)), false))
+	bmp := bitmap(a.art.get(qqmusic.Sized(url, int(size*3)), false))
 	box := ui.Box(c).Size(size, size).Radius(size / 2).Shrink(0)
 	in := artIn(box, bmp)
 	if in < 1 {

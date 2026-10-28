@@ -8,18 +8,18 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // These load a podcast and its episodes from NetEase, and subscribe to it,
 // and the podcasts the tab picks and the most popular; tests replace them.
 var (
-	podcastDetail    = netease.PodcastDetail
-	podcastPrograms  = netease.PodcastPrograms
-	subscribePodcast = netease.SubscribePodcast
+	podcastDetail    = qqmusic.PodcastDetail
+	podcastPrograms  = qqmusic.PodcastPrograms
+	subscribePodcast = qqmusic.SubscribePodcast
 
-	recommendedPodcasts = netease.RecommendedPodcasts
-	hotPodcasts         = netease.HotPodcasts
+	recommendedPodcasts = qqmusic.RecommendedPodcasts
+	hotPodcasts         = qqmusic.HotPodcasts
 )
 
 // programsPage is how many of a podcast's episodes load at a time.
@@ -28,10 +28,10 @@ const programsPage = 30
 // podcastData is what the app has of a podcast: what it is, and its
 // episodes, the newest first, as far as they have loaded.
 type podcastData struct {
-	podcast     *netease.Podcast
+	podcast     *qqmusic.Podcast
 	loading     bool
 	err         string
-	programs    []netease.Program
+	programs    []qqmusic.Program
 	page        paged
 	subscribing bool // a subscription or its end is on its way
 	thenPlay    bool // its card's play button waits for it to load
@@ -96,7 +96,7 @@ func (a *app) loadPrograms(id int64) {
 // playProgram plays the episodes loaded, from the one at i: those with
 // audio to play.
 func (a *app) playProgram(d *podcastData, i int) {
-	var queue []netease.Track
+	var queue []qqmusic.Track
 	at := 0
 	for j := range d.programs {
 		if d.programs[j].MainSong.ID == 0 {
@@ -236,7 +236,7 @@ func (a *app) podcastPage(c *ui.Context) {
 }
 
 // programRow is an episode in its podcast's list, which a click plays.
-func (a *app) programRow(c *ui.Context, d *podcastData, i int, cur *netease.Track) {
+func (a *app) programRow(c *ui.Context, d *podcastData, i int, cur *qqmusic.Track) {
 	p := a.pal
 	pr := &d.programs[i]
 	playing := cur != nil && cur.ProgramID == pr.ID
@@ -279,7 +279,7 @@ func (a *app) programRow(c *ui.Context, d *podcastData, i int, cur *netease.Trac
 }
 
 // podcastRow is a podcast in a list, opening its page.
-func (a *app) podcastRow(c *ui.Context, pod *netease.Podcast) {
+func (a *app) podcastRow(c *ui.Context, pod *qqmusic.Podcast) {
 	p := a.pal
 	row := ui.ButtonBase(c).Padding(10, 12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(pod.Name)
 	if row.Hovered() {
@@ -306,7 +306,7 @@ func (a *app) podcastRow(c *ui.Context, pod *netease.Podcast) {
 
 // programPane is what the episode playing is about, in Now Playing, in
 // place of a song's lyrics.
-func (a *app) programPane(c *ui.Context, tr *netease.Track) {
+func (a *app) programPane(c *ui.Context, tr *qqmusic.Track) {
 	ui.Scroll(c.Key(tr.ProgramID)).Grow(1).Padding(4, 12, 48, 0).Children(func() {
 		desc := strings.TrimSpace(tr.Description)
 		if desc == "" {
@@ -320,9 +320,9 @@ func (a *app) programPane(c *ui.Context, tr *netease.Track) {
 // subscribes to, NetEase's picks, and the most popular, as far as they have
 // loaded.
 type podcastTab struct {
-	subs    []netease.Podcast // the latest subscribed first
-	picks   []netease.Podcast
-	hot     []netease.Podcast
+	subs    []qqmusic.Podcast // the latest subscribed first
+	picks   []qqmusic.Podcast
+	hot     []qqmusic.Podcast
 	hotPage paged
 	hotAt   int // how far into NetEase's list the next page starts
 	loading bool
@@ -337,7 +337,7 @@ func (a *app) loadPodcastTab() {
 	t.loading, t.err = true, ""
 	signedIn := a.profile != nil
 	go func() {
-		var subs []netease.Podcast
+		var subs []qqmusic.Podcast
 		if signedIn {
 			subs, _ = subscribedPodcasts()
 		}
@@ -384,10 +384,10 @@ func (a *app) loadHotPodcasts() {
 // addHot lists a page of the most popular podcasts after those listed,
 // but those already listed: NetEase's pages overlap, a podcast often
 // coming again a page or two later.
-func (t *podcastTab) addHot(page []netease.Podcast) {
+func (t *podcastTab) addHot(page []qqmusic.Podcast) {
 	t.hotAt += len(page)
 	for _, pod := range page {
-		if !slices.ContainsFunc(t.hot, func(p netease.Podcast) bool { return p.ID == pod.ID }) {
+		if !slices.ContainsFunc(t.hot, func(p qqmusic.Podcast) bool { return p.ID == pod.ID }) {
 			t.hot = append(t.hot, pod)
 		}
 	}
@@ -395,17 +395,17 @@ func (t *podcastTab) addHot(page []netease.Podcast) {
 
 // subscribed lists a podcast the listener just subscribed to first, once
 // the tab has loaded what they subscribe to.
-func (t *podcastTab) subscribed(pod *netease.Podcast) {
+func (t *podcastTab) subscribed(pod *qqmusic.Podcast) {
 	if !t.hotPage.loaded {
 		return
 	}
 	t.unsubscribed(pod.ID)
-	t.subs = append([]netease.Podcast{*pod}, t.subs...)
+	t.subs = append([]qqmusic.Podcast{*pod}, t.subs...)
 }
 
 // unsubscribed takes a podcast out of the listener's subscriptions.
 func (t *podcastTab) unsubscribed(id int64) {
-	t.subs = slices.DeleteFunc(t.subs, func(p netease.Podcast) bool { return p.ID == id })
+	t.subs = slices.DeleteFunc(t.subs, func(p qqmusic.Podcast) bool { return p.ID == id })
 }
 
 func (a *app) podcastsPage(c *ui.Context) {
@@ -430,7 +430,7 @@ func (a *app) podcastsPage(c *ui.Context) {
 		}
 		// The first list starts right under the heading.
 		first := true
-		list := func(title string, pods []netease.Podcast) {
+		list := func(title string, pods []qqmusic.Podcast) {
 			if len(pods) == 0 {
 				return
 			}
@@ -454,7 +454,7 @@ func (a *app) podcastsPage(c *ui.Context) {
 // podcastCard is a podcast's cover over its name and, for those the
 // listener subscribes to, its newest episode; for the others, why to
 // listen.
-func (a *app) podcastCard(c *ui.Context, pod *netease.Podcast) {
+func (a *app) podcastCard(c *ui.Context, pod *qqmusic.Podcast) {
 	sub := pod.LastProgram
 	if sub == "" {
 		sub = pod.RcmdText

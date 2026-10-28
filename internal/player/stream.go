@@ -15,7 +15,8 @@ import (
 	"github.com/egoist/mygo/audio"
 	gomp3 "github.com/hajimehoshi/go-mp3"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/network"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // A download fetches a song as it plays: readers wait for the bytes they
@@ -44,6 +45,8 @@ type download struct {
 	users  int
 	closed bool
 }
+
+var streamHTTP = &http.Client{Transport: network.Transport()}
 
 // startDownload fetches url, of size bytes if known, into part, a file
 // that keep keeps once it has all come in: or into memory, without one.
@@ -96,8 +99,8 @@ func (d *download) run(ctx context.Context, url string) {
 		finish(err)
 		return
 	}
-	req.Header.Set("User-Agent", netease.UserAgent)
-	res, err := http.DefaultClient.Do(req)
+	req.Header.Set("User-Agent", qqmusic.UserAgent)
+	res, err := streamHTTP.Do(req)
 	if err != nil {
 		finish(err)
 		return

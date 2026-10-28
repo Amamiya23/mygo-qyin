@@ -13,20 +13,20 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/lyrics"
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/lyrics"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 func TestLikeFromPlayerBar(t *testing.T) {
 	calls := make(chan bool, 4)
 	likeSong = func(id int64, like bool) error { calls <- like; return nil }
-	defer func() { likeSong = netease.Like }()
+	defer func() { likeSong = qqmusic.Like }()
 
 	a := newTestApp()
 	a.settings = defaultSettings()
-	a.profile = &netease.Profile{UserID: 1, Nickname: "小明"}
-	tr := netease.Track{ID: 7, Name: "宝船", Artists: []netease.Artist{{Name: "DOUDOU"}}, Duration: 200000}
-	a.pl.Cue([]netease.Track{tr})
+	a.profile = &qqmusic.Profile{UserID: 1, Nickname: "小明"}
+	tr := qqmusic.Track{ID: 7, Name: "宝船", Artists: []qqmusic.Artist{{Name: "DOUDOU"}}, Duration: 200000}
+	a.pl.Cue([]qqmusic.Track{tr})
 	a.pl.SetLyrics(nil)
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Advance(time.Second)
@@ -66,13 +66,13 @@ func TestLikeEpisode(t *testing.T) {
 	likeProgram = func(id int64, like bool) error { calls <- call{id, like}; return nil }
 	likeSong = func(int64, bool) error { t.Error("liked the episode's audio as a song"); return nil }
 	defer func() {
-		programsLiked, likeProgram, likeSong = netease.ProgramsLiked, netease.LikeProgram, netease.Like
+		programsLiked, likeProgram, likeSong = qqmusic.ProgramsLiked, qqmusic.LikeProgram, qqmusic.Like
 	}()
 
 	a := newTestApp()
 	a.settings = defaultSettings()
-	a.profile = &netease.Profile{UserID: 1}
-	a.pl.Cue([]netease.Track{{ID: 13, Name: "第一期", ProgramID: 3, PodcastID: 5, Duration: 600000}})
+	a.profile = &qqmusic.Profile{UserID: 1}
+	a.pl.Cue([]qqmusic.Track{{ID: 13, Name: "第一期", ProgramID: 3, PodcastID: 5, Duration: 600000}})
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Advance(time.Second)
 	tt.Frame()
@@ -106,17 +106,17 @@ func TestLikeEpisode(t *testing.T) {
 func TestEpisodeLikeClickBeatsAnswer(t *testing.T) {
 	programsLiked = func([]int64) (map[int64]bool, error) { return nil, nil }
 	likeProgram = func(int64, bool) error { return nil }
-	defer func() { programsLiked, likeProgram = netease.ProgramsLiked, netease.LikeProgram }()
+	defer func() { programsLiked, likeProgram = qqmusic.ProgramsLiked, qqmusic.LikeProgram }()
 	a := newTestApp()
-	a.profile = &netease.Profile{UserID: 1}
+	a.profile = &qqmusic.Profile{UserID: 1}
 	a.askProgramLikes([]int64{3, 4})
-	a.toggleLike(&netease.Track{ID: 13, ProgramID: 3})
+	a.toggleLike(&qqmusic.Track{ID: 13, ProgramID: 3})
 	a.programLikesAnswered(1, []int64{3, 4}, map[int64]bool{4: true})
 	if !a.likedPrograms[3] || !a.likedPrograms[4] {
 		t.Fatalf("liked %v", a.likedPrograms)
 	}
 	a.signedIn(nil)
-	a.profile = &netease.Profile{UserID: 2}
+	a.profile = &qqmusic.Profile{UserID: 2}
 	a.askProgramLikes([]int64{5})
 	a.programLikesAnswered(1, []int64{5}, map[int64]bool{5: true})
 	if a.likedPrograms[5] {
@@ -130,9 +130,9 @@ func TestLikeEpisodeRow(t *testing.T) {
 	programsLiked = func([]int64) (map[int64]bool, error) { return nil, nil }
 	liked := make(chan int64, 4)
 	likeProgram = func(id int64, like bool) error { liked <- id; return nil }
-	defer func() { programsLiked, likeProgram = netease.ProgramsLiked, netease.LikeProgram }()
+	defer func() { programsLiked, likeProgram = qqmusic.ProgramsLiked, qqmusic.LikeProgram }()
 	a := catalogApp()
-	a.profile = &netease.Profile{UserID: 1}
+	a.profile = &qqmusic.Profile{UserID: 1}
 	a.setProgramLiked(40, true)
 	a.open(route{page: pagePodcast, id: 5})
 	tt := ui.NewTester(a.view, 1200, 800)
@@ -165,12 +165,12 @@ func TestLikeBurstFrames(t *testing.T) {
 		t.Skip()
 	}
 	likeSong = func(int64, bool) error { return nil }
-	defer func() { likeSong = netease.Like }()
+	defer func() { likeSong = qqmusic.Like }()
 	a := newTestApp()
 	a.settings = defaultSettings()
-	a.profile = &netease.Profile{UserID: 1}
-	tr := netease.Track{ID: 7, Name: "宝船", Duration: 200000}
-	a.pl.Cue([]netease.Track{tr})
+	a.profile = &qqmusic.Profile{UserID: 1}
+	tr := qqmusic.Track{ID: 7, Name: "宝船", Duration: 200000}
+	a.pl.Cue([]qqmusic.Track{tr})
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.SetDark(true)
 	tt.Advance(time.Second)
@@ -219,8 +219,8 @@ func stageFrames(t *testing.T, style, path string) {
 	a := newTestApp()
 	a.settings = defaultSettings()
 	a.settings.StageStyle = style
-	tr := netease.Track{ID: 7, Name: "海屿你", Artists: []netease.Artist{{Name: "马也_Crabbit"}}, Duration: 200000}
-	a.pl.Cue([]netease.Track{tr})
+	tr := qqmusic.Track{ID: 7, Name: "海屿你", Artists: []qqmusic.Artist{{Name: "马也_Crabbit"}}, Duration: 200000}
+	a.pl.Cue([]qqmusic.Track{tr})
 	a.pl.SetLyrics(lyrics.Build("[00:13.00]我从不主动示弱\n[00:30.56]曾经的那些发生过的开心和难过",
 		"[00:13.00]I never show weakness first\n[00:30.56]The joy and sorrow that once happened",
 		`[13010,4780](13010,660,0)从(13670,670,0)不(14340,30,0) (14370,480,0)主(14850,610,0)动(15460,30,0) (15490,330,0)示(15820,1070,0)弱
@@ -259,7 +259,7 @@ func TestBackdropFrame(t *testing.T) {
 	if dir == "" {
 		t.Skip()
 	}
-	hits, err := netease.Search("春日影 MyGO", 1)
+	hits, err := qqmusic.Search("春日影 MyGO", 1)
 	if err != nil || len(hits) == 0 {
 		t.Fatal(err)
 	}
@@ -267,21 +267,21 @@ func TestBackdropFrame(t *testing.T) {
 	a := newTestApp()
 	a.settings = defaultSettings()
 	for _, size := range []int{600, 120, 96} {
-		img, err := fetchImage(netease.Sized(tr.Album.PicURL, size))
+		img, err := fetchImage(qqmusic.Sized(tr.Album.PicURL, size))
 		if err != nil {
 			t.Fatal(err)
 		}
 		art := &artwork{bmp: ui.NewBitmap(img), tint: dominantColor(img)}
 		top, foot := backdropColors(art.tint)
 		t.Logf("tint %v, backdrop %v to %v", art.tint, top, foot)
-		a.art.art[netease.Sized(tr.Album.PicURL, size)] = art
+		a.art.art[qqmusic.Sized(tr.Album.PicURL, size)] = art
 		if size == 600 {
 			bd := *art
 			bd.backdrop = ui.NewBitmap(blurImage(img))
-			a.art.art[netease.Sized(tr.Album.PicURL, size)+"#backdrop"] = &bd
+			a.art.art[qqmusic.Sized(tr.Album.PicURL, size)+"#backdrop"] = &bd
 		}
 	}
-	a.pl.Cue([]netease.Track{tr})
+	a.pl.Cue([]qqmusic.Track{tr})
 	a.pl.SetLyrics(lyrics.Build("[00:00.00]作词: 織田あすか\n[00:01.00]作曲: 藤田淳平(Elements Garden)\n[00:02.00]编曲: 藤田淳平(Elements Garden)\n[00:15.00]悴んだ心 ふるえる眼差し\n[00:20.00]世界で 僕は ひとりぼっちだった\n[00:25.00]散ることしか知らない春は\n[00:30.00]毎年 冷たくあしらう",
 		"[00:15.00]内心满是憔悴 眼神颤抖不止\n[00:20.00]我在这世界孤独一人\n[00:25.00]在不断凋零的春季中\n[00:30.00]每年都只感受到冰冷", ""))
 	a.pl.Seek(2500 * time.Millisecond)
@@ -302,7 +302,7 @@ func TestSmokeFrames(t *testing.T) {
 	if dir == "" {
 		t.Skip()
 	}
-	hits, err := netease.Search("春日影 MyGO", 1)
+	hits, err := qqmusic.Search("春日影 MyGO", 1)
 	if err != nil || len(hits) == 0 {
 		t.Fatal(err)
 	}
@@ -310,19 +310,19 @@ func TestSmokeFrames(t *testing.T) {
 	a := newTestApp()
 	a.settings = defaultSettings()
 	for _, size := range []int{600, 120, 96} {
-		img, err := fetchImage(netease.Sized(tr.Album.PicURL, size))
+		img, err := fetchImage(qqmusic.Sized(tr.Album.PicURL, size))
 		if err != nil {
 			t.Fatal(err)
 		}
 		art := &artwork{bmp: ui.NewBitmap(img), tint: dominantColor(img)}
-		a.art.art[netease.Sized(tr.Album.PicURL, size)] = art
+		a.art.art[qqmusic.Sized(tr.Album.PicURL, size)] = art
 		if size == 600 {
 			bd := *art
 			bd.backdrop = ui.NewBitmap(blurImage(img))
-			a.art.art[netease.Sized(tr.Album.PicURL, size)+"#backdrop"] = &bd
+			a.art.art[qqmusic.Sized(tr.Album.PicURL, size)+"#backdrop"] = &bd
 		}
 	}
-	a.pl.Cue([]netease.Track{tr})
+	a.pl.Cue([]qqmusic.Track{tr})
 	a.pl.SetLyrics(nil)
 	a.pl.Hold(75 * time.Second)
 	a.settings.Smoke = true
@@ -366,8 +366,8 @@ func TestPlayerBarWidths(t *testing.T) {
 	}
 	a := newTestApp()
 	a.settings = defaultSettings()
-	tr := netease.Track{ID: 7, Name: "那些你很冒险的梦 (Live)", Artists: []netease.Artist{{Name: "林俊杰"}, {Name: "JJ Lin"}}, Duration: 199000}
-	a.pl.Cue([]netease.Track{tr})
+	tr := qqmusic.Track{ID: 7, Name: "那些你很冒险的梦 (Live)", Artists: []qqmusic.Artist{{Name: "林俊杰"}, {Name: "JJ Lin"}}, Duration: 199000}
+	a.pl.Cue([]qqmusic.Track{tr})
 	a.pl.Seek(25 * time.Second)
 	widths := []int{880, 1000, 1180}
 	var strip *image.RGBA
@@ -399,8 +399,8 @@ func TestVolumePopoverFrames(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		a := newTestApp()
 		a.settings = defaultSettings()
-		tr := netease.Track{ID: 7, Name: "春日影", Artists: []netease.Artist{{Name: "MyGO!!!!!"}}, Duration: 199000}
-		a.pl.Cue([]netease.Track{tr})
+		tr := qqmusic.Track{ID: 7, Name: "春日影", Artists: []qqmusic.Artist{{Name: "MyGO!!!!!"}}, Duration: 199000}
+		a.pl.Cue([]qqmusic.Track{tr})
 		a.volume = 0.63
 		tt := ui.NewTester(a.view, 1000, 600)
 		tt.SetDark(dark)
@@ -467,10 +467,10 @@ func TestSegmentedFrames(t *testing.T) {
 // ⌘D likes the song playing, and again unlikes it, saying so in a toast.
 func TestLikeCurrent(t *testing.T) {
 	likeSong = func(int64, bool) error { return nil }
-	defer func() { likeSong = netease.Like }()
+	defer func() { likeSong = qqmusic.Like }()
 	a := newTestApp()
-	a.pl.Cue([]netease.Track{{ID: 7, Name: "宝船"}})
-	a.profile = &netease.Profile{UserID: 1}
+	a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "宝船"}})
+	a.profile = &qqmusic.Profile{UserID: 1}
 	a.likeCurrent()
 	if !a.liked[7] || a.toast != "已添加到我喜欢的音乐" {
 		t.Fatalf("liked %v, toast %q", a.liked[7], a.toast)
@@ -481,8 +481,8 @@ func TestLikeCurrent(t *testing.T) {
 	}
 	// An episode playing: the episode, not its audio.
 	likeProgram = func(int64, bool) error { return nil }
-	defer func() { likeProgram = netease.LikeProgram }()
-	a.pl.Cue([]netease.Track{{ID: 13, Name: "第一期", ProgramID: 3}})
+	defer func() { likeProgram = qqmusic.LikeProgram }()
+	a.pl.Cue([]qqmusic.Track{{ID: 13, Name: "第一期", ProgramID: 3}})
 	a.likeCurrent()
 	if !a.likedPrograms[3] || a.liked[13] {
 		t.Fatalf("episode liked %v, its audio %v", a.likedPrograms[3], a.liked[13])

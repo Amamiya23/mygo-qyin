@@ -29,7 +29,7 @@ func (a *app) openSettings() {
 		// The app's menu has nothing for this window: on Linux and
 		// Windows it stays out of sight until Alt shows it.
 		AutoHideMenuBar: true,
-		BackgroundColor: "light-dark(#f4f4f6, #1c1c1f)",
+		BackgroundColor: "light-dark(#f7f9f8, #171918)",
 		Content:         ui.View(a.settingsView),
 	})
 	a.settingsWin.OnClosed(func() {
@@ -123,9 +123,9 @@ func (a *app) settingsView(c *ui.Context) {
 		}
 
 		group("播放", func() {
-			row("音质", "无损与 Hi-Res 需要黑胶 VIP，没有时播放所能播放的最高音质；下一首歌曲开始生效", func() {
+			row("音质", "按 QQ 音乐账号权限播放 MP3 或 FLAC，下一首生效", func() {
 				labels := make([]string, len(qualityLevels))
-				chosen := qualityLevels[2].label
+				chosen := qualityLevels[1].label
 				for i, q := range qualityLevels {
 					labels[i] = q.label
 					if q.level == s.Quality {
@@ -143,12 +143,6 @@ func (a *app) settingsView(c *ui.Context) {
 			})
 			row("间奏时显示热评", "前奏、间奏与尾奏时，歌词处换成这首歌的热门评论", func() {
 				if ui.Switch(c.Key("hot-comments"), &s.HotComments).Label("间奏时显示热评").Changed() {
-					a.changed()
-				}
-			})
-			row("音量均衡", "按网易云音乐测得的响度调整每首歌的音量，让歌曲听起来一样响", func() {
-				if ui.Switch(c.Key("normalize"), &s.Normalize).Label("音量均衡").Changed() {
-					a.pl.SetVolume(a.volume)
 					a.changed()
 				}
 			})
@@ -230,7 +224,7 @@ func (a *app) settingsView(c *ui.Context) {
 				a.avatar(c, prof.AvatarURL, 36, p.press)
 				ui.Column(c).Grow(1).Gap(2).Children(func() {
 					ui.Text(c, prof.Nickname).FontSize(13.5).FontWeight(600)
-					ui.Text(c, "已登录网易云音乐").FontSize(12).TextColor(p.muted)
+					ui.Text(c, "已登录 QQ 音乐").FontSize(12).TextColor(p.muted)
 				})
 				if ui.Button(c.Key("logout"), "退出登录").Clicked() {
 					a.signOut()

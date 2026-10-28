@@ -7,11 +7,11 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/lyrics"
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/lyrics"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
-var white = ui.RGB(255, 255, 255)
+var white = radixPaper
 
 var npSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 450 * time.Millisecond, Bounce: 0.08}}
 
@@ -74,7 +74,7 @@ func (a *app) nowPlayingView(c *ui.Context) {
 	pl := a.pl
 	tr := pl.Current()
 	w, h := c.Size()
-	art := a.art.get(netease.Sized(tr.Album.PicURL, 600), true)
+	art := a.art.get(qqmusic.Sized(tr.Album.PicURL, 600), true)
 	// The colors stay the last song's while its cover loads, rather than
 	// going gray between the two.
 	shown := art
@@ -82,14 +82,14 @@ func (a *app) nowPlayingView(c *ui.Context) {
 		shown = a.npArt
 	}
 	a.npArt = shown
-	tint := ui.RGB(120, 120, 130)
+	tint := radixSage(true, 9)
 	if shown != nil && !shown.failed {
 		tint = shown.tint
 	}
 	accent := tint.Mix(white, 0.45)
 
 	root := ui.Box(c.Key("now-playing")).Absolute().Top(0).Left(0).Right(0).Bottom(0).
-		Background(ui.Hex("#0b0b0d")).TextColor(white)
+		Background(radixSage(true, 1)).TextColor(white)
 	// The pointer is over the view whenever it is in the window.
 	pointerIn := root.Hovered()
 	root.Children(func() {
@@ -100,7 +100,7 @@ func (a *app) nowPlayingView(c *ui.Context) {
 	})
 }
 
-func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32, pointerIn bool) {
+func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, accent ui.Color, w, h float32, pointerIn bool) {
 	pl := a.pl
 	a.commentsFor(tr)
 	// An episode has what it is about and its captions in place of lyrics;
@@ -328,21 +328,21 @@ func (a *app) radioChip(c *ui.Context, name string) {
 }
 
 // qualityBadge marks a lossless stream, as it plays.
-func qualityBadge(c *ui.Context, st *netease.Stream) {
-	if st == nil || !netease.Lossless(st.Level) {
+func qualityBadge(c *ui.Context, st *qqmusic.Stream) {
+	if st == nil || !qqmusic.Lossless(st.Level) {
 		return
 	}
 	label := "无损"
 	if st.Level == "hires" {
 		label = "Hi-Res"
 	}
-	ui.Text(c, label).FontSize(9.5).FontWeight(800).LetterSpacing(0.6).TextColor(ui.Hex("#f5d58a")).
-		Padding(1, 6).Radius(4).Border(1, ui.Hex("#f5d58a").Alpha(0.55))
+	ui.Text(c, label).FontSize(9.5).FontWeight(800).LetterSpacing(0.6).TextColor(radixAmber(true, 11)).
+		Padding(1, 6).Radius(4).Border(1, radixAmber(true, 8))
 }
 
 // stageBar is the slim bar along the foot of the stage: what plays, where
 // it is, and the controls.
-func (a *app) stageBar(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color) {
+func (a *app) stageBar(c *ui.Context, tr *qqmusic.Track, art *artwork, accent ui.Color) {
 	pl := a.pl
 	ui.Column(c).Padding(0, 48, 28, 48).Gap(10).Children(func() {
 		a.scrubber(c.Key("stage-scrub"), &a.npScrub, white.Alpha(0.18), white.Alpha(0.9), 14, accent.Mix(white, 0.35))
@@ -395,7 +395,7 @@ func (a *app) paneTab(c *ui.Context, i int, label string) {
 	}
 }
 
-func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
+func (a *app) lyricsPane(c *ui.Context, tr *qqmusic.Track, h float32) {
 	pl := a.pl
 	lines, loaded := pl.Lyrics()
 	if len(lines) == 0 {

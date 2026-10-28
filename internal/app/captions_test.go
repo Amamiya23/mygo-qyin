@@ -8,8 +8,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
-	"netease-music-mygo/internal/speech"
+	"qqmusic-mygo/internal/qqmusic"
+	"qqmusic-mygo/internal/speech"
 )
 
 const sec = time.Second
@@ -86,7 +86,7 @@ func captionsTestApp(t *testing.T, installed bool) *app {
 	modelInstalled = func(string) bool { return installed }
 	a := newTestApp()
 	a.settings = defaultSettings()
-	a.pl.Cue([]netease.Track{{ID: 7, Name: "510 泰国侨批沉浮录", ProgramID: 42, Duration: 600000, Description: "下南洋"}})
+	a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "510 泰国侨批沉浮录", ProgramID: 42, Duration: 600000, Description: "下南洋"}})
 	a.nowPlaying = true
 	return a
 }

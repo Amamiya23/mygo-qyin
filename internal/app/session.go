@@ -8,7 +8,8 @@ import (
 
 	"github.com/egoist/mygo"
 
-	"netease-music-mygo/internal/player"
+	"qqmusic-mygo/internal/player"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // Where playback was left is kept in session.json in the user data
@@ -88,6 +89,7 @@ func (a *app) restoreSession() {
 		return
 	}
 	a.savedSession = string(b)
+	qqmusic.RememberTracks(s.Queue)
 	a.pl.Restore(s)
 	if s.Radio != "" && a.pl.Current() != nil {
 		a.pl.AttachRadio(s.Radio, a.radioFeed(s.Radio))

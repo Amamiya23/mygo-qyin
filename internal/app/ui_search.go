@@ -6,33 +6,31 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // searchResults and searchSuggest search NetEase; tests replace them.
 var (
-	searchResults = netease.SearchPage
-	searchSuggest = netease.SearchSuggest
+	searchResults = qqmusic.SearchPage
+	searchSuggest = qqmusic.SearchSuggest
 )
 
 // searchLimit is how many results load at a time.
-const searchLimit = 60
+const searchLimit = 20
 
 // searchKinds are the kinds of search, as their tabs show them.
 var searchKinds = []struct {
-	kind        netease.SearchType
+	kind        qqmusic.SearchType
 	label, unit string
 }{
-	{netease.SearchSongs, "单曲", "首单曲"},
-	{netease.SearchArtists, "歌手", "位歌手"},
-	{netease.SearchAlbums, "专辑", "张专辑"},
-	{netease.SearchUsers, "用户", "位用户"},
-	{netease.SearchPodcasts, "播客", "个播客"},
+	{qqmusic.SearchSongs, "单曲", "首单曲"},
+	{qqmusic.SearchArtists, "歌手", "位歌手"},
+	{qqmusic.SearchAlbums, "专辑", "张专辑"},
 }
 
 // searchData is what a search found, as far as its pages have loaded.
 type searchData struct {
-	res  netease.SearchResult
+	res  qqmusic.SearchResult
 	page paged
 }
 
@@ -44,7 +42,7 @@ func (a *app) search(q string) {
 	}
 	kind := a.searched.kind
 	if kind == 0 {
-		kind = netease.SearchSongs
+		kind = qqmusic.SearchSongs
 	}
 	a.searchFor(route{page: pageSearch, query: q, kind: kind})
 }
@@ -120,7 +118,7 @@ func (a *app) searchPage(c *ui.Context) {
 	d := a.searches[r]
 	header := func(c *ui.Context) { a.searchHeader(c, d) }
 	more := func() { a.moreResults(r, d) }
-	if r.kind == netease.SearchSongs {
+	if r.kind == qqmusic.SearchSongs {
 		if !d.page.loaded && d.page.loading {
 			a.trackSkeleton(c, a.pageShimmer(c), true, header)
 			return
@@ -135,19 +133,19 @@ func (a *app) searchPage(c *ui.Context) {
 		header(c)
 		res := &d.res
 		switch r.kind {
-		case netease.SearchArtists:
+		case qqmusic.SearchArtists:
 			ui.Grid(c).Columns(a.columns(c, 132)).GapX(20).GapY(28).Children(func() {
 				for i := range res.Artists {
 					a.artistCard(c.Key(res.Artists[i].ID), &res.Artists[i])
 				}
 			})
-		case netease.SearchAlbums:
+		case qqmusic.SearchAlbums:
 			a.albumGrid(c, res.Albums)
-		case netease.SearchUsers:
+		case qqmusic.SearchUsers:
 			for i := range res.Users {
 				a.userRow(c.Key(res.Users[i].UserID), &res.Users[i])
 			}
-		case netease.SearchPodcasts:
+		case qqmusic.SearchPodcasts:
 			for i := range res.Podcasts {
 				a.podcastRow(c.Key(res.Podcasts[i].ID), &res.Podcasts[i])
 			}
@@ -195,7 +193,7 @@ func (a *app) searchHeader(c *ui.Context, d *searchData) {
 }
 
 // artistCard is an artist's round photo over their name, opening their page.
-func (a *app) artistCard(c *ui.Context, ar *netease.ArtistProfile) {
+func (a *app) artistCard(c *ui.Context, ar *qqmusic.ArtistProfile) {
 	p := a.pal
 	card := ui.ButtonBase(c).Column().Gap(10).AlignItems(ui.Stretch).FocusRing(false).Label(ar.Name)
 	hovered := card.Hovered()

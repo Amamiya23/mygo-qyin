@@ -12,13 +12,13 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // searchRequest is a search asked of NetEase.
 type searchRequest struct {
 	query  string
-	kind   netease.SearchType
+	kind   qqmusic.SearchType
 	offset int
 }
 
@@ -26,11 +26,11 @@ type searchRequest struct {
 // asked, and finds nothing, which lands nowhere without a window.
 func fakeSearch(t *testing.T) chan searchRequest {
 	asked := make(chan searchRequest, 8)
-	searchResults = func(q string, kind netease.SearchType, _, offset int) (netease.SearchResult, error) {
+	searchResults = func(q string, kind qqmusic.SearchType, _, offset int) (qqmusic.SearchResult, error) {
 		asked <- searchRequest{q, kind, offset}
-		return netease.SearchResult{}, errors.New("offline")
+		return qqmusic.SearchResult{}, errors.New("offline")
 	}
-	t.Cleanup(func() { searchResults = netease.SearchPage })
+	t.Cleanup(func() { searchResults = qqmusic.SearchPage })
 	return asked
 }
 
@@ -59,7 +59,7 @@ func TestSearchKinds(t *testing.T) {
 	tt.Type("春日影")
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if got := wait(t, asked, "the search"); got != (searchRequest{"春日影", netease.SearchSongs, 0}) {
+	if got := wait(t, asked, "the search"); got != (searchRequest{"春日影", qqmusic.SearchSongs, 0}) {
 		t.Fatalf("searched %+v", got)
 	}
 
@@ -67,11 +67,11 @@ func TestSearchKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if got := wait(t, asked, "the artists"); got != (searchRequest{"春日影", netease.SearchArtists, 0}) {
+	if got := wait(t, asked, "the artists"); got != (searchRequest{"春日影", qqmusic.SearchArtists, 0}) {
 		t.Fatalf("searched %+v", got)
 	}
 	a.search("迷星叫")
-	if got := wait(t, asked, "the next search"); got.kind != netease.SearchArtists {
+	if got := wait(t, asked, "the next search"); got.kind != qqmusic.SearchArtists {
 		t.Errorf("the next search looked for kind %d", got.kind)
 	}
 	if !slices.Equal(a.settings.SearchHistory, []string{"迷星叫", "春日影"}) {
@@ -90,14 +90,14 @@ func TestSearchKinds(t *testing.T) {
 func TestSearchKindFromSongs(t *testing.T) {
 	asked := fakeSearch(t)
 	a := catalogApp()
-	a.open(route{page: pageSearch, query: "MyGO", kind: netease.SearchSongs})
+	a.open(route{page: pageSearch, query: "MyGO", kind: qqmusic.SearchSongs})
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
 	if err := tt.Click("歌手"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.route.kind != netease.SearchArtists {
+	if a.route.kind != qqmusic.SearchArtists {
 		t.Fatalf("on %+v", a.route)
 	}
 	if len(asked) > 0 {
@@ -111,16 +111,16 @@ func TestSearchLoadsMore(t *testing.T) {
 	asked := fakeSearch(t)
 	a := newTestApp()
 	a.settings = defaultSettings()
-	r := route{page: pageSearch, query: "春日影", kind: netease.SearchUsers}
+	r := route{page: pageSearch, query: "春日影", kind: qqmusic.SearchUsers}
 	a.searches[r] = &searchData{
-		res:  netease.SearchResult{Users: []netease.User{{UserID: 1, Nickname: "甲"}, {UserID: 2, Nickname: "乙"}}, Total: 5},
+		res:  qqmusic.SearchResult{Users: []qqmusic.User{{UserID: 1, Nickname: "甲"}, {UserID: 2, Nickname: "乙"}}, Total: 5},
 		page: paged{loaded: true, more: true},
 	}
 	a.open(r)
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
 	tt.Frame()
-	if got := wait(t, asked, "the next page"); got != (searchRequest{"春日影", netease.SearchUsers, 2}) {
+	if got := wait(t, asked, "the next page"); got != (searchRequest{"春日影", qqmusic.SearchUsers, 2}) {
 		t.Fatalf("asked for %+v", got)
 	}
 
@@ -165,8 +165,8 @@ func TestSearchHistoryChoice(t *testing.T) {
 // its page, remembering the query.
 func TestSuggestionOpensPage(t *testing.T) {
 	asked := make(chan string, 4)
-	searchSuggest = func(q string) (netease.Suggestions, error) { asked <- q; return netease.Suggestions{}, nil }
-	defer func() { searchSuggest = netease.SearchSuggest }()
+	searchSuggest = func(q string) (qqmusic.Suggestions, error) { asked <- q; return qqmusic.Suggestions{}, nil }
+	defer func() { searchSuggest = qqmusic.SearchSuggest }()
 	a := newTestApp()
 	a.settings = defaultSettings()
 	tt := ui.NewTester(a.view, 1200, 800)
@@ -179,8 +179,8 @@ func TestSuggestionOpensPage(t *testing.T) {
 	}
 	// As they land, which post drops without a window.
 	a.suggestions.loading = false
-	a.suggestions.items = suggestionList(netease.Suggestions{
-		Albums: []netease.AlbumProfile{{Album: netease.Album{ID: 8, Name: "迷跡波"}, Artists: []netease.Artist{{Name: "MyGO!!!!!"}}}},
+	a.suggestions.items = suggestionList(qqmusic.Suggestions{
+		Albums: []qqmusic.AlbumProfile{{Album: qqmusic.Album{ID: 8, Name: "迷跡波"}, Artists: []qqmusic.Artist{{Name: "MyGO!!!!!"}}}},
 		Order:  []string{"albums"},
 	})
 	tt.Frame()
@@ -193,25 +193,20 @@ func TestSuggestionOpensPage(t *testing.T) {
 	}
 }
 
-// An artist's 专辑 and 动态 load their first page as they are chosen, the
-// events from the artist's own account; an album opens its page.
-func TestArtistAlbumsAndEvents(t *testing.T) {
-	albums, events := make(chan int, 4), make(chan [2]int64, 4)
-	albumsBy = func(id int64, _, offset int) ([]netease.AlbumProfile, bool, error) {
+// Choosing an artist's albums loads them, and clicking an album opens it.
+func TestArtistAlbums(t *testing.T) {
+	albums := make(chan int, 4)
+	albumsBy = func(id int64, _, offset int) ([]qqmusic.AlbumProfile, bool, error) {
 		albums <- offset
 		return nil, false, errors.New("offline")
 	}
-	accountEvents = func(uid int64, _ int, before int64) ([]netease.Event, int64, bool, error) {
-		events <- [2]int64{uid, before}
-		return nil, 0, false, errors.New("offline")
-	}
-	albumDetail = func(int64) (*netease.AlbumProfile, error) { return nil, errors.New("offline") }
+	albumDetail = func(int64) (*qqmusic.AlbumProfile, error) { return nil, errors.New("offline") }
 	defer func() {
-		albumsBy, accountEvents, albumDetail = netease.ArtistAlbums, netease.Events, netease.AlbumDetail
+		albumsBy, accountEvents, albumDetail = qqmusic.ArtistAlbums, qqmusic.Events, qqmusic.AlbumDetail
 	}()
 	a := newTestApp()
 	a.settings = defaultSettings()
-	d := &artistData{profile: &netease.ArtistProfile{Artist: netease.Artist{ID: 12, Name: "乙"}, AccountID: 99}}
+	d := &artistData{profile: &qqmusic.ArtistProfile{Artist: qqmusic.Artist{ID: 12, Name: "乙"}, AccountID: 99}}
 	a.artists[12] = d
 	a.open(route{page: pageArtist, id: 12})
 	tt := ui.NewTester(a.view, 1200, 800)
@@ -224,7 +219,7 @@ func TestArtistAlbumsAndEvents(t *testing.T) {
 	if offset := wait(t, albums, "the albums"); offset != 0 {
 		t.Fatalf("albums from %d", offset)
 	}
-	d.albums = []netease.AlbumProfile{{Album: netease.Album{ID: 8, Name: "迷跡波"}}}
+	d.albums = []qqmusic.AlbumProfile{{Album: qqmusic.Album{ID: 8, Name: "迷跡波"}}}
 	d.albumsPage = paged{loaded: true}
 	tt.Frame()
 	if err := tt.Click("迷跡波"); err != nil {
@@ -234,43 +229,8 @@ func TestArtistAlbumsAndEvents(t *testing.T) {
 		t.Fatalf("the album opened %+v", a.route)
 	}
 
-	tt.Key(0, ui.KeyBack)
-	tt.Frame()
-	if err := tt.Click("动态"); err != nil {
-		t.Fatal(err)
-	}
-	tt.Frame()
-	if got := wait(t, events, "the events"); got != [2]int64{99, -1} {
-		t.Fatalf("events of %d before %d", got[0], got[1])
-	}
 	if len(albums) > 0 {
 		t.Error("the albums were asked for again")
-	}
-}
-
-// 关注 follows an artist at once, and asks NetEase to; a second click
-// waits for the first.
-func TestFollowArtist(t *testing.T) {
-	asked := make(chan bool, 4)
-	followArtist = func(id int64, follow bool) error { asked <- follow; return nil }
-	defer func() { followArtist = netease.FollowArtist }()
-	a := newTestApp()
-	a.settings = defaultSettings()
-	a.profile = &netease.Profile{UserID: 1}
-	a.artists[12] = &artistData{profile: &netease.ArtistProfile{Artist: netease.Artist{ID: 12, Name: "乙"}}}
-	a.open(route{page: pageArtist, id: 12})
-	tt := ui.NewTester(a.view, 1200, 800)
-	tt.Frame()
-	if err := tt.Click("关注"); err != nil {
-		t.Fatal(err)
-	}
-	tt.Frame()
-	if !a.artists[12].profile.Followed || !wait(t, asked, "the follow") {
-		t.Fatal("not followed")
-	}
-	tt.Click("已关注")
-	if len(asked) > 0 || !a.artists[12].profile.Followed {
-		t.Error("unfollowed before the follow landed")
 	}
 }
 
@@ -279,13 +239,13 @@ func TestFollowArtist(t *testing.T) {
 func TestPlayEpisode(t *testing.T) {
 	a := newTestApp()
 	a.settings = defaultSettings()
-	pod := &netease.Podcast{ID: 5, Name: "夜航", DJ: netease.User{UserID: 6, Nickname: "主播"}}
-	ep := func(id, audio int64, name string) netease.Program {
-		p := netease.Program{ID: id, Name: name, Duration: 600000, Description: name + "的简介"}
+	pod := &qqmusic.Podcast{ID: 5, Name: "夜航", DJ: qqmusic.User{UserID: 6, Nickname: "主播"}}
+	ep := func(id, audio int64, name string) qqmusic.Program {
+		p := qqmusic.Program{ID: id, Name: name, Duration: 600000, Description: name + "的简介"}
 		p.MainSong.ID = audio
 		return p
 	}
-	a.podcasts[5] = &podcastData{podcast: pod, programs: []netease.Program{ep(1, 11, "第三期"), ep(2, 0, "第二期"), ep(3, 13, "第一期")}, page: paged{loaded: true}}
+	a.podcasts[5] = &podcastData{podcast: pod, programs: []qqmusic.Program{ep(1, 11, "第三期"), ep(2, 0, "第二期"), ep(3, 13, "第一期")}, page: paged{loaded: true}}
 	a.open(route{page: pagePodcast, id: 5})
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
@@ -334,32 +294,6 @@ func TestEpisodeOpensPodcast(t *testing.T) {
 	}
 }
 
-// The sidebar's 播客 opens the podcasts tab, which asks for the first page
-// of the most popular podcasts.
-func TestPodcastsTabLoads(t *testing.T) {
-	asked := make(chan int, 4)
-	hotPodcasts = func(_, offset int) ([]netease.Podcast, bool, error) {
-		asked <- offset
-		return nil, false, errors.New("offline")
-	}
-	recommendedPodcasts = func() ([]netease.Podcast, error) { return nil, errors.New("offline") }
-	defer func() { hotPodcasts, recommendedPodcasts = netease.HotPodcasts, netease.RecommendedPodcasts }()
-	a := newTestApp()
-	a.settings = defaultSettings()
-	tt := ui.NewTester(a.view, 1200, 800)
-	tt.Frame()
-	if err := tt.Click("播客"); err != nil {
-		t.Fatal(err)
-	}
-	tt.Frame()
-	if a.route.page != pagePodcasts {
-		t.Fatalf("opened %+v", a.route)
-	}
-	if got := wait(t, asked, "the popular podcasts"); got != 0 {
-		t.Fatalf("asked from %d", got)
-	}
-}
-
 // A podcast's card in the tab opens its page; the button on its cover plays
 // its newest episode instead, and leaves the tab open.
 func TestPodcastCard(t *testing.T) {
@@ -393,10 +327,10 @@ func TestPodcastCard(t *testing.T) {
 // starts past all of it. NetEase's pages overlap: the tab listed podcasts
 // twice, two cards under one key sharing their state.
 func TestHotPodcastsOverlap(t *testing.T) {
-	pods := func(ids ...int64) []netease.Podcast {
-		var out []netease.Podcast
+	pods := func(ids ...int64) []qqmusic.Podcast {
+		var out []qqmusic.Podcast
 		for _, id := range ids {
-			out = append(out, netease.Podcast{ID: id})
+			out = append(out, qqmusic.Podcast{ID: id})
 		}
 		return out
 	}
@@ -415,12 +349,12 @@ func TestHotPodcastsOverlap(t *testing.T) {
 // A song row's album opens its page, not playing the song as the row's
 // click would.
 func TestAlbumLinkInRow(t *testing.T) {
-	albumDetail = func(int64) (*netease.AlbumProfile, error) { return nil, errors.New("offline") }
-	defer func() { albumDetail = netease.AlbumDetail }()
+	albumDetail = func(int64) (*qqmusic.AlbumProfile, error) { return nil, errors.New("offline") }
+	defer func() { albumDetail = qqmusic.AlbumDetail }()
 	a := newTestApp()
 	a.settings = defaultSettings()
-	song := netease.Track{ID: 2, Name: "起风了", Artists: []netease.Artist{{ID: 13, Name: "丙"}}, Album: netease.Album{ID: 8, Name: "迷跡波"}, Duration: 200000}
-	a.artists[13] = &artistData{profile: &netease.ArtistProfile{Artist: netease.Artist{ID: 13, Name: "丙"}, Songs: []netease.Track{song}}}
+	song := qqmusic.Track{ID: 2, Name: "起风了", Artists: []qqmusic.Artist{{ID: 13, Name: "丙"}}, Album: qqmusic.Album{ID: 8, Name: "迷跡波"}, Duration: 200000}
+	a.artists[13] = &artistData{profile: &qqmusic.ArtistProfile{Artist: qqmusic.Artist{ID: 13, Name: "丙"}, Songs: []qqmusic.Track{song}}}
 	a.open(route{page: pageArtist, id: 13})
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
@@ -442,52 +376,52 @@ func catalogApp() *app {
 	a := newTestApp()
 	a.settings = defaultSettings()
 	day := time.Date(2026, 10, 1, 20, 0, 0, 0, time.Local).UnixMilli()
-	band := netease.Artist{ID: 7, Name: "MyGO!!!!!"}
-	al := netease.Album{ID: 8, Name: "迷跡波"}
-	var songs []netease.Track
+	band := qqmusic.Artist{ID: 7, Name: "MyGO!!!!!"}
+	al := qqmusic.Album{ID: 8, Name: "迷跡波"}
+	var songs []qqmusic.Track
 	for i, name := range []string{"春日影", "迷星叫", "壱雫空", "碧天伴走", "音一会", "栞"} {
-		songs = append(songs, netease.Track{ID: int64(i + 1), Name: name, Artists: []netease.Artist{band}, Album: al, Duration: int64(210000 + 16000*i)})
+		songs = append(songs, qqmusic.Track{ID: int64(i + 1), Name: name, Artists: []qqmusic.Artist{band}, Album: al, Duration: int64(210000 + 16000*i)})
 	}
-	var albums []netease.AlbumProfile
+	var albums []qqmusic.AlbumProfile
 	for i, name := range []string{"迷跡波", "跡暖空", "壱雫空", "音一会", "迷星叫", "焚音打"} {
-		albums = append(albums, netease.AlbumProfile{Album: netease.Album{ID: int64(20 + i), Name: name}, Artists: []netease.Artist{band}, PublishTime: day})
+		albums = append(albums, qqmusic.AlbumProfile{Album: qqmusic.Album{ID: int64(20 + i), Name: name}, Artists: []qqmusic.Artist{band}, PublishTime: day})
 	}
 	a.artists[7] = &artistData{
-		profile: &netease.ArtistProfile{Artist: band, Alias: []string{"マイゴ"}, MusicSize: 38, AlbumSize: 9, BriefDesc: "迷いながらでも、前へ。", AccountID: 70, Songs: songs},
+		profile: &qqmusic.ArtistProfile{Artist: band, Alias: []string{"マイゴ"}, MusicSize: 38, AlbumSize: 9, BriefDesc: "迷いながらでも、前へ。", AccountID: 70, Songs: songs},
 		albums:  albums, albumsPage: paged{loaded: true},
-		events: []netease.Event{
-			{ID: 1, Time: day, User: netease.User{Nickname: "MyGO!!!!!"}, Content: netease.EventContent{Msg: "新专辑《迷跡波》上线了！", Album: &albums[0]}},
-			{ID: 2, Time: day - 86400000, User: netease.User{Nickname: "MyGO!!!!!"}, Content: netease.EventContent{Msg: "谢谢大家来看演出", Forwarded: "听歌的人：现场太好了"}},
+		events: []qqmusic.Event{
+			{ID: 1, Time: day, User: qqmusic.User{Nickname: "MyGO!!!!!"}, Content: qqmusic.EventContent{Msg: "新专辑《迷跡波》上线了！", Album: &albums[0]}},
+			{ID: 2, Time: day - 86400000, User: qqmusic.User{Nickname: "MyGO!!!!!"}, Content: qqmusic.EventContent{Msg: "谢谢大家来看演出", Forwarded: "听歌的人：现场太好了"}},
 		},
 		eventsPage: paged{loaded: true},
 	}
-	a.albums[8] = &albumData{album: &netease.AlbumProfile{Album: al, Artists: []netease.Artist{band}, PublishTime: day, Description: "MyGO!!!!! 的第一张专辑。", Songs: songs}}
-	user := netease.User{UserID: 9, Nickname: "听歌的人", Signature: "在音乐里，寻找同路的人。", Follows: 12, Followeds: 24}
-	a.users[9] = &userData{user: &user, playlists: []netease.Playlist{{ID: 30, Name: "通勤路上", TrackCount: 40}, {ID: 31, Name: "睡前", TrackCount: 12}}}
-	pod := &netease.Podcast{ID: 5, Name: "夜航电台", Category: "情感", DJ: user, ProgramCount: 120, SubCount: 34000, Description: "每晚陪你说说话。"}
-	var programs []netease.Program
+	a.albums[8] = &albumData{album: &qqmusic.AlbumProfile{Album: al, Artists: []qqmusic.Artist{band}, PublishTime: day, Description: "MyGO!!!!! 的第一张专辑。", Songs: songs}}
+	user := qqmusic.User{UserID: 9, Nickname: "听歌的人", Signature: "在音乐里，寻找同路的人。", Follows: 12, Followeds: 24}
+	a.users[9] = &userData{user: &user, playlists: []qqmusic.Playlist{{ID: 30, Name: "通勤路上", TrackCount: 40}, {ID: 31, Name: "睡前", TrackCount: 12}}}
+	pod := &qqmusic.Podcast{ID: 5, Name: "夜航电台", Category: "情感", DJ: user, ProgramCount: 120, SubCount: 34000, Description: "每晚陪你说说话。"}
+	var programs []qqmusic.Program
 	for i := range 4 {
-		p := netease.Program{ID: int64(40 + i), Name: fmt.Sprintf("第 %d 期：晚安", 120-i), Duration: 1800000, CreateTime: day - int64(i)*7*86400000}
+		p := qqmusic.Program{ID: int64(40 + i), Name: fmt.Sprintf("第 %d 期：晚安", 120-i), Duration: 1800000, CreateTime: day - int64(i)*7*86400000}
 		p.MainSong.ID = int64(50 + i)
 		programs = append(programs, p)
 	}
 	a.podcasts[5] = &podcastData{podcast: pod, programs: programs, page: paged{loaded: true}}
-	var hot []netease.Podcast
+	var hot []qqmusic.Podcast
 	for i, name := range []string{"深夜书店", "城市漫游", "慢慢说", "周末早餐", "通勤十分钟", "老唱片"} {
-		hot = append(hot, netease.Podcast{ID: int64(60 + i), Name: name, DJ: netease.User{Nickname: "主播"}, RcmdText: "陪你度过每个夜晚", PlayCount: float64(1e6 * (i + 1))})
+		hot = append(hot, qqmusic.Podcast{ID: int64(60 + i), Name: name, DJ: qqmusic.User{Nickname: "主播"}, RcmdText: "陪你度过每个夜晚", PlayCount: float64(1e6 * (i + 1))})
 	}
 	subbed := *pod
 	subbed.LastProgram = programs[0].Name
-	a.podcastTab = &podcastTab{subs: []netease.Podcast{subbed}, picks: hot[:3], hot: hot, hotPage: paged{loaded: true}}
+	a.podcastTab = &podcastTab{subs: []qqmusic.Podcast{subbed}, picks: hot[:3], hot: hot, hotPage: paged{loaded: true}}
 	for _, res := range []struct {
-		kind netease.SearchType
-		res  netease.SearchResult
+		kind qqmusic.SearchType
+		res  qqmusic.SearchResult
 	}{
-		{netease.SearchSongs, netease.SearchResult{Songs: songs, Total: 38}},
-		{netease.SearchArtists, netease.SearchResult{Artists: []netease.ArtistProfile{*a.artists[7].profile, {Artist: netease.Artist{ID: 10, Name: "Ave Mujica"}}}, Total: 2}},
-		{netease.SearchAlbums, netease.SearchResult{Albums: albums, Total: 6}},
-		{netease.SearchUsers, netease.SearchResult{Users: []netease.User{user, {UserID: 10, Nickname: "夏日来信"}}, Total: 2}},
-		{netease.SearchPodcasts, netease.SearchResult{Podcasts: []netease.Podcast{*pod}, Total: 1}},
+		{qqmusic.SearchSongs, qqmusic.SearchResult{Songs: songs, Total: 38}},
+		{qqmusic.SearchArtists, qqmusic.SearchResult{Artists: []qqmusic.ArtistProfile{*a.artists[7].profile, {Artist: qqmusic.Artist{ID: 10, Name: "Ave Mujica"}}}, Total: 2}},
+		{qqmusic.SearchAlbums, qqmusic.SearchResult{Albums: albums, Total: 6}},
+		{qqmusic.SearchUsers, qqmusic.SearchResult{Users: []qqmusic.User{user, {UserID: 10, Nickname: "夏日来信"}}, Total: 2}},
+		{qqmusic.SearchPodcasts, qqmusic.SearchResult{Podcasts: []qqmusic.Podcast{*pod}, Total: 1}},
 	} {
 		a.searches[route{page: pageSearch, query: "MyGO", kind: res.kind}] = &searchData{res: res.res, page: paged{loaded: true}}
 	}
@@ -500,11 +434,11 @@ var catalogScenes = []struct {
 	r    route
 	tab  int
 }{
-	{"search-songs", route{page: pageSearch, query: "MyGO", kind: netease.SearchSongs}, 0},
-	{"search-artists", route{page: pageSearch, query: "MyGO", kind: netease.SearchArtists}, 0},
-	{"search-albums", route{page: pageSearch, query: "MyGO", kind: netease.SearchAlbums}, 0},
-	{"search-users", route{page: pageSearch, query: "MyGO", kind: netease.SearchUsers}, 0},
-	{"search-podcasts", route{page: pageSearch, query: "MyGO", kind: netease.SearchPodcasts}, 0},
+	{"search-songs", route{page: pageSearch, query: "MyGO", kind: qqmusic.SearchSongs}, 0},
+	{"search-artists", route{page: pageSearch, query: "MyGO", kind: qqmusic.SearchArtists}, 0},
+	{"search-albums", route{page: pageSearch, query: "MyGO", kind: qqmusic.SearchAlbums}, 0},
+	{"search-users", route{page: pageSearch, query: "MyGO", kind: qqmusic.SearchUsers}, 0},
+	{"search-podcasts", route{page: pageSearch, query: "MyGO", kind: qqmusic.SearchPodcasts}, 0},
 	{"artist", route{page: pageArtist, id: 7}, artistHot},
 	{"artist-albums", route{page: pageArtist, id: 7}, artistAlbums},
 	{"artist-events", route{page: pageArtist, id: 7}, artistEvents},

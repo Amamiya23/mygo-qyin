@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // Cache keeps the songs played on disk, so that they play again at once,
@@ -42,23 +42,23 @@ func cacheKey(id int64, level string) string { return fmt.Sprintf("%d-%s", id, l
 // keepable reports whether a song of level and type ext may be kept: they
 // name its file, so only those known, which keep it in the cache's folder.
 func keepable(level, ext string) bool {
-	return slices.Contains(netease.Levels, level) && (ext == "mp3" || ext == "flac")
+	return slices.Contains(qqmusic.Levels, level) && (ext == "mp3" || ext == "flac")
 }
 
 // lookup returns a song kept at level or a better one, open to read, with
 // its stream.
-func (c *Cache) lookup(id int64, level string) (*download, *netease.Stream, bool) {
+func (c *Cache) lookup(id int64, level string) (*download, *qqmusic.Stream, bool) {
 	if c == nil {
 		return nil, nil, false
 	}
-	at := max(slices.Index(netease.Levels, level), 0)
-	for _, lv := range netease.Levels[at:] {
+	at := max(slices.Index(qqmusic.Levels, level), 0)
+	for _, lv := range qqmusic.Levels[at:] {
 		key := cacheKey(id, lv)
 		meta, err := os.ReadFile(filepath.Join(c.dir, key+".json"))
 		if err != nil {
 			continue
 		}
-		var st netease.Stream
+		var st qqmusic.Stream
 		if json.Unmarshal(meta, &st) != nil || !keepable(lv, st.Type) {
 			continue
 		}
@@ -81,7 +81,7 @@ func (c *Cache) lookup(id int64, level string) (*download, *netease.Stream, bool
 
 // download fetches the song of the stream st into a file, to keep once it
 // has all come in; or into memory, if the cache would not keep it.
-func (c *Cache) download(id int64, st *netease.Stream) *download {
+func (c *Cache) download(id int64, st *qqmusic.Stream) *download {
 	part := c.part(st)
 	if part == nil {
 		return startDownload(st.URL, st.Size, nil, nil)
@@ -94,7 +94,7 @@ func (c *Cache) download(id int64, st *netease.Stream) *download {
 // part makes a file for a song of the stream st to come into, or returns
 // nil if the cache would not keep it. Each has a name of its own: the same
 // song played again while it still comes in has another.
-func (c *Cache) part(st *netease.Stream) *os.File {
+func (c *Cache) part(st *qqmusic.Stream) *os.File {
 	if c == nil {
 		return nil
 	}
@@ -118,7 +118,7 @@ func (c *Cache) part(st *netease.Stream) *os.File {
 // keep keeps the song of the stream st, n bytes, from the file part, which
 // is closed, and drops what is over the limit then. It returns where the
 // song is: kept, or still at part.
-func (c *Cache) keep(id int64, st *netease.Stream, part string, n int64) (string, bool) {
+func (c *Cache) keep(id int64, st *qqmusic.Stream, part string, n int64) (string, bool) {
 	c.mu.Lock()
 	limit := c.limit
 	c.mu.Unlock()

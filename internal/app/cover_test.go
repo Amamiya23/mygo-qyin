@@ -6,14 +6,14 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // coverApp is Now Playing showing the second of three songs.
 func coverApp(t *testing.T) (*app, *ui.Tester, ui.Rect) {
 	a := newTestApp()
 	a.settings = defaultSettings()
-	a.pl.Cue([]netease.Track{{ID: 1, Name: "一"}, {ID: 2, Name: "二"}, {ID: 3, Name: "三"}})
+	a.pl.Cue([]qqmusic.Track{{ID: 1, Name: "一"}, {ID: 2, Name: "二"}, {ID: 3, Name: "三"}})
 	a.pl.Next()
 	a.pl.SetLyrics(nil)
 	a.nowPlaying = true

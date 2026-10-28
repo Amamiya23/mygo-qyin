@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"netease-music-mygo/internal/netease"
+	"qqmusic-mygo/internal/qqmusic"
 )
 
 // The page under Now Playing is not built while Now Playing covers it, and
@@ -15,15 +15,15 @@ import (
 func TestCoveredPageKeepsItsPlace(t *testing.T) {
 	a := newTestApp()
 	a.settings = defaultSettings()
-	tracks := make([]netease.Track, 200)
+	tracks := make([]qqmusic.Track, 200)
 	for i := range tracks {
-		tracks[i] = netease.Track{ID: int64(i + 1), Name: fmt.Sprintf("曲目%d", i+1)}
+		tracks[i] = qqmusic.Track{ID: int64(i + 1), Name: fmt.Sprintf("曲目%d", i+1)}
 	}
-	a.playlists[42] = &netease.Playlist{ID: 42, Name: "飙升榜", Tracks: tracks}
+	a.playlists[42] = &qqmusic.Playlist{ID: 42, Name: "飙升榜", Tracks: tracks}
 	for i := range 40 {
-		a.charts = append(a.charts, netease.Playlist{ID: int64(100 + i), Name: fmt.Sprintf("榜单%d", i+1)})
+		a.charts = append(a.charts, qqmusic.Playlist{ID: int64(100 + i), Name: fmt.Sprintf("榜单%d", i+1)})
 	}
-	a.pl.Cue([]netease.Track{{ID: 9999, Name: "一张相片"}})
+	a.pl.Cue([]qqmusic.Track{{ID: 9999, Name: "一张相片"}})
 	tt := ui.NewTester(a.view, 1200, 800)
 
 	for _, r := range []route{{page: pagePlaylist, id: 42}, {page: pageCharts}} {
