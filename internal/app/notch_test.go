@@ -13,7 +13,7 @@ import (
 	"github.com/egoist/mygo/audio"
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/qqmusic"
 )
 
 // The notch, turned off, shows itself as the first song plays, and only

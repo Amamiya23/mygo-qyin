@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/qqmusic"
 )
 
 // A login picks up the last stretch of listening on one device, oldest

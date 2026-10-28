@@ -9,7 +9,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/qqmusic"
 )
 
 // skeletonScenes are the views that load, as they show while they do.

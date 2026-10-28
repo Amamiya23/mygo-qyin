@@ -6,7 +6,7 @@ import (
 
 	"github.com/egoist/mygo"
 
-	"qqmusic-mygo/internal/player"
+	"lilt/internal/player"
 )
 
 // newSongCache returns the cache of songs played, in the app's cache

@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/qqmusic"
 )
 
 // albumDetail loads an album from NetEase; tests replace it.

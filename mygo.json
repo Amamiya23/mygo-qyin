@@ -1,10 +1,10 @@
 {
-  "name": "MyGo QQ 音乐",
+  "name": "Lilt",
   "identifier": "dev.amamiya.qqmusic",
-  "slug": "mygo-qqmusic",
+  "slug": "lilt",
   "version": "0.1.5",
   "out": "build",
-  "resources": ["LICENSE", "THIRD_PARTY_NOTICES.md", "README.md", "TESTING_QQ.md"],
+  "resources": ["LICENSE", "THIRD_PARTY_NOTICES.md", "README.md"],
   "macos": {
     "minimumSystemVersion": "13.0"
   },

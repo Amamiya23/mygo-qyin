@@ -8,7 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/qqmusic"
 )
 
 // fakeUpdater swaps the update plugin's preferences for ones in memory,
@@ -90,7 +90,7 @@ func TestCheckForUpdatesFromSettings(t *testing.T) {
 // name, which Path made empty, but not over data kept there already.
 func TestMoveOldData(t *testing.T) {
 	root := t.TempDir()
-	old, dir := filepath.Join(root, oldName), filepath.Join(root, "MyGo 云音乐")
+	old, dir := filepath.Join(root, oldName), filepath.Join(root, "Lilt")
 	os.MkdirAll(old, 0o700)
 	os.WriteFile(filepath.Join(old, "settings.json"), []byte("old"), 0o600)
 	os.MkdirAll(dir, 0o700)

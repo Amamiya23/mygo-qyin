@@ -25,7 +25,7 @@ function Hero() {
       <div class="grooves" aria-hidden="true" />
       <div class="hero-text">
         <p class="eyebrow">
-          <span class="pill">开源</span>第三方网易云音乐桌面客户端
+          <span class="pill">开源</span>第三方 QQ 音乐桌面客户端
         </p>
         <h1 class="display hero-title">
           <span>原生地，</span>
@@ -44,7 +44,7 @@ function Hero() {
             查看源代码
           </a>
         </div>
-        <p class="fine">免费 · 以 AGPL-3.0 开源 · 扫码登录你的网易云账号</p>
+        <p class="fine">免费 · 以 AGPL-3.0 开源 · 手机 QQ 扫码登录</p>
       </div>
       <div class="hero-window">
         <AppWindow />
@@ -59,8 +59,8 @@ type Feature = { icon: IconName; title: string; body: string; wide?: boolean; ex
 const features: Feature[] = [
   {
     icon: 'wave',
-    title: '边下边播，直到 Hi-Res',
-    body: '不必等整首下载完。标准、较高、极高、无损（FLAC）与 Hi-Res，按你的耳朵和网速选。',
+    title: '边下边播，支持无损',
+    body: '不必等整首下载完。128 / 320 kbps MP3 与 FLAC，按账号权限播放，自动回退到可用音质。',
     wide: true,
     extra: () => <Quality />,
   },
@@ -77,23 +77,23 @@ const features: Feature[] = [
   {
     icon: 'volume',
     title: '温柔的音量',
-    body: '音量均衡，暂停与继续时淡出淡入。',
+    body: '暂停与继续时淡出淡入，拖动进度无杂音。',
     extra: () => <Fade />,
   },
   {
     icon: 'radio',
-    title: '私人 FM 与心动模式',
-    body: '推荐、熟悉、探索三种口味；或者开启心动模式，从你喜欢的歌出发。',
+    title: '猜你喜欢',
+    body: 'QQ 音乐个性电台，从喜欢的音乐继续听。',
   },
   {
     icon: 'calendar',
     title: '每日推荐',
-    body: '每天 6:00 更新。还有推荐歌单、排行榜、我的歌单与搜索。',
+    body: '还有推荐歌单、排行榜、我的歌单与搜索。',
   },
   {
     icon: 'qr',
     title: '扫码登录',
-    body: '用网易云音乐 App 扫一扫。登录态保存在系统凭据存储中。',
+    body: '用手机 QQ 扫一扫。登录态保存在系统凭据存储中。',
   },
   {
     icon: 'notch',
@@ -102,8 +102,8 @@ const features: Feature[] = [
   },
   {
     icon: 'lyrics',
-    title: '逐字歌词与「律动」',
-    body: '逐字高亮与翻译同屏；「律动」视图里，每个字随演唱浮起、发光、落定。还能读歌曲评论。',
+    title: '歌词与「律动」',
+    body: '跟随音乐显示歌词，切换「律动」视图，还能读歌曲评论。',
     wide: true,
   },
   {
@@ -145,15 +145,13 @@ function Features() {
 
 const qualities = [
   { name: '标准', spec: '128 kbps · MP3' },
-  { name: '较高', spec: '192 kbps · MP3' },
   { name: '极高', spec: '320 kbps · MP3' },
-  { name: '无损', spec: '最高 48 kHz / 16 bit · FLAC' },
-  { name: 'Hi-Res', spec: '最高 192 kHz / 24 bit · FLAC' },
+  { name: '无损', spec: 'FLAC · 按账号权限提供' },
 ]
 
 // The settings' choice of quality, as the app shows it.
 function Quality() {
-  const [q, setQ] = createSignal(3)
+  const [q, setQ] = createSignal(1)
   return (
     <div class="quality">
       <div class="segmented" role="radiogroup" aria-label="音质">

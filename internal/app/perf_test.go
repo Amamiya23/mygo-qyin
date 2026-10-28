@@ -6,8 +6,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/lyrics"
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/lyrics"
+	"lilt/internal/qqmusic"
 )
 
 // playingApp is an app playing a track with lyrics, at a position the test

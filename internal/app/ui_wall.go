@@ -7,8 +7,8 @@ import (
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/lyrics"
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/lyrics"
+	"lilt/internal/qqmusic"
 )
 
 // The wall lays the queue out as a wall of its covers, under the song

@@ -1,6 +1,6 @@
-# MyGo Q音版
+# Lilt
 
-基于 MyGo 云音乐改造的 Q 音客户端。保留 Go 原生界面与播放器，以纯 Go 直接连接 Q音服务。
+Lilt 是基于 MyGo 云音乐改造的第三方 QQ 音乐客户端，使用 Go 原生界面与播放器，以纯 Go 直接连接 QQ 音乐服务。
 ![截图1](assets/image.png)
 
 ## 功能
@@ -33,6 +33,8 @@ go tool mygo vet .
 ```
 
 Windows 安装包与便携版在 `build/`。默认协议测试使用本地模拟服务。设置 `LIVE=1` 后运行 `go test ./internal/qqmusic -run TestLivePublicQQ -v`，验证匿名曲库、歌词及实际 CDN 音频。真人扫码、个人曲库写入和会员播放需真实账号验收。
+
+应用程序名为 `Lilt.exe`，安装包名为 `lilt-setup-<版本>-amd64.exe`。首次启动会将旧「MyGo QQ 音乐」的设置、播放队列和缓存迁入 Lilt；已有 Lilt 数据不会被覆盖。应用标识沿用 `dev.amamiya.qqmusic`，以保留系统凭据中的登录态。Windows 用户更换安装版前，请先退出并卸载旧「MyGo QQ 音乐」，保留用户数据，再安装 Lilt，以免留下旧目录和快捷方式。
 
 `internal/qqmusic` 实现 musicu RPC、CGI、QQ 互联 HTTP 扫码/OAuth 和 QQ 数据转换，不启动或调用 Node 服务。
 

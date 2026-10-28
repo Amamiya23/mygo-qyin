@@ -5,8 +5,8 @@ import (
 	"slices"
 	"time"
 
-	"qqmusic-mygo/internal/qqmusic"
-	"qqmusic-mygo/internal/player"
+	"lilt/internal/player"
+	"lilt/internal/qqmusic"
 )
 
 // Signed in, the listener finds what they played last, on their phone or

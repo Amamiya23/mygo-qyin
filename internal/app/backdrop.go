@@ -8,7 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/shader"
 
-	"qqmusic-mygo/internal/player"
+	"lilt/internal/player"
 )
 
 // The backdrop of Now Playing paints the cover's colors behind it, as

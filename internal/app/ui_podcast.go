@@ -8,7 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/qqmusic"
 )
 
 // These load a podcast and its episodes from NetEase, and subscribe to it,
@@ -346,7 +346,7 @@ func (a *app) loadPodcastTab() {
 		a.post(func() {
 			t.loading = false
 			if err1 != nil && err2 != nil {
-				t.err = "无法连接网易云音乐，请检查网络"
+				t.err = "无法连接 QQ 音乐，请检查网络"
 				return
 			}
 			t.subs, t.picks = subs, picks

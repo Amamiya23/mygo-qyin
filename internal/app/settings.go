@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/egoist/mygo"
 )
@@ -82,21 +83,24 @@ func settingsPath() (string, error) {
 	return filepath.Join(dir, "settings.json"), nil
 }
 
-// oldName is what the app was called before it took its bundle's name, and
-// kept its data under.
-const oldName = "网易云音乐"
+// oldName is the QQ fork's name before Lilt; NetEase data stays separate.
+const oldName = "MyGo QQ 音乐"
 
 // moveOldData moves the user data and the song cache kept under oldName to
 // the directories of the app's name, unless those hold something already:
 // the login, settings and where playback was left go on. It must run before
 // anything reads them.
 func moveOldData() {
+	previous := oldName
+	if strings.HasSuffix(mygo.App.Name(), " Dev") {
+		previous += " Dev"
+	}
 	for _, name := range []mygo.PathName{mygo.PathUserData, mygo.PathCache} {
 		dir, err := mygo.App.Path(name)
 		if err != nil {
 			continue
 		}
-		moveDir(filepath.Join(filepath.Dir(dir), oldName), dir)
+		moveDir(filepath.Join(filepath.Dir(dir), previous), dir)
 	}
 }
 

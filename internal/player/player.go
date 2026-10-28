@@ -9,8 +9,8 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/audio"
 
-	"qqmusic-mygo/internal/lyrics"
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/lyrics"
+	"lilt/internal/qqmusic"
 )
 
 type RepeatMode int

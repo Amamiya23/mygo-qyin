@@ -11,8 +11,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/qqmusic"
-	"qqmusic-mygo/internal/player"
+	"lilt/internal/player"
+	"lilt/internal/qqmusic"
 )
 
 // The drift eases in as the music plays and glides to a stop as it

@@ -4,8 +4,8 @@ mygo_windows_*.syso
 /netease-music-mygo
 /node_modules/
 /.tools/
-/qqmusic-mygo
-/qqmusic-mygo.exe
+/lilt
+/lilt.exe
 
 # Local development configuration
 /AGENTS.md

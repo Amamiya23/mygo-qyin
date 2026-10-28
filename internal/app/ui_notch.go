@@ -7,8 +7,8 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/player"
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/player"
+	"lilt/internal/qqmusic"
 )
 
 // notch is the quick player around the camera housing at the top of the

@@ -12,8 +12,8 @@
 # quit first.
 set -euo pipefail
 
-name="MyGo 云音乐"
-id="dev.egoist.cloudmusic"
+name="Lilt"
+id="dev.amamiya.qqmusic"
 release=0 keep_login=0 songs=0
 for arg in "$@"; do
 	case "$arg" in
@@ -60,7 +60,7 @@ if [[ -d $data ]]; then
 		[[ -e $f ]] || continue
 		# The login: the session, and the device it was made on.
 		if [[ $keep_login == 1 ]]; then
-			case "$(basename "$f")" in session | device-id) continue ;; esac
+			case "$(basename "$f")" in qqmusic-session) continue ;; esac
 		fi
 		rm -rf "$f"
 		echo "removed ${f/#$HOME/~}"
@@ -70,7 +70,7 @@ fi
 # The installed build keeps the login in the Keychain, the development one
 # in the session file above.
 if [[ $release == 1 && $keep_login == 0 ]]; then
-	if security delete-generic-password -s "$id" -a netease-session >/dev/null 2>&1; then
+	if security delete-generic-password -s "$id" -a qqmusic-session >/dev/null 2>&1; then
 		echo "removed the login from the Keychain"
 	fi
 fi

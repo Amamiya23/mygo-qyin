@@ -7,8 +7,8 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/player"
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/player"
+	"lilt/internal/qqmusic"
 )
 
 type pageKind int
@@ -185,6 +185,7 @@ func (a *app) showMain() {
 
 // Run runs the app until it quits.
 func Run() error {
+	moveOldData()
 	a := &app{
 		playlists:  map[int64]*qqmusic.Playlist{},
 		loadingPl:  map[int64]bool{},

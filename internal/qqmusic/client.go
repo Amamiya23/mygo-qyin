@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 
-	"qqmusic-mygo/internal/network"
+	"lilt/internal/network"
 )
 
 const UserAgent = "QQMusic 14090008(android 10)"

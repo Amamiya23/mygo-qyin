@@ -21,7 +21,7 @@ import (
 
 	"github.com/egoist/mygo"
 
-	"qqmusic-mygo/internal/network"
+	"lilt/internal/network"
 )
 
 // Session is QQ Music's own credential, stored only in this native process and

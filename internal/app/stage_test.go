@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"qqmusic-mygo/internal/lyrics"
+	"lilt/internal/lyrics"
 )
 
 // Choosing a style from the stage's menu sets its lyrics in it, and

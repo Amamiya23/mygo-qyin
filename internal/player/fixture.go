@@ -5,8 +5,8 @@ import (
 
 	"github.com/egoist/mygo/audio"
 
-	"qqmusic-mygo/internal/lyrics"
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/lyrics"
+	"lilt/internal/qqmusic"
 )
 
 // These set a player up as it would be after loading, without loading

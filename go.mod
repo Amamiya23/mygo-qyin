@@ -1,4 +1,4 @@
-module qqmusic-mygo
+module lilt
 
 go 1.27.3
 

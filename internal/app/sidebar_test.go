@@ -10,7 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/qqmusic"
 )
 
 // With NM_FRAMES set, previews Acrylic controls over a synthetic soft backdrop, without claiming to render the Windows material.

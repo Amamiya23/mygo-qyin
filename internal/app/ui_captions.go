@@ -6,9 +6,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/lyrics"
-	"qqmusic-mygo/internal/qqmusic"
-	"qqmusic-mygo/internal/speech"
+	"lilt/internal/lyrics"
+	"lilt/internal/qqmusic"
+	"lilt/internal/speech"
 )
 
 // captionsPane shows the episode playing's captions as lyrics show, in

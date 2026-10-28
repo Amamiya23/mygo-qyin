@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "netease-music-mygo",
+      "name": "lilt",
     },
     "website": {
       "name": "website",

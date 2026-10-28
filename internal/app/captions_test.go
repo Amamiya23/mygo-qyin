@@ -8,8 +8,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/qqmusic"
-	"qqmusic-mygo/internal/speech"
+	"lilt/internal/qqmusic"
+	"lilt/internal/speech"
 )
 
 const sec = time.Second

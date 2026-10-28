@@ -6,8 +6,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/player"
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/player"
+	"lilt/internal/qqmusic"
 )
 
 // palette holds the app's colors, for the light and the dark appearance.

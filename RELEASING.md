@@ -1,5 +1,7 @@
 # Releasing
 
+The app is **Lilt**. Its GitHub repository is `Amamiya23/mygo-qyin`; the application identifier stays `dev.amamiya.qqmusic` for credential and installer compatibility. Build artifacts use the `lilt` slug. Renaming does not enable signed automatic updates: `mygo.json` currently has no `updates` configuration. Configure the fork's own signing credentials and update feed before publishing update manifests.
+
 1. Commit pending work, bring main up to date with origin, and run `go test ./internal/...`. Others push to main too, so a release cut from a stale main leaves out their work:
 
    ```bash
@@ -39,7 +41,7 @@
 6. Check the update feed shows the new version:
 
    ```bash
-   curl -sL https://github.com/egoist/mygo-cloudmusic/releases/latest/download/update-darwin-arm64.json
+   curl -sL https://github.com/Amamiya23/mygo-qyin/releases/latest/download/update-darwin-arm64.json
    ```
 
 7. Deploy the website. It reads the latest release when it's prerendered, so it has to be rebuilt after publishing:
@@ -48,13 +50,13 @@
    cd website && bun run deploy
    ```
 
-   Then check https://mygo-cloudmusic.egoist.workers.dev/download/ shows the new version.
+   Then check `/download/` on your deployed Lilt site shows the new version. Set up your own Cloudflare deployment; the fork does not use the upstream site's address.
 
 ## The speech recognition libraries
 
 Podcast captions run sherpa-onnx, whose libraries the app downloads with the model from the `sherpa-onnx-<version>` release, not from the app's own. They only change with sherpa-onnx's version, in `scripts/sherpa`. Then pack them again, signing the macOS ones with the app's Developer ID (the app's hardened runtime loads no others), commit the `internal/speech/natives.go` it writes, and upload them as a prerelease, which never becomes the latest that updates look for:
 
 ```bash
-go run ./scripts/sherpa -sign "Developer ID Application: xinyu zeng (GJE9R5VE87)"
+go run ./scripts/sherpa -sign "Developer ID Application: <your signing identity>"
 gh release create sherpa-onnx-2.0.1 --prerelease --latest=false build/sherpa/*
 ```

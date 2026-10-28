@@ -8,8 +8,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/player"
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/player"
+	"lilt/internal/qqmusic"
 )
 
 // dailyArt is the cover of the day's songs: their first cover, blurred,

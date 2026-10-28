@@ -15,8 +15,8 @@ import (
 	"github.com/egoist/mygo/audio"
 	gomp3 "github.com/hajimehoshi/go-mp3"
 
-	"qqmusic-mygo/internal/network"
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/network"
+	"lilt/internal/qqmusic"
 )
 
 // A download fetches a song as it plays: readers wait for the bytes they

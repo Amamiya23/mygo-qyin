@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"qqmusic-mygo/internal/app"
+	"lilt/internal/app"
 )
 
 func main() {

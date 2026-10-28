@@ -8,8 +8,8 @@ import (
 
 	"github.com/egoist/mygo"
 
-	"qqmusic-mygo/internal/player"
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/player"
+	"lilt/internal/qqmusic"
 )
 
 // Where playback was left is kept in session.json in the user data

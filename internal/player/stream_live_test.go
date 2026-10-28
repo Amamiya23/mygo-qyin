@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/qqmusic"
 )
 
 // A real public QQ MP3 decodes incrementally and supports seeking while downloading.

@@ -9,7 +9,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"qqmusic-mygo/internal/lyrics"
+	"lilt/internal/lyrics"
 )
 
 // The stage sets its lyrics in one of the styles of Folia's visualizers

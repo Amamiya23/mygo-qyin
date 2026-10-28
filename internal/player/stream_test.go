@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/qqmusic"
 )
 
 func TestFrameSize(t *testing.T) {

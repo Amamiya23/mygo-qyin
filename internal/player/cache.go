@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"qqmusic-mygo/internal/qqmusic"
+	"lilt/internal/qqmusic"
 )
 
 // Cache keeps the songs played on disk, so that they play again at once,
