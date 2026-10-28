@@ -190,7 +190,7 @@ func (a *app) sidebar(c *ui.Context) {
 			a.navItem(c, iconDaily, "每日推荐", route{page: pageDaily})
 			a.navItem(c, iconRadio, "私人 FM", route{page: pageFM})
 			a.navItem(c, iconCharts, "排行榜", route{page: pageCharts})
-			a.navItem(c, iconPurchased, "已购音乐", route{page: pagePurchased})
+			a.navItem(c, iconPurchased, "已购音乐", route{page: pagePurchased, tab: purchasedAlbums})
 			if a.searched.query != "" {
 				a.navItem(c, iconSearch, "搜索结果", a.searched)
 			}

@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	purchasedSongs = iota
-	purchasedAlbums
+	purchasedAlbums = iota
+	purchasedSongs
 	purchasedLimit = 30
 )
 
@@ -112,7 +112,7 @@ func (a *app) purchasedHeader(c *ui.Context, d *purchasedData) {
 	a.heading(c, "已购音乐", "")
 	ui.Row(c).AlignItems(ui.Center).Gap(12).Margin(0, 0, 18, 0).Children(func() {
 		tab := a.route.tab
-		if segmented(c.Key("purchased-kind"), &tab, "单曲", "专辑") {
+		if segmented(c.Key("purchased-kind"), &tab, "专辑", "单曲") {
 			r := a.route
 			r.tab = tab
 			a.show(r)

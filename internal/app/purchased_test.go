@@ -53,7 +53,7 @@ func purchasedApp() *app {
 	return a
 }
 
-// The sidebar opens purchases, switching to albums requests their first page, and an album opens its songs.
+// The sidebar opens purchased albums by default, and switching tabs and opening an album preserves navigation.
 func TestPurchasedNavigation(t *testing.T) {
 	asked := fakePurchases(t)
 	a := purchasedApp()
@@ -63,17 +63,21 @@ func TestPurchasedNavigation(t *testing.T) {
 	if err := tt.Click("已购音乐"); err != nil {
 		t.Fatal(err)
 	}
+	if got := wait(t, asked, "purchased albums"); got != (purchaseRequest{purchasedAlbums, 0}) {
+		t.Fatalf("request %+v", got)
+	}
+	tt.Frame()
+	if err := tt.Click("单曲"); err != nil {
+		t.Fatal(err)
+	}
 	if got := wait(t, asked, "purchased singles"); got != (purchaseRequest{purchasedSongs, 0}) {
 		t.Fatalf("request %+v", got)
 	}
+	a.purchased[purchasedAlbums] = purchasedApp().purchased[purchasedAlbums]
 	tt.Frame()
 	if err := tt.Click("专辑"); err != nil {
 		t.Fatal(err)
 	}
-	if got := wait(t, asked, "purchased albums"); got != (purchaseRequest{purchasedAlbums, 0}) {
-		t.Fatalf("request %+v", got)
-	}
-	a.purchased[purchasedAlbums] = purchasedApp().purchased[purchasedAlbums]
 	tt.Frame()
 	if err := tt.Click("迷跡波"); err != nil {
 		t.Fatal(err)
@@ -94,7 +98,7 @@ func TestPurchasedPaginationAndRefresh(t *testing.T) {
 	a := purchasedApp()
 	d := a.purchased[purchasedSongs]
 	d.page.more = true
-	a.open(route{page: pagePurchased})
+	a.open(route{page: pagePurchased, tab: purchasedSongs})
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
 	tt.Frame()
