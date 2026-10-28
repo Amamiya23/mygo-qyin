@@ -75,10 +75,20 @@ func (a *app) settingsView(c *ui.Context) {
 			})
 		}
 
-		// Only on macOS: elsewhere the icon is always in the notification
-		// area.
-		if runtime.GOOS == "darwin" {
-			group("通用", func() {
+		group("通用", func() {
+			row("关闭主面板时", "", func() {
+				i := 0
+				if s.QuitOnClose {
+					i = 1
+				}
+				if segmented(c.Key("close-action"), &i, "最小化到托盘", "退出应用") {
+					s.QuitOnClose = i == 1
+					s.save()
+				}
+			})
+			// Only on macOS: elsewhere the icon is always in the notification
+			// area.
+			if runtime.GOOS == "darwin" {
 				row("应用图标", "显示在菜单栏时，关闭窗口后可从菜单栏图标打开", func() {
 					labels := make([]string, len(appIcons))
 					chosen := appIcons[0].label
@@ -98,8 +108,8 @@ func (a *app) settingsView(c *ui.Context) {
 						a.changeAppIcon()
 					}
 				})
-			})
-		}
+			}
+		})
 
 		// Only on macOS, the one with a notch player.
 		if a.notch != nil {

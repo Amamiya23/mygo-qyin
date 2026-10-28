@@ -10,8 +10,8 @@ import (
 
 // The app's icon in the menu bar on macOS, as the settings choose
 // (appIcons), and always in the notification area on Windows and Linux.
-// While it shows, closing the window leaves the music playing there, until
-// the listener quits; the icon opens the window again.
+// Unless closing the window is set to quit, music keeps playing there;
+// the icon opens the window again.
 
 // trayTemplate is the record and tonearm of the app's icon, black on
 // transparent for macOS to tint: 15.6 points tall in the menu bar's 18, at

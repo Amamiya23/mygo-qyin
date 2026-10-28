@@ -256,15 +256,14 @@ func Run() error {
 		if shotHook != nil {
 			shotHook(a)
 		}
-		// Closing the window hides it: music plays on, and the Dock icon
-		// or the tray's brings it back. A Linux desktop without a tray
-		// has neither, so there closing it quits.
+		// Closing the window follows the listener's choice. Without a tray
+		// or Dock to bring it back, closing it always quits.
 		a.win.OnClose(func(e *mygo.CloseEvent) {
 			if a.quitting {
 				return
 			}
 			e.PreventDefault()
-			if runtime.GOOS == "darwin" || a.tray != nil {
+			if !a.settings.QuitOnClose && (runtime.GOOS == "darwin" || a.tray != nil) {
 				a.win.Hide()
 			} else {
 				mygo.App.Quit()

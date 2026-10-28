@@ -13,6 +13,9 @@ import (
 // settings are the listener's choices, kept in settings.json in the user
 // data directory.
 type settings struct {
+	// QuitOnClose exits the app when the main window is closed; otherwise
+	// it stays available from the tray or Dock.
+	QuitOnClose bool `json:"quitOnClose"`
 	// Notch shows the quick player around the notch: the listener turns
 	// it on.
 	Notch bool `json:"notch"`
