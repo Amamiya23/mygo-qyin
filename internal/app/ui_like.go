@@ -34,7 +34,7 @@ type likedAlbumData struct {
 // Each collection keeps its own place when switching tabs or returning from a detail page.
 type likedScrollState struct {
 	songs  ui.ListState
-	albums ui.ScrollState
+	albums ui.ListState
 }
 
 func (a *app) isLikedPlaylist(id int64) bool {
@@ -75,6 +75,7 @@ func (a *app) moreLikedAlbums(d *likedAlbumData) {
 
 func (a *app) likedPlaylistPage(c *ui.Context, id int64) {
 	pl := a.playlists[id]
+	content := route{page: pagePlaylist, id: id}
 	header := func(c *ui.Context) {
 		a.likedCollectionHeader(c, id)
 		ui.Row(c).AlignItems(ui.Center).Gap(12).Margin(0, 0, 18, 0).Children(func() {
@@ -92,7 +93,7 @@ func (a *app) likedPlaylistPage(c *ui.Context, id int64) {
 			a.loadLikedAlbums(false)
 			d = a.likedAlbums
 		}
-		a.scrollPageWithState(c, &a.likedScroll.albums, func() {
+		a.listPageWithKey(c, content, &a.likedScroll.albums, func() {
 			header(c)
 			if d == nil {
 				return
@@ -111,16 +112,19 @@ func (a *app) likedPlaylistPage(c *ui.Context, id int64) {
 	}
 	if pl == nil {
 		if a.loadingPl[id] {
-			a.trackSkeleton(c, a.pageShimmer(c), true, header)
+			a.listPageWithKey(c, content, &a.likedScroll.songs, func() {
+				a.underTop, a.underBottom = false, true
+				a.trackSkeletonRows(c, a.pageShimmer(c), true, header)
+			})
 		} else {
-			a.scrollPage(c, func() {
+			a.listPageWithKey(c, content, &a.likedScroll.songs, func() {
 				header(c)
 				a.centered(c, a.plErr[id], func() { a.loadPlaylist(id, false) })
 			})
 		}
 		return
 	}
-	a.trackRowsWithState(c, &a.likedScroll.songs, pl.Tracks, true, header)
+	a.trackRowsWithKey(c, content, &a.likedScroll.songs, pl.Tracks, true, header)
 }
 
 func (a *app) likedCollectionHeader(c *ui.Context, id int64) {

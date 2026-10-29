@@ -78,6 +78,7 @@ func (a *app) purchasedPage(c *ui.Context) {
 	}
 	tab := a.route.tab
 	d := a.purchased[tab]
+	content := route{page: pagePurchased}
 	header := func(c *ui.Context) { a.purchasedHeader(c, d) }
 	foot := func(c *ui.Context) {
 		a.pageFoot(c, &d.page, func() { a.morePurchased(tab, d) })
@@ -91,13 +92,16 @@ func (a *app) purchasedPage(c *ui.Context) {
 	}
 	if tab == purchasedSongs {
 		if !d.page.loaded && d.page.loading {
-			a.trackSkeleton(c, a.pageShimmer(c), true, header)
+			a.listPageWithKey(c, content, &a.purchasedScroll[purchasedSongs], func() {
+				a.underTop, a.underBottom = false, true
+				a.trackSkeletonRows(c, a.pageShimmer(c), true, header)
+			})
 			return
 		}
-		a.trackRows(c, d.songs, true, header, foot)
+		a.trackRowsWithKey(c, content, &a.purchasedScroll[purchasedSongs], d.songs, true, header, foot)
 		return
 	}
-	a.scrollPage(c, func() {
+	a.listPageWithKey(c, content, &a.purchasedScroll[tab], func() {
 		header(c)
 		a.albumGrid(c, d.albums)
 		if !d.page.loaded && d.page.loading {

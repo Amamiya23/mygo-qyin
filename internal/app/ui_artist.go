@@ -328,6 +328,19 @@ func (a *app) scrollPageWithState(c *ui.Context, state *ui.ScrollState, content 
 	})
 }
 
+// listPageWithKey gives album grids the same row shell as track lists, keeping
+// their shared tab control in one place as the tabs change.
+func (a *app) listPageWithKey(c *ui.Context, key any, state *ui.ListState, content func()) {
+	top, bottom := a.insets(c)
+	ui.List(c.Key(key), state, 1, func(int) {
+		ui.Column(c).Children(func() {
+			a.startMark(c)
+			defer a.endMark(c)
+			content()
+		})
+	}).Grow(1).Padding(top+pageGap, pagePad-12, bottom+32, pagePad-12).ScrollbarInsets(top, 0, bottom, 0)
+}
+
 // empty says a list has nothing in it.
 func (a *app) empty(c *ui.Context, msg string) {
 	ui.Text(c, msg).FontSize(13).TextColor(a.pal.muted).Padding(40, 0).AlignSelf(ui.Center)

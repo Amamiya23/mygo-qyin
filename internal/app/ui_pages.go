@@ -331,6 +331,10 @@ func (a *app) trackRows(c *ui.Context, tracks []qqmusic.Track, covers bool, head
 }
 
 func (a *app) trackRowsWithState(c *ui.Context, state *ui.ListState, tracks []qqmusic.Track, covers bool, header func(c *ui.Context), footer ...func(c *ui.Context)) {
+	a.trackRowsWithKey(c, a.route, state, tracks, covers, header, footer...)
+}
+
+func (a *app) trackRowsWithKey(c *ui.Context, key any, state *ui.ListState, tracks []qqmusic.Track, covers bool, header func(c *ui.Context), footer ...func(c *ui.Context)) {
 	p := a.pal
 	cur := a.pl.Current()
 	// A song's menu can take it out of the playlist it is listed in.
@@ -346,7 +350,7 @@ func (a *app) trackRowsWithState(c *ui.Context, state *ui.ListState, tracks []qq
 	// scrolled away from its start or end has content under the bars.
 	a.underTop, a.underBottom = true, true
 	rows := len(tracks) + 1 + len(footer)
-	ui.List(c.Key(a.route), state, rows, func(i int) {
+	ui.List(c.Key(key), state, rows, func(i int) {
 		if i == 0 {
 			ui.Column(c).Children(func() {
 				a.startMark(c)
