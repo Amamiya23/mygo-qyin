@@ -12,8 +12,6 @@
   --accent: light-dark(oklch(0.6 0.21 24), oklch(0.66 0.2 22));
   --accent-soft: light-dark(oklch(0.6 0.21 24 / 0.1), oklch(0.66 0.2 22 / 0.16));
   --shadow: light-dark(rgb(80 50 20 / 0.14), rgb(0 0 0 / 0.5));
-  --icon-top: light-dark(#ff524d, #3d383d);
-  --icon-foot: light-dark(#d80b27, #171417);
 
   /* The app's own window, as it draws itself. */
   --app-bg: light-dark(#ffffff, #141416);

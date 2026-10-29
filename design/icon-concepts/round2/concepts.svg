@@ -1,0 +1,241 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="880" viewBox="0 0 1500 880"><rect width="1500" height="880" fill="#f9f9f9"/><text x="64" y="76" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="36" font-weight="650" fill="#202020">Lilt / 新一轮图标</text><text x="64" y="115" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="20" font-weight="400" fill="#646464">让音乐一眼可辨</text><rect x="60" y="157" width="440" height="665" rx="24" fill="#ffffff"/><text x="90" y="207" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="26" font-weight="650" fill="#202020">A  流音</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="124" y="238" width="312" height="312" preserveAspectRatio="xMidYMid meet">
+<title>流音：蓝青双音符</title>
+<defs>
+ <linearGradient id="large0-tile" x1="32" y1="0" x2="220" y2="256" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#e6e9e8"/></linearGradient>
+ <linearGradient id="large0-note" x1="62" y1="202" x2="190" y2="52" gradientUnits="userSpaceOnUse"><stop stop-color="#3e63dd"/><stop offset=".55" stop-color="#3e63dd"/><stop offset="1" stop-color="#00a2c7"/></linearGradient>
+ <linearGradient id="large0-flag" x1="94" y1="78" x2="195" y2="48" gradientUnits="userSpaceOnUse"><stop stop-color="#00a2c7"/><stop offset="1" stop-color="#3dd68c"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#large0-tile)"/>
+<path fill="#3e63dd" opacity=".08" d="M89 94C126 94 147 62 185 62Q199 62 199 76V168C199 188 177 204 158 200C139 196 135 178 149 164C155 157 164 154 174 154V105C149 112 137 129 114 132V187C114 208 90 224 69 216C49 209 48 191 63 177C70 170 80 167 89 168Z"/>
+<path fill="url(#large0-note)" d="M86 81C124 81 145 49 183 49Q197 49 197 63V154C197 174 175 190 156 186C137 182 133 164 147 150C153 143 162 140 172 140V91C147 98 135 115 111 118V173C111 194 87 210 66 202C46 195 45 177 60 163C67 156 77 153 86 154Z"/>
+<path fill="url(#large0-flag)" d="M86 81C124 81 145 49 183 49Q197 49 197 63V87C157 86 144 115 111 118V103Q94 103 86 111Z"/>
+</svg>
+<text x="90" y="604" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="20" font-weight="400" fill="#646464">蓝青色流动双音符</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="90" y="662" width="64" height="64" preserveAspectRatio="xMidYMid meet">
+<title>流音：蓝青双音符</title>
+<defs>
+ <linearGradient id="small0-64-tile" x1="32" y1="0" x2="220" y2="256" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#e6e9e8"/></linearGradient>
+ <linearGradient id="small0-64-note" x1="62" y1="202" x2="190" y2="52" gradientUnits="userSpaceOnUse"><stop stop-color="#3e63dd"/><stop offset=".55" stop-color="#3e63dd"/><stop offset="1" stop-color="#00a2c7"/></linearGradient>
+ <linearGradient id="small0-64-flag" x1="94" y1="78" x2="195" y2="48" gradientUnits="userSpaceOnUse"><stop stop-color="#00a2c7"/><stop offset="1" stop-color="#3dd68c"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#small0-64-tile)"/>
+<path fill="#3e63dd" opacity=".08" d="M89 94C126 94 147 62 185 62Q199 62 199 76V168C199 188 177 204 158 200C139 196 135 178 149 164C155 157 164 154 174 154V105C149 112 137 129 114 132V187C114 208 90 224 69 216C49 209 48 191 63 177C70 170 80 167 89 168Z"/>
+<path fill="url(#small0-64-note)" d="M86 81C124 81 145 49 183 49Q197 49 197 63V154C197 174 175 190 156 186C137 182 133 164 147 150C153 143 162 140 172 140V91C147 98 135 115 111 118V173C111 194 87 210 66 202C46 195 45 177 60 163C67 156 77 153 86 154Z"/>
+<path fill="url(#small0-64-flag)" d="M86 81C124 81 145 49 183 49Q197 49 197 63V87C157 86 144 115 111 118V103Q94 103 86 111Z"/>
+</svg>
+<text x="90" y="758" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="14" font-weight="400" fill="#646464">64 px</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="188" y="678" width="32" height="32" preserveAspectRatio="xMidYMid meet">
+<title>流音：蓝青双音符</title>
+<defs>
+ <linearGradient id="small0-32-tile" x1="32" y1="0" x2="220" y2="256" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#e6e9e8"/></linearGradient>
+ <linearGradient id="small0-32-note" x1="62" y1="202" x2="190" y2="52" gradientUnits="userSpaceOnUse"><stop stop-color="#3e63dd"/><stop offset=".55" stop-color="#3e63dd"/><stop offset="1" stop-color="#00a2c7"/></linearGradient>
+ <linearGradient id="small0-32-flag" x1="94" y1="78" x2="195" y2="48" gradientUnits="userSpaceOnUse"><stop stop-color="#00a2c7"/><stop offset="1" stop-color="#3dd68c"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#small0-32-tile)"/>
+<path fill="#3e63dd" opacity=".08" d="M89 94C126 94 147 62 185 62Q199 62 199 76V168C199 188 177 204 158 200C139 196 135 178 149 164C155 157 164 154 174 154V105C149 112 137 129 114 132V187C114 208 90 224 69 216C49 209 48 191 63 177C70 170 80 167 89 168Z"/>
+<path fill="url(#small0-32-note)" d="M86 81C124 81 145 49 183 49Q197 49 197 63V154C197 174 175 190 156 186C137 182 133 164 147 150C153 143 162 140 172 140V91C147 98 135 115 111 118V173C111 194 87 210 66 202C46 195 45 177 60 163C67 156 77 153 86 154Z"/>
+<path fill="url(#small0-32-flag)" d="M86 81C124 81 145 49 183 49Q197 49 197 63V87C157 86 144 115 111 118V103Q94 103 86 111Z"/>
+</svg>
+<text x="188" y="758" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="14" font-weight="400" fill="#646464">32 px</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="286" y="682" width="24" height="24" preserveAspectRatio="xMidYMid meet">
+<title>流音：蓝青双音符</title>
+<defs>
+ <linearGradient id="small0-24-tile" x1="32" y1="0" x2="220" y2="256" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#e6e9e8"/></linearGradient>
+ <linearGradient id="small0-24-note" x1="62" y1="202" x2="190" y2="52" gradientUnits="userSpaceOnUse"><stop stop-color="#3e63dd"/><stop offset=".55" stop-color="#3e63dd"/><stop offset="1" stop-color="#00a2c7"/></linearGradient>
+ <linearGradient id="small0-24-flag" x1="94" y1="78" x2="195" y2="48" gradientUnits="userSpaceOnUse"><stop stop-color="#00a2c7"/><stop offset="1" stop-color="#3dd68c"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#small0-24-tile)"/>
+<path fill="#3e63dd" opacity=".08" d="M89 94C126 94 147 62 185 62Q199 62 199 76V168C199 188 177 204 158 200C139 196 135 178 149 164C155 157 164 154 174 154V105C149 112 137 129 114 132V187C114 208 90 224 69 216C49 209 48 191 63 177C70 170 80 167 89 168Z"/>
+<path fill="url(#small0-24-note)" d="M86 81C124 81 145 49 183 49Q197 49 197 63V154C197 174 175 190 156 186C137 182 133 164 147 150C153 143 162 140 172 140V91C147 98 135 115 111 118V173C111 194 87 210 66 202C46 195 45 177 60 163C67 156 77 153 86 154Z"/>
+<path fill="url(#small0-24-flag)" d="M86 81C124 81 145 49 183 49Q197 49 197 63V87C157 86 144 115 111 118V103Q94 103 86 111Z"/>
+</svg>
+<text x="286" y="758" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="14" font-weight="400" fill="#646464">24 px</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="384" y="686" width="16" height="16" preserveAspectRatio="xMidYMid meet">
+<title>流音：蓝青双音符</title>
+<defs>
+ <linearGradient id="small0-16-tile" x1="32" y1="0" x2="220" y2="256" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#e6e9e8"/></linearGradient>
+ <linearGradient id="small0-16-note" x1="62" y1="202" x2="190" y2="52" gradientUnits="userSpaceOnUse"><stop stop-color="#3e63dd"/><stop offset=".55" stop-color="#3e63dd"/><stop offset="1" stop-color="#00a2c7"/></linearGradient>
+ <linearGradient id="small0-16-flag" x1="94" y1="78" x2="195" y2="48" gradientUnits="userSpaceOnUse"><stop stop-color="#00a2c7"/><stop offset="1" stop-color="#3dd68c"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#small0-16-tile)"/>
+<path fill="#3e63dd" opacity=".08" d="M89 94C126 94 147 62 185 62Q199 62 199 76V168C199 188 177 204 158 200C139 196 135 178 149 164C155 157 164 154 174 154V105C149 112 137 129 114 132V187C114 208 90 224 69 216C49 209 48 191 63 177C70 170 80 167 89 168Z"/>
+<path fill="url(#small0-16-note)" d="M86 81C124 81 145 49 183 49Q197 49 197 63V154C197 174 175 190 156 186C137 182 133 164 147 150C153 143 162 140 172 140V91C147 98 135 115 111 118V173C111 194 87 210 66 202C46 195 45 177 60 163C67 156 77 153 86 154Z"/>
+<path fill="url(#small0-16-flag)" d="M86 81C124 81 145 49 183 49Q197 49 197 63V87C157 86 144 115 111 118V103Q94 103 86 111Z"/>
+</svg>
+<text x="384" y="758" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="14" font-weight="400" fill="#646464">16 px</text><rect x="530" y="157" width="440" height="665" rx="24" fill="#ffffff"/><text x="560" y="207" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="26" font-weight="650" fill="#202020">B  金唱针</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="594" y="238" width="312" height="312" preserveAspectRatio="xMidYMid meet">
+<title>金唱针：薄荷与金色唱机</title>
+<defs>
+ <linearGradient id="large1-tile" x1="24" y1="16" x2="232" y2="240" gradientUnits="userSpaceOnUse"><stop stop-color="#d6f1df"/><stop offset="1" stop-color="#30a46c"/></linearGradient>
+ <linearGradient id="large1-vinyl" x1="42" y1="64" x2="176" y2="222" gradientUnits="userSpaceOnUse"><stop stop-color="#373b39"/><stop offset="1" stop-color="#101211"/></linearGradient>
+ <linearGradient id="large1-gold" x1="72" y1="108" x2="129" y2="166" gradientUnits="userSpaceOnUse"><stop stop-color="#ffee9c"/><stop offset="1" stop-color="#ffc53d"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#large1-tile)"/>
+<circle cx="106" cy="146" r="85" fill="#193b2d" opacity=".18"/>
+<circle cx="104" cy="138" r="85" fill="url(#large1-vinyl)"/>
+<circle cx="104" cy="138" r="67" fill="none" stroke="#5b625f" stroke-width="2"/>
+<circle cx="104" cy="138" r="54" fill="none" stroke="#444947" stroke-width="2"/>
+<path d="M42 120A65 65 0 0 1 73 81M137 194A65 65 0 0 0 167 157" fill="none" stroke="#adb5b2" stroke-width="5" stroke-linecap="round" opacity=".5"/>
+<circle cx="104" cy="138" r="32" fill="url(#large1-gold)"/>
+<circle cx="104" cy="138" r="7" fill="#1a211e"/>
+<path d="M201 61V103Q201 114 193 122L166 149" fill="none" stroke="#193b2d" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" opacity=".16" transform="translate(2 5)"/>
+<path d="M201 61V103Q201 114 193 122L166 149" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="201" cy="59" r="17" fill="#ffffff"/>
+<circle cx="201" cy="59" r="7" fill="#ffc53d"/>
+<path d="M166 136L178 148L162 164Q159 167 156 164L150 158Q147 155 150 152Z" fill="#ffc53d"/>
+</svg>
+<text x="560" y="604" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="20" font-weight="400" fill="#646464">薄荷绿唱机 · 金色唱针</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="560" y="662" width="64" height="64" preserveAspectRatio="xMidYMid meet">
+<title>金唱针：薄荷与金色唱机</title>
+<defs>
+ <linearGradient id="small1-64-tile" x1="24" y1="16" x2="232" y2="240" gradientUnits="userSpaceOnUse"><stop stop-color="#d6f1df"/><stop offset="1" stop-color="#30a46c"/></linearGradient>
+ <linearGradient id="small1-64-vinyl" x1="42" y1="64" x2="176" y2="222" gradientUnits="userSpaceOnUse"><stop stop-color="#373b39"/><stop offset="1" stop-color="#101211"/></linearGradient>
+ <linearGradient id="small1-64-gold" x1="72" y1="108" x2="129" y2="166" gradientUnits="userSpaceOnUse"><stop stop-color="#ffee9c"/><stop offset="1" stop-color="#ffc53d"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#small1-64-tile)"/>
+<circle cx="106" cy="146" r="85" fill="#193b2d" opacity=".18"/>
+<circle cx="104" cy="138" r="85" fill="url(#small1-64-vinyl)"/>
+<circle cx="104" cy="138" r="67" fill="none" stroke="#5b625f" stroke-width="2"/>
+<circle cx="104" cy="138" r="54" fill="none" stroke="#444947" stroke-width="2"/>
+<path d="M42 120A65 65 0 0 1 73 81M137 194A65 65 0 0 0 167 157" fill="none" stroke="#adb5b2" stroke-width="5" stroke-linecap="round" opacity=".5"/>
+<circle cx="104" cy="138" r="32" fill="url(#small1-64-gold)"/>
+<circle cx="104" cy="138" r="7" fill="#1a211e"/>
+<path d="M201 61V103Q201 114 193 122L166 149" fill="none" stroke="#193b2d" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" opacity=".16" transform="translate(2 5)"/>
+<path d="M201 61V103Q201 114 193 122L166 149" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="201" cy="59" r="17" fill="#ffffff"/>
+<circle cx="201" cy="59" r="7" fill="#ffc53d"/>
+<path d="M166 136L178 148L162 164Q159 167 156 164L150 158Q147 155 150 152Z" fill="#ffc53d"/>
+</svg>
+<text x="560" y="758" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="14" font-weight="400" fill="#646464">64 px</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="658" y="678" width="32" height="32" preserveAspectRatio="xMidYMid meet">
+<title>金唱针：薄荷与金色唱机</title>
+<defs>
+ <linearGradient id="small1-32-tile" x1="24" y1="16" x2="232" y2="240" gradientUnits="userSpaceOnUse"><stop stop-color="#d6f1df"/><stop offset="1" stop-color="#30a46c"/></linearGradient>
+ <linearGradient id="small1-32-vinyl" x1="42" y1="64" x2="176" y2="222" gradientUnits="userSpaceOnUse"><stop stop-color="#373b39"/><stop offset="1" stop-color="#101211"/></linearGradient>
+ <linearGradient id="small1-32-gold" x1="72" y1="108" x2="129" y2="166" gradientUnits="userSpaceOnUse"><stop stop-color="#ffee9c"/><stop offset="1" stop-color="#ffc53d"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#small1-32-tile)"/>
+<circle cx="106" cy="146" r="85" fill="#193b2d" opacity=".18"/>
+<circle cx="104" cy="138" r="85" fill="url(#small1-32-vinyl)"/>
+<circle cx="104" cy="138" r="67" fill="none" stroke="#5b625f" stroke-width="2"/>
+<circle cx="104" cy="138" r="54" fill="none" stroke="#444947" stroke-width="2"/>
+<path d="M42 120A65 65 0 0 1 73 81M137 194A65 65 0 0 0 167 157" fill="none" stroke="#adb5b2" stroke-width="5" stroke-linecap="round" opacity=".5"/>
+<circle cx="104" cy="138" r="32" fill="url(#small1-32-gold)"/>
+<circle cx="104" cy="138" r="7" fill="#1a211e"/>
+<path d="M201 61V103Q201 114 193 122L166 149" fill="none" stroke="#193b2d" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" opacity=".16" transform="translate(2 5)"/>
+<path d="M201 61V103Q201 114 193 122L166 149" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="201" cy="59" r="17" fill="#ffffff"/>
+<circle cx="201" cy="59" r="7" fill="#ffc53d"/>
+<path d="M166 136L178 148L162 164Q159 167 156 164L150 158Q147 155 150 152Z" fill="#ffc53d"/>
+</svg>
+<text x="658" y="758" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="14" font-weight="400" fill="#646464">32 px</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="756" y="682" width="24" height="24" preserveAspectRatio="xMidYMid meet">
+<title>金唱针：薄荷与金色唱机</title>
+<defs>
+ <linearGradient id="small1-24-tile" x1="24" y1="16" x2="232" y2="240" gradientUnits="userSpaceOnUse"><stop stop-color="#d6f1df"/><stop offset="1" stop-color="#30a46c"/></linearGradient>
+ <linearGradient id="small1-24-vinyl" x1="42" y1="64" x2="176" y2="222" gradientUnits="userSpaceOnUse"><stop stop-color="#373b39"/><stop offset="1" stop-color="#101211"/></linearGradient>
+ <linearGradient id="small1-24-gold" x1="72" y1="108" x2="129" y2="166" gradientUnits="userSpaceOnUse"><stop stop-color="#ffee9c"/><stop offset="1" stop-color="#ffc53d"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#small1-24-tile)"/>
+<circle cx="106" cy="146" r="85" fill="#193b2d" opacity=".18"/>
+<circle cx="104" cy="138" r="85" fill="url(#small1-24-vinyl)"/>
+<circle cx="104" cy="138" r="67" fill="none" stroke="#5b625f" stroke-width="2"/>
+<circle cx="104" cy="138" r="54" fill="none" stroke="#444947" stroke-width="2"/>
+<path d="M42 120A65 65 0 0 1 73 81M137 194A65 65 0 0 0 167 157" fill="none" stroke="#adb5b2" stroke-width="5" stroke-linecap="round" opacity=".5"/>
+<circle cx="104" cy="138" r="32" fill="url(#small1-24-gold)"/>
+<circle cx="104" cy="138" r="7" fill="#1a211e"/>
+<path d="M201 61V103Q201 114 193 122L166 149" fill="none" stroke="#193b2d" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" opacity=".16" transform="translate(2 5)"/>
+<path d="M201 61V103Q201 114 193 122L166 149" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="201" cy="59" r="17" fill="#ffffff"/>
+<circle cx="201" cy="59" r="7" fill="#ffc53d"/>
+<path d="M166 136L178 148L162 164Q159 167 156 164L150 158Q147 155 150 152Z" fill="#ffc53d"/>
+</svg>
+<text x="756" y="758" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="14" font-weight="400" fill="#646464">24 px</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="854" y="686" width="16" height="16" preserveAspectRatio="xMidYMid meet">
+<title>金唱针：薄荷与金色唱机</title>
+<defs>
+ <linearGradient id="small1-16-tile" x1="24" y1="16" x2="232" y2="240" gradientUnits="userSpaceOnUse"><stop stop-color="#d6f1df"/><stop offset="1" stop-color="#30a46c"/></linearGradient>
+ <linearGradient id="small1-16-vinyl" x1="42" y1="64" x2="176" y2="222" gradientUnits="userSpaceOnUse"><stop stop-color="#373b39"/><stop offset="1" stop-color="#101211"/></linearGradient>
+ <linearGradient id="small1-16-gold" x1="72" y1="108" x2="129" y2="166" gradientUnits="userSpaceOnUse"><stop stop-color="#ffee9c"/><stop offset="1" stop-color="#ffc53d"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#small1-16-tile)"/>
+<circle cx="106" cy="146" r="85" fill="#193b2d" opacity=".18"/>
+<circle cx="104" cy="138" r="85" fill="url(#small1-16-vinyl)"/>
+<circle cx="104" cy="138" r="67" fill="none" stroke="#5b625f" stroke-width="2"/>
+<circle cx="104" cy="138" r="54" fill="none" stroke="#444947" stroke-width="2"/>
+<path d="M42 120A65 65 0 0 1 73 81M137 194A65 65 0 0 0 167 157" fill="none" stroke="#adb5b2" stroke-width="5" stroke-linecap="round" opacity=".5"/>
+<circle cx="104" cy="138" r="32" fill="url(#small1-16-gold)"/>
+<circle cx="104" cy="138" r="7" fill="#1a211e"/>
+<path d="M201 61V103Q201 114 193 122L166 149" fill="none" stroke="#193b2d" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" opacity=".16" transform="translate(2 5)"/>
+<path d="M201 61V103Q201 114 193 122L166 149" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="201" cy="59" r="17" fill="#ffffff"/>
+<circle cx="201" cy="59" r="7" fill="#ffc53d"/>
+<path d="M166 136L178 148L162 164Q159 167 156 164L150 158Q147 155 150 152Z" fill="#ffc53d"/>
+</svg>
+<text x="854" y="758" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="14" font-weight="400" fill="#646464">16 px</text><rect x="1000" y="157" width="440" height="665" rx="24" fill="#ffffff"/><text x="1030" y="207" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="26" font-weight="650" fill="#202020">C  随身听</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="1064" y="238" width="312" height="312" preserveAspectRatio="xMidYMid meet">
+<title>随身听：紫橙耳机与音符</title>
+<defs>
+ <linearGradient id="large2-tile" x1="16" y1="8" x2="240" y2="248" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#fff7c2"/></linearGradient>
+ <linearGradient id="large2-band" x1="58" y1="54" x2="205" y2="180" gradientUnits="userSpaceOnUse"><stop stop-color="#8e4ec6"/><stop offset="1" stop-color="#d6409f"/></linearGradient>
+ <linearGradient id="large2-pad" x1="0" y1="112" x2="0" y2="200" gradientUnits="userSpaceOnUse"><stop stop-color="#ffc53d"/><stop offset="1" stop-color="#f76b15"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#large2-tile)"/>
+<path fill="#8e4ec6" opacity=".08" d="M43 164V127C43 74 78 41 128 41S213 74 213 127V164H189V127C189 91 165 65 128 65S67 91 67 127V164Z" transform="translate(0 8)"/>
+<path fill="url(#large2-band)" d="M43 156V119C43 66 78 33 128 33S213 66 213 119V156H189V119C189 83 165 57 128 57S67 83 67 119V156Z"/>
+<rect x="36" y="115" width="43" height="77" rx="21.5" fill="url(#large2-pad)"/>
+<rect x="177" y="115" width="43" height="77" rx="21.5" fill="url(#large2-pad)"/>
+<path fill="url(#large2-band)" d="M132 99Q132 94 137 96L166 108V130L151 124V175C151 193 130 207 114 200C98 193 99 178 111 169C117 164 125 162 132 163Z"/>
+<path fill="#f76b15" d="M137 96L166 108V130L132 116V99Q132 94 137 96Z"/>
+</svg>
+<text x="1030" y="604" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="20" font-weight="400" fill="#646464">紫橙耳机 · 中央音符</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="1030" y="662" width="64" height="64" preserveAspectRatio="xMidYMid meet">
+<title>随身听：紫橙耳机与音符</title>
+<defs>
+ <linearGradient id="small2-64-tile" x1="16" y1="8" x2="240" y2="248" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#fff7c2"/></linearGradient>
+ <linearGradient id="small2-64-band" x1="58" y1="54" x2="205" y2="180" gradientUnits="userSpaceOnUse"><stop stop-color="#8e4ec6"/><stop offset="1" stop-color="#d6409f"/></linearGradient>
+ <linearGradient id="small2-64-pad" x1="0" y1="112" x2="0" y2="200" gradientUnits="userSpaceOnUse"><stop stop-color="#ffc53d"/><stop offset="1" stop-color="#f76b15"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#small2-64-tile)"/>
+<path fill="#8e4ec6" opacity=".08" d="M43 164V127C43 74 78 41 128 41S213 74 213 127V164H189V127C189 91 165 65 128 65S67 91 67 127V164Z" transform="translate(0 8)"/>
+<path fill="url(#small2-64-band)" d="M43 156V119C43 66 78 33 128 33S213 66 213 119V156H189V119C189 83 165 57 128 57S67 83 67 119V156Z"/>
+<rect x="36" y="115" width="43" height="77" rx="21.5" fill="url(#small2-64-pad)"/>
+<rect x="177" y="115" width="43" height="77" rx="21.5" fill="url(#small2-64-pad)"/>
+<path fill="url(#small2-64-band)" d="M132 99Q132 94 137 96L166 108V130L151 124V175C151 193 130 207 114 200C98 193 99 178 111 169C117 164 125 162 132 163Z"/>
+<path fill="#f76b15" d="M137 96L166 108V130L132 116V99Q132 94 137 96Z"/>
+</svg>
+<text x="1030" y="758" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="14" font-weight="400" fill="#646464">64 px</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="1128" y="678" width="32" height="32" preserveAspectRatio="xMidYMid meet">
+<title>随身听：紫橙耳机与音符</title>
+<defs>
+ <linearGradient id="small2-32-tile" x1="16" y1="8" x2="240" y2="248" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#fff7c2"/></linearGradient>
+ <linearGradient id="small2-32-band" x1="58" y1="54" x2="205" y2="180" gradientUnits="userSpaceOnUse"><stop stop-color="#8e4ec6"/><stop offset="1" stop-color="#d6409f"/></linearGradient>
+ <linearGradient id="small2-32-pad" x1="0" y1="112" x2="0" y2="200" gradientUnits="userSpaceOnUse"><stop stop-color="#ffc53d"/><stop offset="1" stop-color="#f76b15"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#small2-32-tile)"/>
+<path fill="#8e4ec6" opacity=".08" d="M43 164V127C43 74 78 41 128 41S213 74 213 127V164H189V127C189 91 165 65 128 65S67 91 67 127V164Z" transform="translate(0 8)"/>
+<path fill="url(#small2-32-band)" d="M43 156V119C43 66 78 33 128 33S213 66 213 119V156H189V119C189 83 165 57 128 57S67 83 67 119V156Z"/>
+<rect x="36" y="115" width="43" height="77" rx="21.5" fill="url(#small2-32-pad)"/>
+<rect x="177" y="115" width="43" height="77" rx="21.5" fill="url(#small2-32-pad)"/>
+<path fill="url(#small2-32-band)" d="M132 99Q132 94 137 96L166 108V130L151 124V175C151 193 130 207 114 200C98 193 99 178 111 169C117 164 125 162 132 163Z"/>
+<path fill="#f76b15" d="M137 96L166 108V130L132 116V99Q132 94 137 96Z"/>
+</svg>
+<text x="1128" y="758" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="14" font-weight="400" fill="#646464">32 px</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="1226" y="682" width="24" height="24" preserveAspectRatio="xMidYMid meet">
+<title>随身听：紫橙耳机与音符</title>
+<defs>
+ <linearGradient id="small2-24-tile" x1="16" y1="8" x2="240" y2="248" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#fff7c2"/></linearGradient>
+ <linearGradient id="small2-24-band" x1="58" y1="54" x2="205" y2="180" gradientUnits="userSpaceOnUse"><stop stop-color="#8e4ec6"/><stop offset="1" stop-color="#d6409f"/></linearGradient>
+ <linearGradient id="small2-24-pad" x1="0" y1="112" x2="0" y2="200" gradientUnits="userSpaceOnUse"><stop stop-color="#ffc53d"/><stop offset="1" stop-color="#f76b15"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#small2-24-tile)"/>
+<path fill="#8e4ec6" opacity=".08" d="M43 164V127C43 74 78 41 128 41S213 74 213 127V164H189V127C189 91 165 65 128 65S67 91 67 127V164Z" transform="translate(0 8)"/>
+<path fill="url(#small2-24-band)" d="M43 156V119C43 66 78 33 128 33S213 66 213 119V156H189V119C189 83 165 57 128 57S67 83 67 119V156Z"/>
+<rect x="36" y="115" width="43" height="77" rx="21.5" fill="url(#small2-24-pad)"/>
+<rect x="177" y="115" width="43" height="77" rx="21.5" fill="url(#small2-24-pad)"/>
+<path fill="url(#small2-24-band)" d="M132 99Q132 94 137 96L166 108V130L151 124V175C151 193 130 207 114 200C98 193 99 178 111 169C117 164 125 162 132 163Z"/>
+<path fill="#f76b15" d="M137 96L166 108V130L132 116V99Q132 94 137 96Z"/>
+</svg>
+<text x="1226" y="758" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="14" font-weight="400" fill="#646464">24 px</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="1324" y="686" width="16" height="16" preserveAspectRatio="xMidYMid meet">
+<title>随身听：紫橙耳机与音符</title>
+<defs>
+ <linearGradient id="small2-16-tile" x1="16" y1="8" x2="240" y2="248" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#fff7c2"/></linearGradient>
+ <linearGradient id="small2-16-band" x1="58" y1="54" x2="205" y2="180" gradientUnits="userSpaceOnUse"><stop stop-color="#8e4ec6"/><stop offset="1" stop-color="#d6409f"/></linearGradient>
+ <linearGradient id="small2-16-pad" x1="0" y1="112" x2="0" y2="200" gradientUnits="userSpaceOnUse"><stop stop-color="#ffc53d"/><stop offset="1" stop-color="#f76b15"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#small2-16-tile)"/>
+<path fill="#8e4ec6" opacity=".08" d="M43 164V127C43 74 78 41 128 41S213 74 213 127V164H189V127C189 91 165 65 128 65S67 91 67 127V164Z" transform="translate(0 8)"/>
+<path fill="url(#small2-16-band)" d="M43 156V119C43 66 78 33 128 33S213 66 213 119V156H189V119C189 83 165 57 128 57S67 83 67 119V156Z"/>
+<rect x="36" y="115" width="43" height="77" rx="21.5" fill="url(#small2-16-pad)"/>
+<rect x="177" y="115" width="43" height="77" rx="21.5" fill="url(#small2-16-pad)"/>
+<path fill="url(#small2-16-band)" d="M132 99Q132 94 137 96L166 108V130L151 124V175C151 193 130 207 114 200C98 193 99 178 111 169C117 164 125 162 132 163Z"/>
+<path fill="#f76b15" d="M137 96L166 108V130L132 116V99Q132 94 137 96Z"/>
+</svg>
+<text x="1324" y="758" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="14" font-weight="400" fill="#646464">16 px</text><text x="64" y="858" font-family="Segoe UI,Microsoft YaHei,sans-serif" font-size="15" font-weight="400" fill="#646464">概念预览 · 图标内不含字母</text></svg>

@@ -1,10 +1,5 @@
-import { For } from 'solid-js'
-
-// The app's icon, drawn from the layers in icon/AppIcon.icon: a record on
-// a red card, seen so close it runs off the edges, its red label and white
-// tonearm. The card follows the theme.
+// The same editable artwork as icon/AppIcon.icon and resources/icon.png.
 export function AppIcon(props: { size?: number; class?: string }) {
-  const grooves = Array.from({ length: 45 }, (_, i) => 235.2 + i * 7)
   return (
     <svg
       class={props.class}
@@ -14,80 +9,43 @@ export function AppIcon(props: { size?: number; class?: string }) {
       aria-hidden="true"
     >
       <defs>
-        <linearGradient id="icon-card" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" style={{ 'stop-color': 'var(--icon-top)' }} />
-          <stop offset="1" style={{ 'stop-color': 'var(--icon-foot)' }} />
+        <linearGradient id="icon-card" x1="88" y1="64" x2="940" y2="960" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#D6F1DF" />
+          <stop offset="1" stop-color="#30A46C" />
         </linearGradient>
-        <radialGradient id="icon-disc" cx="330" cy="712" r="560" gradientUnits="userSpaceOnUse">
-          <stop offset="0.35" stop-color="#2A2A30" />
-          <stop offset="0.95" stop-color="#17171B" />
-          <stop offset="1" stop-color="#0E0E11" />
+        <radialGradient id="icon-vinyl" cx="322" cy="414" r="511" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#373B39" />
+          <stop offset="0.92" stop-color="#171918" />
+          <stop offset="1" stop-color="#101211" />
         </radialGradient>
-        <linearGradient id="icon-red" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#FF5B5B" />
-          <stop offset="1" stop-color="#E3122C" />
+        <linearGradient id="icon-label" x1="292" y1="450" x2="532" y2="672" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#FFEE9C" />
+          <stop offset="1" stop-color="#FFC53D" />
         </linearGradient>
-        <linearGradient id="icon-arm" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#FFFFFF" />
-          <stop offset="1" stop-color="#E6E3E5" />
-        </linearGradient>
-        <linearGradient id="icon-sheen" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#fff" stop-opacity="0" />
-          <stop offset="0.5" stop-color="#fff" stop-opacity="0.2" />
-          <stop offset="1" stop-color="#fff" stop-opacity="0" />
+        <linearGradient id="icon-arm" x1="625" y1="230" x2="842" y2="620" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#FFFFFF" />
+          <stop offset="1" stop-color="#E6E9E8" />
         </linearGradient>
         <clipPath id="icon-shape">
-          <rect width="1024" height="1024" rx="230" />
+          <rect width="1024" height="1024" rx="216" />
         </clipPath>
       </defs>
       <g clip-path="url(#icon-shape)">
         <rect width="1024" height="1024" fill="url(#icon-card)" />
-        <circle cx="330" cy="712" r="560" fill="url(#icon-disc)" />
-        <circle cx="330" cy="712" r="552" fill="none" stroke="#fff" stroke-opacity="0.14" stroke-width="3" />
-        <For each={grooves}>
-          {(r, i) => (
-            <circle
-              cx="330"
-              cy="712"
-              r={r}
-              fill="none"
-              stroke="#fff"
-              stroke-opacity={i() % 2 ? 0.07 : 0.04}
-              stroke-width="1.4"
-            />
-          )}
-        </For>
-        <path d={wedge(2, 48)} fill="url(#icon-sheen)" />
-        <path d={wedge(182, 228)} fill="url(#icon-sheen)" opacity="0.7" />
-        <circle cx="330" cy="712" r="200.48" fill="url(#icon-red)" />
-        <circle cx="330" cy="712" r="138.32" fill="none" stroke="#fff" stroke-opacity="0.28" stroke-width="3" />
-        <circle cx="330" cy="712" r="29.12" fill="#FFF6F2" />
+        <circle cx="426" cy="572" r="380" fill="#193B2D" opacity="0.16" />
+        <circle cx="410" cy="555" r="363" fill="url(#icon-vinyl)" />
+        <circle cx="410" cy="555" r="319" fill="none" stroke="#63706B" stroke-width="8" />
+        <circle cx="410" cy="555" r="261" fill="none" stroke="#444947" stroke-width="8" />
+        <circle cx="410" cy="555" r="197" fill="none" stroke="#5B625F" stroke-width="8" />
+        <path d="M131 510A299 299 0 0 1 266 329M551 780A299 299 0 0 0 669 620" fill="none" stroke="#ADB5B2" stroke-opacity="0.48" stroke-width="22" stroke-linecap="round" />
+        <circle cx="410" cy="555" r="136" fill="url(#icon-label)" />
+        <circle cx="410" cy="555" r="30" fill="#1A211E" />
+        <path d="M832 263V438Q832 483 797 518L677 620" fill="none" stroke="#193B2D" stroke-opacity="0.2" stroke-width="72" stroke-linecap="round" stroke-linejoin="round" />
+        <path d="M820 245V420Q820 465 785 500L665 602" fill="none" stroke="url(#icon-arm)" stroke-width="72" stroke-linecap="round" stroke-linejoin="round" />
+        <circle cx="820" cy="235" r="91" fill="url(#icon-arm)" />
+        <circle cx="820" cy="235" r="36" fill="#FFC53D" />
+        <path d="M660 524L730 594L655 676Q638 694 620 676L588 644Q570 626 588 608Z" fill="#FFC53D" />
       </g>
-      <g transform="rotate(127.52 820 214)">
-        <rect x="716" y="188" width="64" height="52" rx="15" fill="url(#icon-arm)" />
-        <rect x="820" y="197" width="355.83" height="34" rx="17" fill="url(#icon-arm)" />
-        <rect
-          x="1153.83"
-          y="186"
-          width="92"
-          height="56"
-          rx="14"
-          fill="url(#icon-arm)"
-          transform="rotate(28 1175.83 214)"
-        />
-      </g>
-      <circle cx="820" cy="214" r="72" fill="url(#icon-arm)" />
-      <circle cx="820" cy="214" r="27" fill="#D9D5D8" />
     </svg>
   )
-}
-
-// wedge is the path of the record's sheen between two angles, in degrees
-// clockwise from 12 o'clock, from the label's edge to the rim.
-function wedge(from: number, to: number) {
-  const at = (deg: number, r: number) => {
-    const a = ((deg - 90) * Math.PI) / 180
-    return `${(330 + r * Math.cos(a)).toFixed(2)} ${(712 + r * Math.sin(a)).toFixed(2)}`
-  }
-  return `M${at(from, 210)}L${at(from, 550)}A550 550 0 0 1 ${at(to, 550)}L${at(to, 210)}A210 210 0 0 0 ${at(from, 210)}Z`
 }
