@@ -10,6 +10,48 @@ import (
 	"testing"
 )
 
+// Singer discographies must remain readable and paginate while an account is present.
+func TestLiveArtistAlbums(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip("set LIVE to contact QQ Music")
+	}
+	previous := sessionSnapshot()
+	t.Cleanup(func() { setSession(previous) })
+	setSession(Session{})
+	artists, err := SearchPage("徐佳莹", SearchArtists, 5, 0)
+	if err != nil || len(artists.Artists) == 0 {
+		t.Fatalf("artist search: %v", err)
+	}
+	for _, account := range []string{"anonymous", "QQ", "WeChat"} {
+		t.Run(account, func(t *testing.T) {
+			setSession(Session{})
+			if account != "anonymous" {
+				loginType := 2
+				if account == "WeChat" {
+					loginType = 1
+				}
+				// Exercise account-independent reads without using a real credential.
+				setSession(Session{MusicID: "123", MusicKey: "fixture-credential", LoginType: loginType})
+			}
+			var firstID int64
+			for _, offset := range []int{0, 5} {
+				albums, more, err := ArtistAlbums(artists.Artists[0].ID, 5, offset)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(albums) == 0 || albums[0].ID <= 0 || albums[0].MID == "" || albums[0].Name == "" || !more {
+					t.Fatalf("missing discography metadata or pagination: %+v, more=%v", albums, more)
+				}
+				if offset > 0 && albums[0].ID == firstID {
+					t.Fatal("discography repeated its first page")
+				}
+				firstID = albums[0].ID
+				t.Logf("%s offset=%d: %d albums, more=%v", artists.Artists[0].Name, offset, len(albums), more)
+			}
+		})
+	}
+}
+
 // Public search must return usable songs, artists and albums even while an account is present.
 func TestLiveSearch(t *testing.T) {
 	if os.Getenv("LIVE") == "" {

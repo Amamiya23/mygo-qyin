@@ -282,7 +282,9 @@ func AlbumDetail(id int64) (*AlbumProfile, error) {
 }
 func ArtistAlbums(id int64, limit, offset int) ([]AlbumProfile, bool, error) {
 	var data object
-	if err := rpc("music.musichallAlbum.AlbumListServer", "GetAlbumList", map[string]any{"sort": 5, "singermid": artistMID(id), "begin": offset, "num": limit}, &data); err != nil {
+	// This web catalog RPC rejects the logged-in mobile client identity with 104403.
+	comm := map[string]any{"ct": 24, "cv": 0}
+	if err := rpcWithComm("music.musichallAlbum.AlbumListServer", "GetAlbumList", map[string]any{"sort": 5, "singermid": artistMID(id), "begin": offset, "num": limit}, &data, comm, nil); err != nil {
 		return nil, false, err
 	}
 	entries := objects(data, "albumList", "albumlist")

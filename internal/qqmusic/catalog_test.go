@@ -193,6 +193,61 @@ func TestSingerAlbumMID(t *testing.T) {
 	}
 }
 
+// Login used to send the mobile client identity to the web discography RPC, which rejects it with 104403.
+func TestArtistAlbumsKeepsWebIdentity(t *testing.T) {
+	const artistID = 62001
+	convertArtist(obj(json.RawMessage(`{"id":62001,"mid":"fixtureSinger","name":"Singer"}`)))
+	for _, account := range []struct {
+		name    string
+		session Session
+	}{
+		{"anonymous", Session{}},
+		{"QQ", Session{MusicID: "123", MusicKey: "fixture-credential", LoginType: 2}},
+		{"WeChat", Session{MusicID: "123", MusicKey: "fixture-credential", LoginType: 1}},
+	} {
+		t.Run(account.name, func(t *testing.T) {
+			expectedOffset := 0
+			withQQServer(t, func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					Comm map[string]any
+					Req  struct {
+						Module, Method string
+						Param          map[string]any
+					} `json:"req_0"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+				}
+				if request.Comm["ct"] != float64(24) || request.Comm["cv"] != float64(0) || request.Comm["qq"] != nil || request.Comm["authst"] != nil {
+					_, _ = io.WriteString(w, `{"code":0,"req_0":{"code":104403,"data":{"albumList":[],"total":0}}}`)
+					return
+				}
+				if request.Req.Module != "music.musichallAlbum.AlbumListServer" || request.Req.Method != "GetAlbumList" || request.Req.Param["singermid"] != "fixtureSinger" || request.Req.Param["num"] != float64(30) || request.Req.Param["sort"] != float64(5) {
+					t.Errorf("wrong discography request: %+v", request)
+				}
+				if offset := request.Req.Param["begin"]; offset != float64(expectedOffset) {
+					t.Errorf("offset = %v, want %d", offset, expectedOffset)
+				}
+				rpcReply(w, json.RawMessage(`{"albumList":[{"albumID":62002,"albumMid":"fixtureAlbum","albumName":"Album","publishDate":"2026-10-30","totalNum":8}],"total":2}`))
+			})
+			setSession(account.session)
+			for offset := 0; offset < 2; offset++ {
+				expectedOffset = offset
+				albums, more, err := ArtistAlbums(artistID, 30, offset)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(albums) != 1 || albums[0].ID != 62002 || albums[0].MID != "fixtureAlbum" || albums[0].Name != "Album" || albums[0].PicURL == "" || albums[0].Size != 8 || albums[0].PublishTime == 0 || more != (offset == 0) {
+					t.Fatalf("lost album metadata or pagination: %+v, more=%v", albums, more)
+				}
+			}
+			if sessionSnapshot().MusicKey != account.session.MusicKey {
+				t.Fatal("discography changed the account session")
+			}
+		})
+	}
+}
+
 // A private owned playlist's empty public response must fall back to the signed owner RPC.
 func TestPrivatePlaylistUsesOwnerRead(t *testing.T) {
 	withQQServer(t, func(w http.ResponseWriter, r *http.Request) {
