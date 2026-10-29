@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -275,6 +276,121 @@ func TestCancelDeletingPlaylist(t *testing.T) {
 	}
 }
 
+// Saved playlists previously had no removal action; both menus must unfavorite only after confirmation and preserve the queue.
+func TestUnfavoritePlaylist(t *testing.T) {
+	for _, entry := range []string{"sidebar", "header"} {
+		t.Run(entry, func(t *testing.T) {
+			type call struct {
+				id    int64
+				owned bool
+			}
+			calls := make(chan call, 1)
+			unfavoritePlaylist = func(id int64) error { calls <- call{id: id}; return nil }
+			deletePlaylist = func(id int64) error { calls <- call{id: id, owned: true}; return nil }
+			defer func() { unfavoritePlaylist, deletePlaylist = qqmusic.UnfavoritePlaylist, qqmusic.DeletePlaylist }()
+
+			a := editTestApp()
+			a.playlists[20] = &qqmusic.Playlist{ID: 20, Name: "飙升榜", Tracks: a.playlists[10].Tracks}
+			a.pl.Cue(a.playlists[20].Tracks)
+			a.route = route{page: pagePlaylist, id: 20}
+			a.history = []route{{page: pageCharts}, a.route}
+			a.forward = []route{a.route}
+			tt := ui.NewTester(a.view, 1200, 800)
+			tt.Frame()
+			if entry == "sidebar" {
+				if err := tt.RightClick("飙升榜"); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := tt.Click("更多"); err != nil {
+				t.Fatal(err)
+			}
+			if err := tt.ChooseMenuItem("取消收藏…"); err != nil {
+				t.Fatalf("%v; the menu shows %q", err, tt.Menu())
+			}
+			tt.Advance(300 * time.Millisecond)
+			tt.Frame()
+			select {
+			case <-calls:
+				t.Fatal("removed the playlist before confirmation")
+			default:
+			}
+			if err := tt.Click("取消收藏"); err != nil {
+				t.Fatal(err)
+			}
+			tt.Frame()
+			if len(a.saved) != 0 || len(a.mine) != 3 {
+				t.Fatalf("wrong library changed: saved=%v, mine=%v", a.saved, a.mine)
+			}
+			if got := <-calls; got != (call{id: 20}) {
+				t.Errorf("wrong operation: %+v", got)
+			}
+			if a.route.page != pageCharts || len(a.history) != 0 || len(a.forward) != 0 {
+				t.Errorf("removed playlist still in navigation: route=%+v, history=%v, forward=%v", a.route, a.history, a.forward)
+			}
+			if q := a.pl.Queue(); len(q) != 2 || q[0].ID != 1 || q[1].ID != 2 {
+				t.Errorf("unfavoriting changed the playing queue: %v", q)
+			}
+		})
+	}
+}
+
+// Cancelling the saved-playlist confirmation leaves its membership and current page intact without contacting QQ Music.
+func TestCancelUnfavoritePlaylist(t *testing.T) {
+	calls := make(chan int64, 1)
+	unfavoritePlaylist = func(id int64) error { calls <- id; return nil }
+	defer func() { unfavoritePlaylist = qqmusic.UnfavoritePlaylist }()
+	a := editTestApp()
+	before := a.route
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	if err := tt.RightClick("飙升榜"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("取消收藏…"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+	if err := tt.Click("取消"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+	if len(a.saved) != 1 || a.saved[0].ID != 20 || a.route != before || a.deleting.open {
+		t.Fatal("cancelling changed the library or page, or left confirmation open")
+	}
+	select {
+	case <-calls:
+		t.Fatal("cancel contacted QQ Music")
+	default:
+	}
+}
+
+// A refused unfavorite restores the saved entry and its cache, while a confirmed removal clears the cache.
+func TestUnfavoritePlaylistResult(t *testing.T) {
+	for _, rejected := range []bool{false, true} {
+		a := editTestApp()
+		pl := a.saved[0]
+		a.saved = nil // The pending action has already removed the sidebar row.
+		a.playlists[pl.ID] = &pl
+		var err error
+		if rejected {
+			err = errors.New("QQ Music refused the request")
+		}
+		a.finishPlaylistRemoval(pl, true, 0, err)
+		if rejected {
+			if len(a.saved) != 1 || a.saved[0].ID != pl.ID || a.saved[0].Name != pl.Name || a.playlists[pl.ID] == nil {
+				t.Fatal("refused unfavorite did not restore the saved entry and retain its cache")
+			}
+		} else if len(a.saved) != 0 || a.playlists[pl.ID] != nil {
+			t.Fatal("successful unfavorite retained membership or cached detail")
+		}
+		if len(a.mine) != 3 {
+			t.Fatal("the favorite result changed owned playlists")
+		}
+	}
+}
+
 // With NM_FRAMES set, saves the listener's playlist with its sidebar, and
 // the dialogs that name and delete playlists, to look at.
 func TestPlaylistEditFrames(t *testing.T) {
@@ -306,6 +422,9 @@ func TestPlaylistEditFrames(t *testing.T) {
 		a.naming.open = false
 		a.confirmDelete(a.editable(11))
 		save("delete" + suffix)
+		a.deleting.open = false
+		a.confirmUnfavorite(&a.saved[0])
+		save("unfavorite" + suffix)
 		a.deleting.open = false
 	}
 }

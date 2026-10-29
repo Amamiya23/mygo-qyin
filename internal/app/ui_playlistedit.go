@@ -13,13 +13,14 @@ import (
 // The listener's own playlists: making them, renaming them, deleting them,
 // and adding songs to them or taking songs out.
 
-// These edit playlists with NetEase; tests replace them.
+// These edit playlists with QQ Music; tests replace them.
 var (
 	createPlaylist     = qqmusic.CreatePlaylist
 	renamePlaylist     = qqmusic.RenamePlaylist
 	addToPlaylist      = qqmusic.AddToPlaylist
 	removeFromPlaylist = qqmusic.RemoveFromPlaylist
 	deletePlaylist     = qqmusic.DeletePlaylist
+	unfavoritePlaylist = qqmusic.UnfavoritePlaylist
 )
 
 // nameDialog asks for a playlist's name: a new one's, or one's new name.
@@ -31,11 +32,12 @@ type nameDialog struct {
 	busy   bool           // NetEase is making the playlist
 }
 
-// deleteDialog asks whether to delete one of the listener's playlists.
+// deleteDialog asks whether to delete an owned playlist or unfavorite a saved one.
 type deleteDialog struct {
-	open bool
-	id   int64
-	name string
+	open  bool
+	id    int64
+	name  string
+	saved bool
 }
 
 // editable returns the listener's playlist id if they may edit its songs
@@ -44,6 +46,15 @@ func (a *app) editable(id int64) *qqmusic.Playlist {
 	for i := range a.mine {
 		if a.mine[i].ID == id && a.mine[i].SpecialType != 5 {
 			return &a.mine[i]
+		}
+	}
+	return nil
+}
+
+func (a *app) savedPlaylist(id int64) *qqmusic.Playlist {
+	for i := range a.saved {
+		if a.saved[i].ID == id {
+			return &a.saved[i]
 		}
 	}
 	return nil
@@ -149,18 +160,26 @@ func (a *app) confirmDelete(pl *qqmusic.Playlist) {
 	a.deleting = deleteDialog{open: true, id: pl.ID, name: pl.Name}
 }
 
-// deleteChosen deletes the playlist the dialog asked about: at once from
-// the sidebar, leaving its page, and then with NetEase, which may refuse:
-// it comes back then.
+func (a *app) confirmUnfavorite(pl *qqmusic.Playlist) {
+	a.deleting = deleteDialog{open: true, id: pl.ID, name: pl.Name, saved: true}
+}
+
+// deleteChosen removes the confirmed playlist from the library and leaves its
+// page; QQ Music may refuse, in which case the sidebar entry comes back.
 func (a *app) deleteChosen() {
 	id := a.deleting.id
+	saved := a.deleting.saved
 	a.deleting.open = false
-	i := slices.IndexFunc(a.mine, func(pl qqmusic.Playlist) bool { return pl.ID == id })
-	if i < 0 || a.mine[i].SpecialType == 5 {
+	lists, remove := &a.mine, deletePlaylist
+	if saved {
+		lists, remove = &a.saved, unfavoritePlaylist
+	}
+	i := slices.IndexFunc(*lists, func(pl qqmusic.Playlist) bool { return pl.ID == id })
+	if i < 0 || !saved && (*lists)[i].SpecialType == 5 {
 		return
 	}
-	pl := a.mine[i]
-	a.mine = slices.Delete(slices.Clone(a.mine), i, i+1)
+	pl := (*lists)[i]
+	*lists = slices.Delete(slices.Clone(*lists), i, i+1)
 	// Leave no way back to its page, and leave it for the page before.
 	gone := func(r route) bool { return r.page == pagePlaylist && r.id == id }
 	a.history = slices.DeleteFunc(a.history, gone)
@@ -173,17 +192,28 @@ func (a *app) deleteChosen() {
 		a.show(r)
 	}
 	go func() {
-		err := deletePlaylist(id)
-		a.post(func() {
-			if err != nil {
-				a.mine = slices.Insert(a.mine, min(i, len(a.mine)), pl)
-				a.toast = "删除失败，请稍后再试"
-				return
-			}
-			delete(a.playlists, id)
-			a.toast = "已删除歌单"
-		})
+		err := remove(id)
+		a.post(func() { a.finishPlaylistRemoval(pl, saved, i, err) })
 	}()
+}
+
+// finishPlaylistRemoval commits the server result or restores the removed library entry.
+func (a *app) finishPlaylistRemoval(pl qqmusic.Playlist, saved bool, index int, err error) {
+	if err != nil {
+		lists := &a.mine
+		a.toast = "删除失败，请稍后再试"
+		if saved {
+			lists = &a.saved
+			a.toast = "取消收藏失败，请稍后再试"
+		}
+		*lists = slices.Insert(*lists, min(index, len(*lists)), pl)
+		return
+	}
+	delete(a.playlists, pl.ID)
+	a.toast = "已删除歌单"
+	if saved {
+		a.toast = "已取消收藏"
+	}
 }
 
 func (a *app) setPlaylistName(id int64, name string) {
@@ -313,8 +343,7 @@ func (a *app) playlistNameDialog(c *ui.Context) {
 	})
 }
 
-// deletePlaylistDialog asks whether to delete a playlist, which can't be
-// undone.
+// deletePlaylistDialog confirms deleting an owned playlist or unfavoriting a saved one.
 func (a *app) deletePlaylistDialog(c *ui.Context) {
 	p := a.pal
 	d := &a.deleting
@@ -323,13 +352,19 @@ func (a *app) deletePlaylistDialog(c *ui.Context) {
 		panel.Width(360).Padding(24).Radius(18).Gap(8).
 			Background(p.bg).Border(1, p.hairline).Shadow(0, 24, 60, -12, radixInk.Alpha(0.4)).
 			Transition(ui.ElementTransition{Animation: &ui.Snappy, Enter: &ui.Motion{Scale: 0.94}, Exit: &ui.Motion{Scale: 0.96}})
-		ui.Text(c, "删除歌单").FontSize(17).FontWeight(700)
-		ui.Text(c, "确定删除歌单“"+d.name+"”吗？删除后无法恢复。").FontSize(13).TextColor(p.muted).LineHeight(1.45)
+		title, action := "删除歌单", "删除"
+		message := "确定删除歌单“" + d.name + "”吗？删除后无法恢复。"
+		if d.saved {
+			title, action = "取消收藏歌单", "取消收藏"
+			message = "确定取消收藏歌单“" + d.name + "”吗？"
+		}
+		ui.Text(c, title).FontSize(17).FontWeight(700)
+		ui.Text(c, message).FontSize(13).TextColor(p.muted).LineHeight(1.45)
 		ui.Row(c).Gap(10).Justify(ui.End).Margin(8, 0, 0, 0).Children(func() {
 			if pillButton(c.Key("cancel"), nil, "取消", p.hover.Over(p.bg), p.text).Clicked() {
 				d.open = false
 			}
-			if pillButton(c.Key("ok"), nil, "删除", p.accent, p.onAccent).Clicked() {
+			if pillButton(c.Key("ok"), nil, action, p.accent, p.onAccent).Clicked() {
 				a.deleteChosen()
 			}
 		})

@@ -28,7 +28,7 @@ func ownedPlaylists() (object, error) {
 	return data, err
 }
 func libraryPlaylist(o object) Playlist {
-	p := Playlist{ID: number(o, "tid", "dissid", "id"), Name: text(o, "dirName", "title", "dissname"), CoverURL: text(o, "bigpicUrl", "picUrl", "picurl", "coverUrl", "logo", "albumPicUrl"), Description: text(o, "desc"), TrackCount: int(number(o, "songNum", "songnum", "song_cnt")), PlayCount: float64(number(o, "play_cnt", "playCount"))}
+	p := Playlist{ID: number(o, "tid", "dissid", "id"), Name: text(o, "dirName", "title", "dissname", "name"), CoverURL: text(o, "bigpicUrl", "picUrl", "picurl", "coverUrl", "logo", "albumPicUrl"), Description: text(o, "desc"), TrackCount: int(number(o, "songNum", "songnum", "song_cnt")), PlayCount: float64(number(o, "play_cnt", "playCount"))}
 	p.Creator.UserID = number(o, "uin")
 	p.Creator.Nickname = text(o, "nick", "nickname")
 	if number(o, "dirId", "dirid") == 201 {
@@ -389,6 +389,31 @@ func DeletePlaylist(id int64) error {
 		if number(o, "tid") == id || number(o, "dirId") == dir {
 			return errors.New("QQ 音乐删除后仍返回此歌单")
 		}
+	}
+	return nil
+}
+
+// UnfavoritePlaylist removes another creator's playlist from the listener's library.
+func UnfavoritePlaylist(id int64) error {
+	s, err := signedSession()
+	if err != nil {
+		return err
+	}
+	if id <= 0 {
+		return errors.New("qqmusic: invalid playlist ID")
+	}
+	var data struct {
+		Result *int              `json:"result"`
+		Failed []json.RawMessage `json:"v_failedPlaylistId"`
+	}
+	if err := rpc("music.musicasset.PlaylistFavWrite", "CancelFavPlaylist", map[string]any{"uin": s.MusicID, "v_playlistId": []int64{id}}, &data); err != nil {
+		return err
+	}
+	if data.Result == nil || data.Failed == nil {
+		return errors.New("QQ 音乐未确认取消收藏歌单")
+	}
+	if *data.Result != 0 || len(data.Failed) != 0 {
+		return errors.New("QQ 音乐取消收藏歌单失败")
 	}
 	return nil
 }

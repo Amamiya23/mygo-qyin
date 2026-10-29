@@ -301,6 +301,13 @@ func (a *app) playlistHeader(c *ui.Context, pl *qqmusic.Playlist) {
 							a.confirmDelete(mine)
 						}
 					})
+				} else if saved := a.savedPlaylist(pl.ID); saved != nil {
+					more := iconButton(c.Key("more"), iconMore, 18, p.muted, "更多")
+					more.Menu(func(m *ui.Menu) {
+						if m.Item("取消收藏…").Chosen() {
+							a.confirmUnfavorite(saved)
+						}
+					})
 				}
 			})
 		})

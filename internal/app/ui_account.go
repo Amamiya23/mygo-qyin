@@ -382,6 +382,12 @@ func (a *app) myPlaylists(c *ui.Context, title string, lists []qqmusic.Playlist,
 					a.confirmDelete(pl)
 				}
 			})
+		} else if !mine {
+			b.ContextMenu(func(m *ui.Menu) {
+				if m.Item("取消收藏…").Chosen() {
+					a.confirmUnfavorite(pl)
+				}
+			})
 		}
 		if b.Clicked() {
 			a.open(route{page: pagePlaylist, id: pl.ID})
