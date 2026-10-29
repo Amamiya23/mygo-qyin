@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"lilt/internal/lyrics"
 	"lilt/internal/player"
 	"lilt/internal/qqmusic"
 )
@@ -41,15 +42,17 @@ type notch struct {
 }
 
 const (
-	notchOpenW  = 468
-	notchIdleW  = 330
-	notchHelloW = 340
+	notchOpenW   = 468
+	notchIdleW   = 330
+	notchHelloW  = 340
+	notchLyricsW = 360
+	notchOpenH   = 178
 )
 
 func newNotch(a *app) *notch {
 	n := &notch{a: a}
 	n.measure()
-	n.winW, n.winH = notchOpenW+60, 240
+	n.winW, n.winH = notchOpenW+60, n.h0+notchOpenH+30
 	n.place()
 	n.win = mygo.NewWindow(mygo.WindowOptions{
 		Title:         mygo.App.Name() + "迷你播放器",
@@ -225,7 +228,7 @@ func (n *notch) target() (w, h float32) {
 	case n.open && tr == nil:
 		return notchIdleW, n.h0 + 72
 	case n.open:
-		return notchOpenW, n.h0 + 178
+		return notchOpenW, n.h0 + notchOpenH
 	case n.hello && tr != nil:
 		return notchHelloW, n.h0 + 58
 	case !n.real && !s.NotchVirtual:
@@ -233,6 +236,9 @@ func (n *notch) target() (w, h float32) {
 		// icons there: nothing shows until the pointer asks for it.
 		return 0, 0
 	case tr != nil && s.NotchActivity && s.Notch:
+		if !n.real {
+			return max(notchLyricsW, n.w0+2*max(0, n.h0-12)+20), n.h0
+		}
 		// Wings just wide enough for the cover and the levels, so they
 		// hide no more of the menu bar than they must.
 		return n.w0 + 2*max(0, n.h0-12) + 20, n.h0
@@ -378,7 +384,7 @@ func (n *notch) view(c *ui.Context) {
 				return
 			}
 			if a.settings.NotchActivity || !a.settings.Notch {
-				n.compact(c, tr, 1-open)
+				n.compact(c, tr, 1-open, !n.real && !n.hello)
 			}
 			n.helloRow(c, hello*(1-open), (w-notchHelloW)/2)
 			if open > 0.02 {
@@ -389,23 +395,53 @@ func (n *notch) view(c *ui.Context) {
 	a.syncWindows()
 }
 
-// compact shows the cover on the housing's left and the levels on its right.
-func (n *notch) compact(c *ui.Context, tr *qqmusic.Track, shown float32) {
+// compact leaves real camera housings clear. Virtual notches use that
+// space for the current lyric, between the cover and the levels.
+func (n *notch) compact(c *ui.Context, tr *qqmusic.Track, shown float32, showLyrics bool) {
 	if shown < 0.02 {
 		return
 	}
 	art := n.a.art.get(qqmusic.Sized(tr.Album.PicURL, 96), false)
 	s := n.h0 - 12
-	ui.Row(c).Absolute().Top(0).Left(0).Right(0).Height(n.h0).PaddingX(7).AlignItems(ui.Center).Opacity(shown).Children(func() {
-		cov := ui.Box(c).Size(s, s).Radius(s * 0.28)
+	ui.Row(c).Absolute().Top(0).Left(0).Right(0).Height(n.h0).PaddingX(7).Gap(10).AlignItems(ui.Center).Opacity(shown).Children(func() {
+		cov := ui.Box(c).Size(s, s).Shrink(0).Radius(s * 0.28)
 		in := artIn(cov, bitmap(art))
 		if in < 1 {
 			cov.Background(white.Alpha(0.12))
 		}
 		cov.Children(func() { artImage(c, bitmap(art), s*0.28, in) })
-		ui.Spacer(c)
-		n.levels(c, tr, 16, s*0.7, 4)
+		if showLyrics {
+			ui.Text(c.Key("compact-lyric"), n.lyricText(c, tr)).Grow(1).MinWidth(0).
+				FontSize(12.5).FontWeight(800).LetterSpacing(-0.4).TextColor(white.Alpha(0.68)).TextAlign(ui.Center).SingleLine()
+		} else {
+			ui.Spacer(c)
+		}
+		ui.Box(c).Size(s, s).Shrink(0).Center().Children(func() {
+			n.levels(c, tr, 16, s*0.7, 4)
+		})
 	})
+}
+
+// lyricText uses the same timeline as Now Playing, waking this window at
+// the next line even when the main window is hidden. Pausing needs no timer.
+func (n *notch) lyricText(c *ui.Context, tr *qqmusic.Track) string {
+	pl := n.a.pl
+	lines, loaded := pl.Lyrics()
+	if !loaded {
+		return "歌词加载中…"
+	}
+	if len(lines) == 0 {
+		return "暂无歌词"
+	}
+	pos := pl.Position()
+	cur := lyrics.Index(lines, pos)
+	if pl.Playing() && cur+1 < len(lines) {
+		c.After(lines[cur+1].At - pos + 20*time.Millisecond)
+	}
+	if cur < 0 {
+		return tr.Name
+	}
+	return lines[cur].Text
 }
 
 // levels draws the music's levels in the cover's color.
@@ -452,10 +488,13 @@ func (n *notch) expanded(c *ui.Context, tr *qqmusic.Track, open, left float32) {
 			}
 			ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 				ui.Text(c, tr.Name).FontSize(15).FontWeight(700).SingleLine()
-				if pl.Loading() {
+				if !pl.Playing() {
+					a.artistLinks(c, tr, white.Alpha(0.55), white).FontSize(12.5).SingleLine()
+				} else if pl.Loading() {
 					ui.Text(c, "正在缓冲…").FontSize(12.5).TextColor(white.Alpha(0.55)).SingleLine()
 				} else {
-					a.artistLinks(c, tr, white.Alpha(0.55), white).FontSize(12.5).SingleLine()
+					ui.Text(c.Key("expanded-lyric"), n.lyricText(c, tr)).MinWidth(0).
+						FontSize(12.5).FontWeight(800).LetterSpacing(-0.4).TextColor(white.Alpha(0.7)).SingleLine()
 				}
 			})
 			a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6))
