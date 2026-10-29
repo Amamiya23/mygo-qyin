@@ -1,0 +1,102 @@
+diff --git a/vendor/github.com/egoist/mygo/internal/windows/menudraw.go b/vendor/github.com/egoist/mygo/internal/windows/menudraw.go
+--- a/vendor/github.com/egoist/mygo/internal/windows/menudraw.go
++++ b/vendor/github.com/egoist/mygo/internal/windows/menudraw.go
+@@ -34,7 +34,6 @@
+ 	dtCalcRect             = 0x400
+ 	dtRight                = 0x002
+ 	srcCopy                = 0x00CC0020
+-	smCxMenuCheck          = 71
+ 	spiGetNonClientMetrics = 0x0029
+ 	layoutRTL              = 0x1
+ )
+@@ -370,11 +369,13 @@
+ }
+ 
+ func (b *Backend) measureItem(hwnd uintptr, l *menuLook, mis *measureItemStruct) {
+-	dpi := dpiOf(hwnd)
++	mis.ItemWidth, mis.ItemHeight = b.menuItemSize(dpiOf(hwnd), l)
++}
++
++func (b *Backend) menuItemSize(dpi int, l *menuLook) (width, height uint32) {
+ 	top, bottom := l.padding(dpi)
+ 	if l.separator {
+-		mis.ItemWidth, mis.ItemHeight = 0, uint32(toPx(menuSeparatorHeight, dpi)+top+bottom)
+-		return
++		return 0, uint32(toPx(menuSeparatorHeight, dpi) + top + bottom)
+ 	}
+ 	f := b.menuFace(dpi)
+ 	dc, _, _ := procGetDC.Call(0)
+@@ -392,10 +393,10 @@
+ 	if l.submenu {
+ 		w += toPx(menuAccelGap/2+menuChevron, dpi)
+ 	}
+-	// Windows adds the width of its checks to that of every item.
+-	check, _, _ := procGetSystemMetricsForDpi.Call(smCxMenuCheck, uintptr(dpi))
+-	w = max(w-int32(check)+1, 0)
+-	mis.ItemWidth, mis.ItemHeight = uint32(w), uint32(toPx(menuItemHeight, dpi)+top+bottom)
++	// Report all the room drawItem needs. Windows may add its own gutter,
++	// but that is not necessarily SM_CXMENUCHECK; subtracting that metric
++	// can leave the label narrower than the text we measured.
++	return uint32(w), uint32(toPx(menuItemHeight, dpi) + top + bottom)
+ }
+ 
+ func (b *Backend) drawItem(hwnd uintptr, l *menuLook, d *drawItemStruct) {
+diff --git a/vendor/github.com/egoist/mygo/internal/windows/menu_width_test.go b/vendor/github.com/egoist/mygo/internal/windows/menu_width_test.go
+new file mode 100644
+--- /dev/null
++++ b/vendor/github.com/egoist/mygo/internal/windows/menu_width_test.go
+@@ -0,0 +1,54 @@
++//go:build windows && (amd64 || arm64)
++
++package windows
++
++import (
++	"fmt"
++	"testing"
++)
++
++// Menu measurement previously deducted more than Windows restored, clipping the label's last glyphs.
++func TestMenuItemWidthContainsDrawnContent(t *testing.T) {
++	b := &Backend{}
++	t.Cleanup(b.dropMenuFonts)
++	dc, _, _ := procGetDC.Call(0)
++	if dc == 0 {
++		t.Fatal("GetDC failed")
++	}
++	defer procReleaseDC.Call(0, dc)
++	for _, dpi := range []int{96, 144, 192} {
++		for _, tc := range []struct {
++			name string
++			look menuLook
++		}{
++			{"artist", menuLook{label: "查看歌手：房东的猫"}},
++			{"album", menuLook{label: "查看专辑：云烟成雨"}},
++			{"long mixed text", menuLook{label: "查看专辑：Memories of a Geisha（艺伎回忆录原声带）"}},
++			{"shortcut", menuLook{label: "复制歌名和歌手", accel: "Ctrl+Shift+C"}},
++			{"submenu", menuLook{label: "添加到歌单", submenu: true}},
++			{"check and icon", menuLook{label: "查看歌手：房东的猫", column: true, icons: true}},
++		} {
++			t.Run(fmt.Sprintf("%s/%d", tc.name, dpi), func(t *testing.T) {
++				width, _ := b.menuItemSize(dpi, &tc.look)
++				font := b.menuFace(dpi).text
++				// This is the interval drawItem gives the text after its own columns and padding.
++				available := int32(width) - 2*toPx(menuInset+menuPadding, dpi)
++				if tc.look.column {
++					available -= toPx(menuMarkColumn, dpi)
++				}
++				if tc.look.icons {
++					available -= toPx(menuIconColumn, dpi)
++				}
++				if tc.look.submenu {
++					available -= toPx(menuAccelGap/2+menuChevron, dpi)
++				}
++				if tc.look.accel != "" {
++					available -= toPx(menuAccelGap, dpi) + textWidth(dc, font, tc.look.accel)
++				}
++				if need := textWidth(dc, font, tc.look.label); available < need {
++					t.Fatalf("label needs %d px, measured item leaves %d px", need, available)
++				}
++			})
++		}
++	}
++}

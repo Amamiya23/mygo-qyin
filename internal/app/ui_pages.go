@@ -239,6 +239,10 @@ func (a *app) chartCard(c *ui.Context, pl *qqmusic.Playlist) {
 
 func (a *app) playlistPage(c *ui.Context) {
 	id := a.route.id
+	if a.isLikedPlaylist(id) {
+		a.likedPlaylistPage(c, id)
+		return
+	}
 	pl := a.playlists[id]
 	if pl == nil {
 		if !a.loadingPl[id] {
@@ -254,62 +258,68 @@ func (a *app) playlistPage(c *ui.Context) {
 
 func (a *app) playlistHeader(c *ui.Context, pl *qqmusic.Playlist) {
 	p := a.pal
+	kind := "歌单"
+	if pl.UpdateFreq != "" {
+		kind = "榜单 · " + pl.UpdateFreq
+	}
+	var meta []string
+	if pl.Creator.Nickname != "" {
+		meta = append(meta, pl.Creator.Nickname)
+	}
+	meta = append(meta, fmt.Sprintf("%d 首", len(pl.Tracks)))
+	if pl.PlayCount > 0 {
+		meta = append(meta, plays(pl.PlayCount)+" 次播放")
+	}
+	a.collectionHeader(c, pl, kind, strings.Join(meta, " · "), func() {
+		if pillButton(c.Key("play"), iconPlay, "播放", p.accent, p.onAccent).Clicked() {
+			if a.pl.Shuffle() {
+				a.pl.ToggleShuffle()
+			}
+			a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
+		}
+		if pillButton(c.Key("shuffle"), iconShuffle, "随机播放", p.hover.Over(p.bg), p.text).Clicked() {
+			if !a.pl.Shuffle() {
+				a.pl.ToggleShuffle()
+			}
+			a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
+		}
+		if mine := a.editable(pl.ID); mine != nil {
+			more := iconButton(c.Key("more"), iconMore, 18, p.muted, "更多")
+			more.Menu(func(m *ui.Menu) {
+				if m.Item("重命名…").Chosen() {
+					a.startRename(mine)
+				}
+				m.Separator()
+				if m.Item("删除歌单…").Chosen() {
+					a.confirmDelete(mine)
+				}
+			})
+		} else if saved := a.savedPlaylist(pl.ID); saved != nil {
+			more := iconButton(c.Key("more"), iconMore, 18, p.muted, "更多")
+			more.Menu(func(m *ui.Menu) {
+				if m.Item("取消收藏…").Chosen() {
+					a.confirmUnfavorite(saved)
+				}
+			})
+		}
+	})
+}
+
+// collectionHeader keeps collection artwork, metadata and actions aligned across content types.
+func (a *app) collectionHeader(c *ui.Context, pl *qqmusic.Playlist, kind, meta string, actions func()) {
+	p := a.pal
 	ui.Row(c).Gap(28).AlignItems(ui.End).Padding(0, 0, 26, 0).Children(func() {
 		ui.Box(c).Size(212, 212).Radius(14).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
 			a.coverFill(c, pl.Cover(), 600, 14)
 		})
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
-			kind := "歌单"
-			if pl.UpdateFreq != "" {
-				kind = "榜单 · " + pl.UpdateFreq
-			}
 			ui.Text(c, kind).FontSize(12).FontWeight(600).TextColor(p.accent)
 			ui.Text(c, pl.Name).FontSize(30).FontWeight(800).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
-			var meta []string
-			if pl.Creator.Nickname != "" {
-				meta = append(meta, pl.Creator.Nickname)
-			}
-			meta = append(meta, fmt.Sprintf("%d 首", len(pl.Tracks)))
-			if pl.PlayCount > 0 {
-				meta = append(meta, plays(pl.PlayCount)+" 次播放")
-			}
-			ui.Text(c, strings.Join(meta, " · ")).FontSize(13).TextColor(p.muted)
+			ui.Text(c, meta).FontSize(13).TextColor(p.muted).SingleLine()
 			if d := strings.TrimSpace(pl.Description); d != "" {
 				ui.Text(c, strings.ReplaceAll(d, "\n", " ")).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45).Margin(2, 0, 0, 0)
 			}
-			ui.Row(c).Gap(10).Margin(10, 0, 0, 0).Children(func() {
-				if pillButton(c.Key("play"), iconPlay, "播放", p.accent, p.onAccent).Clicked() {
-					if a.pl.Shuffle() {
-						a.pl.ToggleShuffle()
-					}
-					a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
-				}
-				if pillButton(c.Key("shuffle"), iconShuffle, "随机播放", p.hover.Over(p.bg), p.text).Clicked() {
-					if !a.pl.Shuffle() {
-						a.pl.ToggleShuffle()
-					}
-					a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
-				}
-				if mine := a.editable(pl.ID); mine != nil {
-					more := iconButton(c.Key("more"), iconMore, 18, p.muted, "更多")
-					more.Menu(func(m *ui.Menu) {
-						if m.Item("重命名…").Chosen() {
-							a.startRename(mine)
-						}
-						m.Separator()
-						if m.Item("删除歌单…").Chosen() {
-							a.confirmDelete(mine)
-						}
-					})
-				} else if saved := a.savedPlaylist(pl.ID); saved != nil {
-					more := iconButton(c.Key("more"), iconMore, 18, p.muted, "更多")
-					more.Menu(func(m *ui.Menu) {
-						if m.Item("取消收藏…").Chosen() {
-							a.confirmUnfavorite(saved)
-						}
-					})
-				}
-			})
+			ui.Row(c).Height(36).Gap(10).Margin(10, 0, 0, 0).Children(actions)
 		})
 	})
 }
@@ -317,6 +327,10 @@ func (a *app) playlistHeader(c *ui.Context, pl *qqmusic.Playlist) {
 // trackRows lists tracks under a header, which scrolls with them; a click
 // plays the list from the track clicked.
 func (a *app) trackRows(c *ui.Context, tracks []qqmusic.Track, covers bool, header func(c *ui.Context), footer ...func(c *ui.Context)) {
+	a.trackRowsWithState(c, &a.trackList, tracks, covers, header, footer...)
+}
+
+func (a *app) trackRowsWithState(c *ui.Context, state *ui.ListState, tracks []qqmusic.Track, covers bool, header func(c *ui.Context), footer ...func(c *ui.Context)) {
 	p := a.pal
 	cur := a.pl.Current()
 	// A song's menu can take it out of the playlist it is listed in.
@@ -332,7 +346,7 @@ func (a *app) trackRows(c *ui.Context, tracks []qqmusic.Track, covers bool, head
 	// scrolled away from its start or end has content under the bars.
 	a.underTop, a.underBottom = true, true
 	rows := len(tracks) + 1 + len(footer)
-	ui.List(c.Key(a.route), &a.trackList, rows, func(i int) {
+	ui.List(c.Key(a.route), state, rows, func(i int) {
 		if i == 0 {
 			ui.Column(c).Children(func() {
 				a.startMark(c)

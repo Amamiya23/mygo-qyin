@@ -1,0 +1,127 @@
+# github.com/ebitengine/purego v0.11.1
+## explicit; go 1.25.0
+github.com/ebitengine/purego
+github.com/ebitengine/purego/internal/cgo
+github.com/ebitengine/purego/internal/fakecgo
+github.com/ebitengine/purego/internal/strings
+github.com/ebitengine/purego/objc
+# github.com/egoist/mygo v0.7.1-0.20261027023711-da3657e7f86a
+## explicit; go 1.27.3
+github.com/egoist/mygo
+github.com/egoist/mygo/audio
+github.com/egoist/mygo/cmd/mygo
+github.com/egoist/mygo/i18n
+github.com/egoist/mygo/internal/accelerator
+github.com/egoist/mygo/internal/bridge
+github.com/egoist/mygo/internal/contentrules
+github.com/egoist/mygo/internal/darwin
+github.com/egoist/mygo/internal/download
+github.com/egoist/mygo/internal/gamut
+github.com/egoist/mygo/internal/gpu
+github.com/egoist/mygo/internal/gpu/d3d11
+github.com/egoist/mygo/internal/gpu/d3d11/device
+github.com/egoist/mygo/internal/gpu/gl
+github.com/egoist/mygo/internal/gpu/metal
+github.com/egoist/mygo/internal/i18ngen
+github.com/egoist/mygo/internal/i18nlink
+github.com/egoist/mygo/internal/l10n
+github.com/egoist/mygo/internal/linux
+github.com/egoist/mygo/internal/menuicon
+github.com/egoist/mygo/internal/nsis
+github.com/egoist/mygo/internal/platform
+github.com/egoist/mygo/internal/raster
+github.com/egoist/mygo/internal/rope
+github.com/egoist/mygo/internal/scene
+github.com/egoist/mygo/internal/schemehost
+github.com/egoist/mygo/internal/shader
+github.com/egoist/mygo/internal/shaderir
+github.com/egoist/mygo/internal/shaderir/glsl
+github.com/egoist/mygo/internal/shaderir/hlsl
+github.com/egoist/mygo/internal/shaderir/interp
+github.com/egoist/mygo/internal/shaderir/msl
+github.com/egoist/mygo/internal/surface
+github.com/egoist/mygo/internal/svg
+github.com/egoist/mygo/internal/text
+github.com/egoist/mygo/internal/tsgen
+github.com/egoist/mygo/internal/uimigrate
+github.com/egoist/mygo/internal/uivet
+github.com/egoist/mygo/internal/unsupported
+github.com/egoist/mygo/internal/update
+github.com/egoist/mygo/internal/vec
+github.com/egoist/mygo/internal/watchdriver
+github.com/egoist/mygo/internal/web
+github.com/egoist/mygo/internal/webview2
+github.com/egoist/mygo/internal/windows
+github.com/egoist/mygo/plugins/glass
+github.com/egoist/mygo/plugins/updater
+github.com/egoist/mygo/plugins/updater/internal/frontend
+github.com/egoist/mygo/plugins/updater/internal/markdown
+github.com/egoist/mygo/plugins/updater/native
+github.com/egoist/mygo/transfer
+github.com/egoist/mygo/ui
+github.com/egoist/mygo/ui/shader
+# github.com/go-text/typesetting v0.3.5
+## explicit; go 1.19
+github.com/go-text/typesetting/bidi
+github.com/go-text/typesetting/internal/unicodedata
+github.com/go-text/typesetting/language
+github.com/go-text/typesetting/segmenter
+# github.com/hajimehoshi/go-mp3 v0.3.4
+## explicit; go 1.14
+github.com/hajimehoshi/go-mp3
+github.com/hajimehoshi/go-mp3/internal/bits
+github.com/hajimehoshi/go-mp3/internal/consts
+github.com/hajimehoshi/go-mp3/internal/frame
+github.com/hajimehoshi/go-mp3/internal/frameheader
+github.com/hajimehoshi/go-mp3/internal/huffman
+github.com/hajimehoshi/go-mp3/internal/imdct
+github.com/hajimehoshi/go-mp3/internal/maindata
+github.com/hajimehoshi/go-mp3/internal/sideinfo
+# github.com/icza/bitio v1.1.0
+## explicit; go 1.13
+github.com/icza/bitio
+# github.com/mewkiz/flac v1.0.14
+## explicit; go 1.23.2
+github.com/mewkiz/flac
+github.com/mewkiz/flac/frame
+github.com/mewkiz/flac/internal/bits
+github.com/mewkiz/flac/internal/bufseekio
+github.com/mewkiz/flac/internal/hashutil
+github.com/mewkiz/flac/internal/hashutil/crc16
+github.com/mewkiz/flac/internal/hashutil/crc8
+github.com/mewkiz/flac/internal/ioutilx
+github.com/mewkiz/flac/internal/utf8
+github.com/mewkiz/flac/meta
+# github.com/mewkiz/pkg v0.0.0-20250417130911-3f050ff8c56d
+## explicit; go 1.23.2
+github.com/mewkiz/pkg/errutil
+# github.com/mewpkg/term v0.0.0-20241026122259-37a80af23985
+## explicit; go 1.23.2
+github.com/mewpkg/term
+# golang.org/x/image v0.46.0
+## explicit; go 1.26.0
+golang.org/x/image/bmp
+golang.org/x/image/internal/safemath
+golang.org/x/image/riff
+golang.org/x/image/vp8
+golang.org/x/image/vp8l
+golang.org/x/image/webp
+# golang.org/x/net v0.59.0
+## explicit; go 1.26.0
+golang.org/x/net/http/httpproxy
+golang.org/x/net/idna
+golang.org/x/net/publicsuffix
+# golang.org/x/text v0.43.0
+## explicit; go 1.26.0
+golang.org/x/text/encoding
+golang.org/x/text/encoding/internal
+golang.org/x/text/encoding/internal/identifier
+golang.org/x/text/encoding/simplifiedchinese
+golang.org/x/text/internal/language
+golang.org/x/text/internal/language/compact
+golang.org/x/text/internal/tag
+golang.org/x/text/language
+golang.org/x/text/secure/bidirule
+golang.org/x/text/transform
+golang.org/x/text/unicode/bidi
+golang.org/x/text/unicode/norm

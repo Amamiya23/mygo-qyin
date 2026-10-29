@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -146,6 +148,137 @@ func LikedIDs(uid int64) ([]int64, error) {
 		offset += len(items)
 	}
 	return nil, errors.New("QQ 音乐喜欢歌曲列表过多，未能完整读取")
+}
+
+const likedAlbumsPath = "/fav/fcgi-bin/fcg_get_profile_order_asset.fcg"
+
+// LikedAlbums reads the account's album collection. This legacy CGI uses an
+// inclusive range; the musicu album collection method does not return the list.
+func LikedAlbums(limit, offset int) ([]AlbumProfile, bool, error) {
+	s, err := signedSession()
+	if err != nil {
+		return nil, false, err
+	}
+	limit, offset = min(max(limit, 1), 100), max(offset, 0)
+	var body struct {
+		Data *struct {
+			Albums []object `json:"albumlist"`
+			Total  *int64   `json:"totalalbum"`
+		} `json:"data"`
+	}
+	if err := cgi(likedAlbumsPath, url.Values{
+		"ct": {"20"}, "cid": {"205360956"}, "userid": {s.MusicID},
+		"reqtype": {"2"}, "sin": {strconv.Itoa(offset)}, "ein": {strconv.Itoa(offset + limit - 1)},
+	}, &body); err != nil {
+		return nil, false, err
+	}
+	if body.Data == nil || body.Data.Total == nil || *body.Data.Total < 0 {
+		return nil, false, errors.New("QQ 音乐未返回收藏专辑列表")
+	}
+	data := body.Data
+	if data.Albums == nil && *data.Total > 0 || len(data.Albums) == 0 && int64(offset) < *data.Total {
+		return nil, false, errors.New("QQ 音乐收藏专辑列表不完整")
+	}
+	albums := make([]AlbumProfile, 0, len(data.Albums))
+	for _, entry := range data.Albums {
+		album := AlbumProfile{Album: convertAlbum(entry), Size: int(number(entry, "song_count", "songnum", "totalNum"))}
+		if album.ID <= 0 {
+			return nil, false, errors.New("QQ 音乐未返回收藏专辑标识")
+		}
+		if album.PicURL == "" {
+			album.PicURL = text(entry, "picurl", "picUrl", "albumPicUrl")
+		}
+		for _, singer := range objects(entry, "singers", "singer") {
+			album.Artists = append(album.Artists, convertArtist(singer))
+		}
+		if len(album.Artists) == 0 {
+			singer := Artist{ID: number(entry, "singerid", "singerID", "singer_id"), MID: text(entry, "singermid", "singerMID", "singerMid", "singer_mid"), Name: text(entry, "singerName", "singername", "singer_name")}
+			if singer.Name != "" {
+				album.Artists = append(album.Artists, singer)
+			}
+		}
+		if date := text(entry, "release_time", "publishDate", "pubtime"); date != "" {
+			if parsed, err := time.Parse("2006-01-02", date); err == nil {
+				album.PublishTime = parsed.UnixMilli()
+			}
+		}
+		albums = append(albums, album)
+	}
+	return albums, int64(offset)+int64(len(albums)) < *data.Total, nil
+}
+
+func albumFavoriteOwner(mid string) (Session, any, error) {
+	s, err := signedSession()
+	if err != nil {
+		return s, nil, err
+	}
+	if len(mid) == 0 || len(mid) > 64 || strings.IndexFunc(mid, func(r rune) bool {
+		return r < '0' || r > '9' && r < 'A' || r > 'Z' && r < 'a' || r > 'z'
+	}) >= 0 {
+		return s, nil, errors.New("qqmusic: invalid album MID")
+	}
+	owner, err := strconv.ParseInt(s.MusicID, 10, 64)
+	if err != nil || owner <= 0 {
+		return s, nil, errors.New("QQ 音乐登录凭证缺少账号标识，请重新登录")
+	}
+	var statusOwner any = s.MusicID
+	if owner <= 1<<53-1 {
+		statusOwner = owner
+	}
+	return s, statusOwner, nil
+}
+
+// AlbumLiked reads the collection status by album MID, not its numeric ID.
+func AlbumLiked(mid string) (bool, error) {
+	_, owner, err := albumFavoriteOwner(mid)
+	if err != nil {
+		return false, err
+	}
+	var data object
+	if err := rpc("music.musicasset.AlbumFavRead", "IsAlbumFan", map[string]any{"uin": owner, "v_albumMid": []string{mid}}, &data); err != nil {
+		return false, err
+	}
+	var liked bool
+	raw, ok := obj(data["m_fan"])[mid]
+	if !ok || string(raw) == "null" || json.Unmarshal(raw, &liked) != nil {
+		return false, errors.New("QQ 音乐未返回专辑收藏状态")
+	}
+	return liked, nil
+}
+
+// LikeAlbum writes only when needed, then confirms the album's resulting status.
+func LikeAlbum(mid string, liked bool) error {
+	s, _, err := albumFavoriteOwner(mid)
+	if err != nil {
+		return err
+	}
+	current, err := AlbumLiked(mid)
+	if err != nil || current == liked {
+		return err
+	}
+	method := "CancelFavAlbum"
+	if liked {
+		method = "FavAlbum"
+	}
+	var data struct {
+		Result     *int              `json:"result"`
+		FailedIDs  []json.RawMessage `json:"v_failedAlbumId"`
+		FailedMIDs []json.RawMessage `json:"v_failedAlbumMid"`
+	}
+	if err := rpc("music.musicasset.AlbumFavWrite", method, map[string]any{"uin": s.MusicID, "v_albumMid": []string{mid}}, &data); err != nil {
+		return err
+	}
+	if data.Result == nil || *data.Result != 0 || data.FailedIDs == nil || data.FailedMIDs == nil || len(data.FailedIDs)+len(data.FailedMIDs) != 0 {
+		return errors.New("QQ 音乐未确认专辑收藏的更改")
+	}
+	current, err = AlbumLiked(mid)
+	if err != nil {
+		return err
+	}
+	if current != liked {
+		return errors.New("QQ 音乐未确认专辑收藏状态")
+	}
+	return nil
 }
 
 func writeResult(module, method string, param any) (object, error) {

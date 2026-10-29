@@ -27,14 +27,19 @@ import (
 // Session is QQ Music's own credential, stored only in this native process and
 // the operating system credential store. QQ's global login cookies are transient.
 type Session struct {
-	MusicID    string `json:"musicid"`
-	MusicKey   string `json:"musickey"`
-	LoginType  int    `json:"loginType"`
-	CreatedAt  int64  `json:"musickeyCreateTime,omitempty"`
-	ExpiresIn  int64  `json:"keyExpiresIn,omitempty"`
-	Nickname   string `json:"nick,omitempty"`
-	AvatarURL  string `json:"logo,omitempty"`
-	EncryptUin string `json:"encryptUin,omitempty"`
+	MusicID      string        `json:"musicid"`
+	MusicKey     string        `json:"musickey"`
+	LoginType    int           `json:"loginType"`
+	CreatedAt    int64         `json:"musickeyCreateTime,omitempty"`
+	ExpiresIn    int64         `json:"keyExpiresIn,omitempty"`
+	Nickname     string        `json:"nick,omitempty"`
+	AvatarURL    string        `json:"logo,omitempty"`
+	EncryptUin   string        `json:"encryptUin,omitempty"`
+	OpenID       string        `json:"openid,omitempty"`
+	RefreshToken string        `json:"refresh_token,omitempty"`
+	UnionID      string        `json:"unionid,omitempty"`
+	RefreshKey   string        `json:"refresh_key,omitempty"`
+	Device       *wechatDevice `json:"device,omitempty"`
 }
 
 var authState struct {
@@ -46,6 +51,7 @@ var authState struct {
 type qrLogin struct {
 	image   []byte
 	expires time.Time
+	wechat  *wechatQR
 }
 
 var authHTTP = newAuthHTTPClient()
@@ -62,11 +68,16 @@ func sessionSnapshot() Session {
 }
 func setSession(s Session) { authState.Lock(); authState.session = s; authState.Unlock() }
 func (s Session) valid() bool {
-	if s.MusicKey == "" || s.MusicID == "" || s.LoginType != 2 {
+	if s.MusicKey == "" || s.MusicID == "" || (s.LoginType != 2 && s.LoginType != 1) {
 		return false
 	}
 	id, err := strconv.ParseInt(s.MusicID, 10, 64)
 	return err == nil && id > 0 && (s.CreatedAt <= 0 || s.ExpiresIn <= 0 || time.Now().Unix() < s.CreatedAt+s.ExpiresIn)
+}
+
+func (s Session) canRefresh() bool {
+	id, err := strconv.ParseInt(s.MusicID, 10, 64)
+	return s.LoginType == 1 && err == nil && id > 0 && s.MusicKey != "" && (s.RefreshKey != "" || s.RefreshToken != "")
 }
 
 const qqSessionSecret = "qqmusic-session"
@@ -79,8 +90,7 @@ func authSessionFile() (string, error) {
 	return filepath.Join(dir, "qqmusic-session"), nil
 }
 
-// RestoreSession loads the QQ credential without sharing the NetEase login.
-func RestoreSession() bool {
+var readPersistedSession = func() ([]byte, error) {
 	var b []byte
 	var err error
 	if mygo.IsDev() {
@@ -92,8 +102,14 @@ func RestoreSession() bool {
 	} else {
 		b, err = mygo.Secrets.Get(qqSessionSecret)
 	}
+	return b, err
+}
+
+// RestoreSession also retains an expired WeChat credential when it can refresh.
+func RestoreSession() bool {
+	b, err := readPersistedSession()
 	var s Session
-	if err != nil || json.Unmarshal(b, &s) != nil || !s.valid() {
+	if err != nil || json.Unmarshal(b, &s) != nil || (!s.valid() && !s.canRefresh()) {
 		return false
 	}
 	setSession(s)
@@ -109,6 +125,10 @@ func SaveSession() error {
 	if err != nil {
 		return err
 	}
+	return writePersistedSession(b)
+}
+
+var writePersistedSession = func(b []byte) error {
 	if !mygo.IsDev() {
 		return mygo.Secrets.Set(qqSessionSecret, b)
 	}
@@ -143,12 +163,35 @@ func Logout() { ClearSession() }
 func Account() (*Profile, error) {
 	s := sessionSnapshot()
 	if !s.valid() {
-		return nil, nil
+		if !s.canRefresh() {
+			return nil, nil
+		}
+		var err error
+		s, err = refreshWechatSession(s)
+		if err != nil {
+			return nil, err
+		}
+		setSession(s)
+		if err = SaveSession(); err != nil {
+			return nil, err
+		}
 	}
 	var data struct {
 		Info map[string]json.RawMessage `json:"info"`
 	}
-	if err := rpc("music.UserInfo.userInfoServer", "GetLoginUserInfo", map[string]any{}, &data); err != nil {
+	err := rpc("music.UserInfo.userInfoServer", "GetLoginUserInfo", map[string]any{}, &data)
+	var rejected *ProtocolError
+	if s.LoginType == 1 && errors.As(err, &rejected) && rejected.GlobalCode == 0 && (rejected.Code == 1000 || rejected.Code == 104400 || rejected.Code == 104401) {
+		s, err = refreshWechatSession(s)
+		if err == nil {
+			setSession(s)
+			if err = SaveSession(); err != nil {
+				return nil, err
+			}
+			err = rpc("music.UserInfo.userInfoServer", "GetLoginUserInfo", map[string]any{}, &data)
+		}
+	}
+	if err != nil {
 		var rejected *ProtocolError
 		if errors.As(err, &rejected) && rejected.GlobalCode == 0 && (rejected.Code == 1000 || rejected.Code == 104400 || rejected.Code == 104401) {
 			ClearSession()
@@ -197,7 +240,9 @@ func authSend(method, raw string, body io.Reader, headers http.Header) (*http.Re
 	if req.Header == nil {
 		req.Header = make(http.Header)
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0")
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "Mozilla/5.0")
+	}
 	res, err := doAuthRequest(req)
 	if err != nil {
 		return nil, loginFailure(step, err)
@@ -296,6 +341,27 @@ func QRImage(key string) ([]byte, error) {
 	return bytes.Clone(q.image), nil
 }
 
+// CancelQR releases a closed or replaced login so its result cannot sign in later.
+func CancelQR(key string) {
+	authState.Lock()
+	defer authState.Unlock()
+	if qr, ok := authState.qr[key]; ok && qr.wechat != nil {
+		qr.wechat.cancel()
+	}
+	delete(authState.qr, key)
+}
+
+func finishQR(key string, s Session) bool {
+	authState.Lock()
+	defer authState.Unlock()
+	if _, ok := authState.qr[key]; !ok {
+		return false
+	}
+	authState.session = s
+	delete(authState.qr, key)
+	return true
+}
+
 // JSONP is parsed as data; no JavaScript runtime is part of the client.
 var ptuiString = regexp.MustCompile(`^'((?:[^'\\\r\n]|\\(?:['\\nrt]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}))*)'\s*`)
 
@@ -364,6 +430,9 @@ func QRCheck(key string) (code int, msg, nickname, avatar string, err error) {
 	if !ok || time.Now().After(qr.expires) {
 		return QRExpired, "二维码已失效", "", "", nil
 	}
+	if qr.wechat != nil {
+		return checkWechatQR(key, qr)
+	}
 	q := url.Values{"u1": {loginJump}, "from_ui": {"1"}, "aid": {"716027609"}, "daid": {"383"}, "pt_3rd_aid": {"100497308"}, "ptqrtoken": {strconv.FormatUint(uint64(hash33(key, 0)), 10)}}
 	res, err := authSend("GET", "https://xui.ptlogin2.qq.com/ssl/ptqrlogin?"+q.Encode(), nil, http.Header{"Cookie": {"qrsig=" + key}})
 	if err != nil {
@@ -392,10 +461,9 @@ func QRCheck(key string) (code int, msg, nickname, avatar string, err error) {
 	if err != nil {
 		return 0, "", "", "", err
 	}
-	setSession(s)
-	authState.Lock()
-	delete(authState.qr, key)
-	authState.Unlock()
+	if !finishQR(key, s) {
+		return QRExpired, "二维码已失效", "", "", nil
+	}
 	return QRConfirmed, "登录成功", s.Nickname, s.AvatarURL, nil
 }
 

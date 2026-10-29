@@ -86,9 +86,11 @@ func TestAccountMenuOpensOwnPage(t *testing.T) {
 func fakeSubscriptions(t *testing.T) chan struct{} {
 	asked := make(chan struct{}, 8)
 	ars, pods := followedArtists, subscribedPodcasts
-	t.Cleanup(func() { followedArtists, subscribedPodcasts = ars, pods })
+	membership := userMembership
+	t.Cleanup(func() { followedArtists, subscribedPodcasts, userMembership = ars, pods, membership })
 	followedArtists = func() ([]qqmusic.ArtistProfile, error) { asked <- struct{}{}; return nil, nil }
 	subscribedPodcasts = func() ([]qqmusic.Podcast, error) { return nil, nil }
+	userMembership = func() (qqmusic.Membership, error) { return qqmusic.MembershipGreen, nil }
 	return asked
 }
 
@@ -107,6 +109,7 @@ func ownPageApp() *app {
 			{ID: 6, Name: "通勤十分钟", ProgramCount: 48},
 		},
 		artistsShown: true, podcastsShown: true,
+		membership: qqmusic.MembershipGreen,
 	}
 	return a
 }
@@ -185,6 +188,49 @@ func TestOwnPageFrames(t *testing.T) {
 		f, _ := os.Create(filepath.Join(dir, name))
 		png.Encode(f, tt.Image())
 		f.Close()
+	}
+}
+
+// With NM_FRAMES set, saves the profile heading with short and wrapping names in both appearances.
+func TestOwnPageHeaderFrames(t *testing.T) {
+	dir := os.Getenv("NM_FRAMES")
+	if dir == "" {
+		t.Skip()
+	}
+	fakeSubscriptions(t)
+	for _, tc := range []struct {
+		name     string
+		nickname string
+		level    qqmusic.Membership
+		width    int
+	}{
+		{"compact", "Amamiya", qqmusic.MembershipGreen, 1000},
+		{"narrow", "Amamiya", qqmusic.MembershipSuper, 800},
+		{"long", "Amamiya 在音乐里寻找同路的人", qqmusic.MembershipGreen, 800},
+	} {
+		for _, dark := range []bool{false, true} {
+			a := ownPageApp()
+			d := a.users[9]
+			d.user.Nickname, d.user.Signature, d.membership = tc.nickname, "", tc.level
+			a.route = route{page: pageUser, id: 9}
+			tt := ui.NewTester(a.view, tc.width, 700)
+			tt.SetDark(dark)
+			tt.Advance(time.Second)
+			tt.Frame()
+			name := "profile-" + tc.name
+			if dark {
+				name += "-dark"
+			}
+			f, err := os.Create(filepath.Join(dir, name+".png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := png.Encode(f, tt.Image()); err != nil {
+				f.Close()
+				t.Fatal(err)
+			}
+			f.Close()
+		}
 	}
 }
 

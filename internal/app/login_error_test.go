@@ -3,9 +3,14 @@ package app
 import (
 	"errors"
 	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -74,4 +79,76 @@ func TestLoginQRRefreshAfterFetchFailure(t *testing.T) {
 		t.Fatal("fresh QR did not replace the failed fetch")
 	}
 	tt.Frame()
+}
+
+// Switching login channels replaces the QR generation, and refresh keeps the selected channel.
+func TestLoginSwitchesToWechatAndRefreshes(t *testing.T) {
+	asked := make(chan struct{}, 2)
+	old := beginWechatLoginQR
+	beginWechatLoginQR = func() (string, error) { asked <- struct{}{}; return "", errors.New("offline") }
+	t.Cleanup(func() { beginWechatLoginQR = old })
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.login = loginState{open: true, gen: 4, key: "old-qq", status: qqmusic.QRWaiting}
+	tt := ui.NewTester(a.view, 1000, 700)
+	tt.Frame()
+	if err := tt.Click("微信"); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, asked, "a WeChat QR")
+	if !a.login.wechat || a.login.gen != 5 || a.login.key != "" {
+		t.Fatal("switch retained QQ login")
+	}
+	if a.acceptLoginQR(4, "stale-qq", nil, nil) {
+		t.Fatal("old QQ result replaced WeChat login")
+	}
+	a.acceptLoginQR(5, "", nil, errors.New("offline"))
+	tt.Frame()
+	if err := tt.Click("刷新二维码"); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, asked, "a refreshed WeChat QR")
+	if !a.login.wechat || a.login.gen != 6 {
+		t.Fatal("refresh changed the login channel")
+	}
+	tt.Frame()
+}
+
+// With NM_FRAMES set, saves the WeChat login layout using an inert QR-like image.
+func TestWechatLoginFrames(t *testing.T) {
+	dir := os.Getenv("NM_FRAMES")
+	if dir == "" {
+		t.Skip()
+	}
+	qr := image.NewRGBA(image.Rect(0, 0, 45, 45))
+	for y := 0; y < 45; y++ {
+		for x := 0; x < 45; x++ {
+			c := color.White
+			if x > 3 && x < 41 && y > 3 && y < 41 && ((x*11+y*7+x*y)%5 < 2) {
+				c = color.Black
+			}
+			qr.Set(x, y, c)
+		}
+	}
+	for _, dark := range []bool{false, true} {
+		a := newTestApp()
+		a.settings = defaultSettings()
+		a.login = loginState{open: true, wechat: true, status: qqmusic.QRWaiting, code: ui.NewBitmap(qr)}
+		tt := ui.NewTester(a.view, 1000, 700)
+		tt.SetDark(dark)
+		tt.Advance(time.Second)
+		tt.Frame()
+		name := "login-wechat.png"
+		if dark {
+			name = "login-wechat-dark.png"
+		}
+		f, err := os.Create(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := png.Encode(f, tt.Image()); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
 }

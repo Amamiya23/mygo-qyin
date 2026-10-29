@@ -20,10 +20,12 @@ type loginState struct {
 	avatar   string
 	err      string
 	finished bool
+	wechat   bool
 }
 
 // beginLoginQR is replaced by UI tests so retry actions never contact QQ.
 var beginLoginQR = qqmusic.QRKey
+var beginWechatLoginQR = qqmusic.WechatQRKey
 
 // boot signs in with the session in the keychain, if any, then loads the
 // home page for whoever is listening.
@@ -54,6 +56,8 @@ func (a *app) signedIn(prof *qqmusic.Profile) {
 	a.restoreSession()
 	a.mine, a.saved, a.recPlaylists, a.liked = nil, nil, nil, nil
 	a.likedPrograms, a.askedPrograms = nil, nil
+	a.likedAlbums = nil
+	a.likedScroll = likedScrollState{}
 	// What the listener may play, and follows, changed: load the pages
 	// again.
 	a.playlists = map[int64]*qqmusic.Playlist{}
@@ -72,9 +76,17 @@ func (a *app) signedIn(prof *qqmusic.Profile) {
 }
 
 func (a *app) openLogin() {
-	a.login = loginState{open: true, gen: a.login.gen + 1}
+	a.openLoginChannel(false)
+}
+
+func (a *app) openLoginChannel(wechat bool) {
+	qqmusic.CancelQR(a.login.key)
+	a.login = loginState{open: true, gen: a.login.gen + 1, wechat: wechat}
 	gen := a.login.gen
 	begin := beginLoginQR
+	if wechat {
+		begin = beginWechatLoginQR
+	}
 	go func() {
 		key, err := begin()
 		var code *ui.Bitmap
@@ -99,6 +111,7 @@ func (a *app) openLogin() {
 // acceptLoginQR applies a worker result on the main thread before polling starts.
 func (a *app) acceptLoginQR(gen int, key string, code *ui.Bitmap, err error) bool {
 	if gen != a.login.gen || !a.login.open {
+		qqmusic.CancelQR(key)
 		return false
 	}
 	if err != nil {
@@ -174,12 +187,13 @@ func (a *app) closeLoginSoon(gen int) {
 }
 
 func (a *app) signOut() {
+	qqmusic.CancelQR(a.login.key)
 	a.login.gen++
 	qqmusic.Logout()
 	a.signedIn(nil)
 }
 
-// loginDialog shows the QR code to scan with QQ on a phone.
+// loginDialog shows the selected QQ or WeChat QR code.
 func (a *app) loginDialog(c *ui.Context) {
 	p := a.pal
 	l := &a.login
@@ -188,7 +202,11 @@ func (a *app) loginDialog(c *ui.Context) {
 		panel.Width(340).Padding(28, 28, 26, 28).Radius(22).Gap(6).AlignItems(ui.Center).
 			Background(p.bg).Border(1, p.hairline).Shadow(0, 24, 60, -12, radixInk.Alpha(0.4)).
 			Transition(ui.ElementTransition{Animation: &ui.Snappy, Enter: &ui.Motion{Scale: 0.94}, Exit: &ui.Motion{Scale: 0.96}})
-		title, sub := "扫码登录", "打开手机 QQ，扫一扫登录"
+		channel := "QQ"
+		if l.wechat {
+			channel = "微信"
+		}
+		title, sub := "扫码登录", "打开"+channel+"，扫一扫登录"
 		switch {
 		case l.finished:
 			title, sub = "登录成功", "欢迎回来，"+a.profileName()
@@ -200,6 +218,15 @@ func (a *app) loginDialog(c *ui.Context) {
 			sub = "二维码已失效"
 		}
 		ui.Text(c, title).FontSize(20).FontWeight(700)
+		if !l.finished {
+			kind := 0
+			if l.wechat {
+				kind = 1
+			}
+			if segmented(c.Key("login-channel"), &kind, "QQ", "微信") {
+				a.openLoginChannel(kind == 1)
+			}
+		}
 		ui.Text(c, sub).Width(284).MaxLines(3).FontSize(13).TextColor(p.muted).TextAlign(ui.Center).Margin(0, 0, 14, 0)
 
 		ui.Box(c).Size(212, 212).Radius(16).Background(radixPaper).Border(1, p.hairline).Children(func() {
@@ -220,7 +247,7 @@ func (a *app) loginDialog(c *ui.Context) {
 				switch {
 				case l.status == qqmusic.QRExpired || l.err != "":
 					if pillButton(c.Key("refresh"), iconRepeat, "刷新二维码", p.accent, p.onAccent).Clicked() {
-						a.openLogin()
+						a.openLoginChannel(l.wechat)
 					}
 				case l.finished || l.status == qqmusic.QRScanned:
 					if bmp := bitmap(a.art.get(qqmusic.Sized(l.avatar, 160), false)); bmp != nil {
@@ -235,6 +262,9 @@ func (a *app) loginDialog(c *ui.Context) {
 			})
 		})
 	})
+	if !l.open {
+		qqmusic.CancelQR(l.key)
+	}
 }
 
 func (a *app) profileName() string {

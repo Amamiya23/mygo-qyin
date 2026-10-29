@@ -105,7 +105,7 @@ func rpcWithComm(module, method string, param any, out any, comm map[string]any,
 	if comm == nil {
 		comm = map[string]any{"ct": 24, "cv": 0}
 		if s.MusicKey != "" {
-			comm = map[string]any{"ct": 11, "cv": 14090008, "v": 14090008, "chid": "10003505", "tmeAppID": "qqmusic", "qq": s.MusicID, "authst": s.MusicKey, "tmeLoginType": s.LoginType}
+			comm = authenticatedComm(s)
 		}
 	}
 	b, err := json.Marshal(map[string]any{"comm": comm, "req_0": map[string]any{"module": module, "method": method, "param": param}})

@@ -61,8 +61,10 @@ type app struct {
 	naming       nameDialog     // the name of a playlist asked for
 	deleting     deleteDialog   // whether to delete a playlist, asked
 	liked        map[int64]bool // the songs the listener likes
-	toast        string         // a message to show once
-	picked       pickedUp       // the song a login picked up, waiting to play
+	likedAlbums  *likedAlbumData
+	likedScroll  likedScrollState
+	toast        string   // a message to show once
+	picked       pickedUp // the song a login picked up, waiting to play
 
 	// The episodes the listener likes, and doesn't, as far as NetEase has
 	// answered, and those asked about: see ui_like.go.

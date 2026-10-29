@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -15,10 +16,254 @@ import (
 // These like or unlike a song or an episode with NetEase, and ask which
 // episodes the listener likes; tests replace them.
 var (
-	likeSong      = qqmusic.Like
-	likeProgram   = qqmusic.LikeProgram
-	programsLiked = qqmusic.ProgramsLiked
+	likeSong        = qqmusic.Like
+	likeProgram     = qqmusic.LikeProgram
+	programsLiked   = qqmusic.ProgramsLiked
+	readLikedAlbums = qqmusic.LikedAlbums
+	readAlbumLiked  = qqmusic.AlbumLiked
+	likeAlbum       = qqmusic.LikeAlbum
 )
+
+const likedAlbumsLimit = 30
+
+type likedAlbumData struct {
+	albums []qqmusic.AlbumProfile
+	page   paged
+}
+
+// Each collection keeps its own place when switching tabs or returning from a detail page.
+type likedScrollState struct {
+	songs  ui.ListState
+	albums ui.ScrollState
+}
+
+func (a *app) isLikedPlaylist(id int64) bool {
+	return id > 0 && a.likedPlaylist() == id
+}
+
+func (a *app) loadLikedAlbums(again bool) {
+	if a.profile == nil || a.likedAlbums != nil && !again {
+		return
+	}
+	d := &likedAlbumData{}
+	a.likedAlbums = d
+	a.moreLikedAlbums(d)
+}
+
+func (a *app) moreLikedAlbums(d *likedAlbumData) {
+	if a.profile == nil || d.page.loading {
+		return
+	}
+	uid, offset := a.profile.UserID, len(d.albums)
+	d.page.loading, d.page.err = true, ""
+	go func() {
+		albums, more, err := readLikedAlbums(likedAlbumsLimit, offset)
+		a.post(func() {
+			if a.profile == nil || a.profile.UserID != uid || a.likedAlbums != d {
+				return
+			}
+			d.page.loading = false
+			if err != nil {
+				d.page.err = "收藏专辑加载失败"
+				return
+			}
+			d.albums = append(d.albums, albums...)
+			d.page.loaded, d.page.more = true, more && len(albums) > 0
+		})
+	}()
+}
+
+func (a *app) likedPlaylistPage(c *ui.Context, id int64) {
+	pl := a.playlists[id]
+	header := func(c *ui.Context) {
+		a.likedCollectionHeader(c, id)
+		ui.Row(c).AlignItems(ui.Center).Gap(12).Margin(0, 0, 18, 0).Children(func() {
+			tab := a.route.tab
+			if segmented(c.Key("liked-kind"), &tab, "单曲", "专辑") {
+				r := a.route
+				r.tab = tab
+				a.show(r)
+			}
+		})
+	}
+	if a.route.tab == 1 {
+		d := a.likedAlbums
+		if d == nil {
+			a.loadLikedAlbums(false)
+			d = a.likedAlbums
+		}
+		a.scrollPageWithState(c, &a.likedScroll.albums, func() {
+			header(c)
+			if d == nil {
+				return
+			}
+			a.albumGrid(c, d.albums)
+			if !d.page.loaded && d.page.loading {
+				a.playlistCardsSkeleton(c, a.pageShimmer(c), a.columns(c, 156), 156, false)
+				return
+			}
+			a.pageFoot(c, &d.page, func() { a.moreLikedAlbums(d) })
+			if d.page.loaded && len(d.albums) == 0 {
+				a.empty(c, "暂无收藏专辑")
+			}
+		})
+		return
+	}
+	if pl == nil {
+		if a.loadingPl[id] {
+			a.trackSkeleton(c, a.pageShimmer(c), true, header)
+		} else {
+			a.scrollPage(c, func() {
+				header(c)
+				a.centered(c, a.plErr[id], func() { a.loadPlaylist(id, false) })
+			})
+		}
+		return
+	}
+	a.trackRowsWithState(c, &a.likedScroll.songs, pl.Tracks, true, header)
+}
+
+func (a *app) likedCollectionHeader(c *ui.Context, id int64) {
+	p := a.pal
+	pl := a.playlists[id]
+	loaded := pl != nil
+	if pl == nil {
+		for i := range a.mine {
+			if a.mine[i].ID == id {
+				pl = &a.mine[i]
+				break
+			}
+		}
+	}
+	if pl == nil {
+		pl = &qqmusic.Playlist{ID: id, Name: "我喜欢"}
+	}
+	count := pl.TrackCount
+	if loaded {
+		count = len(pl.Tracks)
+	}
+	meta := fmt.Sprintf("%d 首单曲", count)
+	if a.route.tab == 1 {
+		meta = "正在加载专辑"
+		if d := a.likedAlbums; d != nil {
+			switch {
+			case d.page.loaded:
+				more := ""
+				if d.page.more {
+					more = "+"
+				}
+				meta = fmt.Sprintf("%d%s 张专辑", len(d.albums), more)
+			case d.page.err != "":
+				meta = "专辑暂不可用"
+			}
+		}
+	}
+	a.collectionHeader(c, pl, "收藏", meta, func() {
+		if a.route.tab == 1 {
+			d := a.likedAlbums
+			pillButton(c.Key("refresh-liked-albums"), iconReload, "刷新", p.hover.Over(p.bg), p.text).
+				Label("刷新收藏专辑").Disabled(d == nil || d.page.loading).
+				OnClick(func() { a.loadLikedAlbums(true) })
+			return
+		}
+		pillButton(c.Key("play"), iconPlay, "播放", p.accent, p.onAccent).Disabled(!loaded || len(pl.Tracks) == 0).
+			OnClick(func() {
+				if a.pl.Shuffle() {
+					a.pl.ToggleShuffle()
+				}
+				a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
+			})
+		pillButton(c.Key("shuffle"), iconShuffle, "随机播放", p.hover.Over(p.bg), p.text).Disabled(!loaded || len(pl.Tracks) == 0).
+			OnClick(func() {
+				if !a.pl.Shuffle() {
+					a.pl.ToggleShuffle()
+				}
+				a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
+			})
+	})
+}
+
+func (a *app) loadAlbumLike(d *albumData) {
+	if a.profile == nil || d.album == nil || d.album.MID == "" || d.likeUID == a.profile.UserID && (d.likeLoading || d.likeKnown) {
+		return
+	}
+	uid, mid := a.profile.UserID, d.album.MID
+	d.likeUID, d.likeKnown, d.likeLoading = uid, false, true
+	go func() {
+		liked, err := readAlbumLiked(mid)
+		a.post(func() { a.albumLikeStatusAnswered(uid, d, liked, err) })
+	}()
+}
+
+func (a *app) albumLikeStatusAnswered(uid int64, d *albumData, liked bool, err error) {
+	if a.profile == nil || a.profile.UserID != uid || d.likeUID != uid {
+		return
+	}
+	d.likeLoading = false
+	if err == nil {
+		d.liked, d.likeKnown = liked, true
+	}
+}
+
+func (a *app) albumLikeButton(c *ui.Context, al *qqmusic.AlbumProfile) {
+	d := a.albums[al.ID]
+	if d == nil || al.MID == "" {
+		return
+	}
+	if a.profile != nil && (d.likeUID != a.profile.UserID || !d.likeKnown) {
+		label := "重试专辑收藏状态"
+		if d.likeLoading {
+			label = "正在读取专辑收藏状态"
+		}
+		iconButton(c.Key("like-album"), iconReload, 20, a.pal.muted, label).Disabled(d.likeLoading).
+			OnClick(func() { a.loadAlbumLike(d) })
+		return
+	}
+	icon, label, color := iconHeart, "收藏专辑", a.pal.muted
+	if a.profile != nil && d.likeUID == a.profile.UserID && d.likeKnown && d.liked {
+		icon, label, color = iconHeartFill, "取消收藏专辑", radixRed(a.pal.dark, 9)
+	}
+	iconButton(c.Key("like-album"), icon, 20, color, label).Disabled(d.likeLoading).
+		OnClick(func() { a.toggleAlbumLike(d) })
+}
+
+func (a *app) toggleAlbumLike(d *albumData) {
+	if a.profile == nil {
+		a.openLogin()
+		return
+	}
+	if d.album == nil || d.album.MID == "" || d.likeLoading {
+		return
+	}
+	if d.likeUID != a.profile.UserID || !d.likeKnown {
+		a.loadAlbumLike(d)
+		return
+	}
+	uid, mid := a.profile.UserID, d.album.MID
+	liked := !(d.likeUID == uid && d.likeKnown && d.liked)
+	d.likeUID, d.likeLoading = uid, true
+	go func() {
+		err := likeAlbum(mid, liked)
+		a.post(func() { a.albumLikeAnswered(uid, d, liked, err) })
+	}()
+}
+
+func (a *app) albumLikeAnswered(uid int64, d *albumData, liked bool, err error) {
+	if a.profile == nil || a.profile.UserID != uid || d.likeUID != uid {
+		return
+	}
+	d.likeLoading = false
+	if err != nil {
+		a.toast = "专辑收藏操作失败，请稍后再试"
+		return
+	}
+	d.liked, d.likeKnown = liked, true
+	// Re-read the collection next time; its ordering belongs to QQ Music.
+	a.likedAlbums = nil
+	if a.route.page == pagePlaylist && a.route.tab == 1 && a.isLikedPlaylist(a.route.id) {
+		a.loadLikedAlbums(false)
+	}
+}
 
 // loadLiked loads the listener's liked songs.
 func (a *app) loadLiked(uid int64) {

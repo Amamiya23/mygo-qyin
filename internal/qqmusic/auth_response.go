@@ -17,7 +17,7 @@ func (e *loginResponseError) message() string {
 	case "qr-signature":
 		return "QQ 未返回二维码签名（Q201），请刷新重试"
 	case "qr-image":
-		return "QQ 返回的二维码图片无效（Q202），请刷新重试"
+		return "登录服务返回的二维码图片无效（Q202），请刷新重试"
 	case "qr-key":
 		return "二维码已失效（Q203），请刷新重试"
 	case "rejected":
@@ -58,6 +58,10 @@ func loginOptionalInt(raw json.RawMessage) int64 {
 }
 
 func decodeQQLoginResponse(body []byte) (Session, error) {
+	return decodeLoginResponse(body, 2)
+}
+
+func decodeLoginResponse(body []byte, expectedType int) (Session, error) {
 	var result struct {
 		Code *int `json:"code"`
 		Req  *struct {
@@ -78,7 +82,13 @@ func decodeQQLoginResponse(body []byte) (Session, error) {
 	if json.Unmarshal(result.Req.Data, &data) != nil || data == nil {
 		return Session{}, &loginResponseError{Kind: "data"}
 	}
-	id := text(data, "musicid")
+	id := ""
+	if expectedType == 1 {
+		id = text(data, "str_musicid")
+	}
+	if id == "" {
+		id = text(data, "musicid")
+	}
 	if id == "" {
 		id = strings.TrimSpace(string(data["musicid"]))
 	}
@@ -91,10 +101,14 @@ func decodeQQLoginResponse(body []byte) (Session, error) {
 		return Session{}, &loginResponseError{Kind: "key"}
 	}
 	loginType := int(loginOptionalInt(data["loginType"]))
-	if loginType != 2 {
+	if loginType == 0 && expectedType == 1 {
+		loginType = 1
+	}
+	if loginType != expectedType {
 		return Session{}, &loginResponseError{Kind: "type", LoginType: loginType}
 	}
 	s := Session{MusicID: id, MusicKey: key, LoginType: loginType, CreatedAt: loginOptionalInt(data["musickeyCreateTime"]), ExpiresIn: loginOptionalInt(data["keyExpiresIn"]), Nickname: text(data, "nick"), AvatarURL: text(data, "logo"), EncryptUin: text(data, "encryptUin")}
+	s.OpenID, s.RefreshToken, s.UnionID, s.RefreshKey = text(data, "openid"), text(data, "refresh_token"), text(data, "unionid"), text(data, "refresh_key")
 	if !s.valid() {
 		return Session{}, &loginResponseError{Kind: "expired"}
 	}

@@ -316,8 +316,12 @@ func (a *app) artistPage(c *ui.Context) {
 // scrollPage scrolls a page of cards and rows, inset as one of tracks is:
 // a tab of a page that lists tracks puts its header in the same place.
 func (a *app) scrollPage(c *ui.Context, content func()) {
+	a.scrollPageWithState(c, &a.pageScroll, content)
+}
+
+func (a *app) scrollPageWithState(c *ui.Context, state *ui.ScrollState, content func()) {
 	top, bottom := a.insets(c)
-	ui.Scroll(c.Key(a.route)).TrackScroll(&a.pageScroll).Grow(1).Padding(top+pageGap, pagePad-12, bottom+32, pagePad-12).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
+	ui.Scroll(c.Key(a.route)).TrackScroll(state).Grow(1).Padding(top+pageGap, pagePad-12, bottom+32, pagePad-12).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
 		a.startMark(c)
 		defer a.endMark(c)
 		content()

@@ -42,6 +42,8 @@ func loginStep(raw string) string {
 	switch u.Path {
 	case "/ssl/ptqrshow":
 		return "qr-show"
+	case "/tme/trpc/proxy":
+		return "device-bootstrap"
 	case "/ssl/ptqrlogin":
 		return "qr-poll"
 	case "/check_sig":
@@ -71,6 +73,8 @@ func LoginErrorMessage(err error) string {
 		switch failure.Step {
 		case "qr-show":
 			stage = "二维码获取"
+		case "device-bootstrap":
+			stage = "登录设备初始化"
 		case "qr-poll":
 			stage = "扫码状态查询"
 		case "qr-image":

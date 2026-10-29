@@ -127,6 +127,9 @@ func (a *app) load(r route) {
 		a.freshenHome()
 	case pagePlaylist:
 		a.loadPlaylist(r.id, false)
+		if r.tab == 1 && a.isLikedPlaylist(r.id) {
+			a.loadLikedAlbums(false)
+		}
 	case pageSearch:
 		a.loadSearch(r, false)
 	case pageArtist:

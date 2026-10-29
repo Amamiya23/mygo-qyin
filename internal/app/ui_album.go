@@ -15,9 +15,11 @@ var albumDetail = qqmusic.AlbumDetail
 
 // albumData is what the app has of an album.
 type albumData struct {
-	album   *qqmusic.AlbumProfile
-	loading bool
-	err     string
+	album                         *qqmusic.AlbumProfile
+	loading                       bool
+	err                           string
+	likeUID                       int64
+	liked, likeKnown, likeLoading bool
 }
 
 func (a *app) loadAlbum(id int64) {
@@ -27,6 +29,9 @@ func (a *app) loadAlbum(id int64) {
 		a.albums[id] = d
 	}
 	if d.album != nil || d.loading {
+		if d.album != nil {
+			a.loadAlbumLike(d)
+		}
 		return
 	}
 	d.loading, d.err = true, ""
@@ -39,6 +44,7 @@ func (a *app) loadAlbum(id int64) {
 				return
 			}
 			d.album = al
+			a.loadAlbumLike(d)
 		})
 	}()
 }
@@ -90,6 +96,7 @@ func (a *app) albumHeader(c *ui.Context, al *qqmusic.AlbumProfile) {
 					}
 					a.pl.PlayQueue(al.Songs, firstPlayable(al.Songs))
 				}
+				a.albumLikeButton(c, al)
 			})
 		})
 	})

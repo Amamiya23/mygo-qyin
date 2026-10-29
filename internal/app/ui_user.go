@@ -14,6 +14,7 @@ var (
 	userPlaylists      = qqmusic.UserPlaylists
 	followedArtists    = qqmusic.FollowedArtists
 	subscribedPodcasts = qqmusic.SubscribedPodcasts
+	userMembership     = qqmusic.UserMembership
 )
 
 // userData is what the app has of a user: who they are, and the playlists
@@ -31,6 +32,9 @@ type userData struct {
 	artistsShown  bool // whether artists has loaded once
 	podcastsShown bool
 	subsLoading   int
+	membership    qqmusic.Membership
+	memberLoading bool
+	memberErr     bool
 }
 
 func (a *app) loadUser(id int64) {
@@ -41,6 +45,7 @@ func (a *app) loadUser(id int64) {
 	}
 	if a.profile != nil && a.profile.UserID == id {
 		a.loadSubscriptions(d)
+		a.loadMembership(id, d)
 	}
 	if d.user != nil || d.loading > 0 {
 		return
@@ -66,6 +71,56 @@ func (a *app) loadUser(id int64) {
 			}
 		})
 	}()
+}
+
+func (a *app) loadMembership(id int64, d *userData) {
+	if d.memberLoading {
+		return
+	}
+	d.memberLoading, d.memberErr = true, false
+	fetch := userMembership
+	go func() {
+		level, err := fetch()
+		a.post(func() { a.acceptMembership(id, d, level, err) })
+	}()
+}
+
+func (a *app) acceptMembership(id int64, d *userData, level qqmusic.Membership, err error) {
+	if a.profile == nil || a.profile.UserID != id || a.users[id] != d {
+		return
+	}
+	d.memberLoading, d.memberErr = false, err != nil
+	if err == nil {
+		d.membership = level
+	}
+}
+
+func (a *app) membershipBadge(c *ui.Context, id int64, d *userData) {
+	p := a.pal
+	label, ink, background := "会员状态未知", p.muted, radixSage(p.dark, 3)
+	switch d.membership {
+	case qqmusic.MembershipSuper:
+		label, ink, background = "超级会员", radixAmber(p.dark, 11), radixAmber(p.dark, 3)
+	case qqmusic.MembershipGreen:
+		label, ink, background = "绿钻会员", radixGreen(p.dark, 11), radixGreen(p.dark, 3)
+	case qqmusic.MembershipFree:
+		label = "免费账号"
+	}
+	if d.memberErr {
+		label, ink, background = "会员状态暂不可用", p.muted, radixSage(p.dark, 3)
+	} else if d.memberLoading && d.membership == "" {
+		label = "正在查询会员状态"
+	}
+	ui.Row(c).Shrink(0).AlignItems(ui.Center).Gap(8).Children(func() {
+		ui.Box(c).Padding(3, 8).Radius(4).Background(background).Children(func() {
+			ui.Text(c, label).FontSize(11).FontWeight(500).TextColor(ink).SingleLine()
+		})
+		if d.memberErr && ui.ButtonBase(c).Label("重试会员状态").Padding(4, 6).Children(func() {
+			ui.Text(c, "重试").FontSize(12).TextColor(p.accent)
+		}).Clicked() {
+			a.loadMembership(id, d)
+		}
+	})
 }
 
 // loadSubscriptions loads the artists the listener follows and the
@@ -129,15 +184,19 @@ func (a *app) userPage(c *ui.Context) {
 	u := d.user
 	own := a.profile != nil && a.profile.UserID == id
 	a.scrollPage(c, func() {
-		ui.Row(c).Gap(28).AlignItems(ui.End).Children(func() {
+		ui.Row(c).Gap(28).AlignItems(ui.Center).Children(func() {
 			ui.Box(c).Size(artistPhotoSize, artistPhotoSize).Radius(artistPhotoSize/2).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
 				a.coverFill(c, u.AvatarURL, 600, artistPhotoSize/2)
 			})
-			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
-				ui.Text(c, "用户").FontSize(12).FontWeight(600).TextColor(p.accent)
-				ui.Text(c, u.Nickname).FontSize(30).FontWeight(800).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
+			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(12).Children(func() {
+				ui.Row(c).Wrap().AlignItems(ui.Center).Gap(12).Children(func() {
+					ui.Text(c, u.Nickname).Shrink(1).MinWidth(0).FontSize(30).FontWeight(700).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
+					if own {
+						a.membershipBadge(c, id, d)
+					}
+				})
 				if u.Signature != "" {
-					ui.Text(c, u.Signature).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45).Margin(2, 0, 0, 0)
+					ui.Text(c, u.Signature).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45)
 				}
 			})
 		})
