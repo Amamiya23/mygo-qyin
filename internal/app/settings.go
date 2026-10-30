@@ -68,6 +68,12 @@ type settings struct {
 	// CacheMB is how many megabytes the songs kept on disk may take; 0
 	// keeps none.
 	CacheMB int `json:"cacheMB"`
+	// CacheDir is the chosen parent of the dedicated Lilt song cache;
+	// empty uses the platform's cache directory.
+	CacheDir string `json:"cacheDir,omitempty"`
+	// PendingCacheDir is migrated and applied before playback on the next launch.
+	// A pointer to an empty string means restore the platform's default.
+	PendingCacheDir *string `json:"pendingCacheDir,omitempty"`
 	// SearchHistory keeps submitted keywords, most recent first.
 	SearchHistory []string `json:"searchHistory,omitempty"`
 

@@ -158,10 +158,13 @@ type app struct {
 	sig                   playerSig
 	quitting              bool
 
-	settings    settings
-	settingsWin *mygo.Window
-	cacheUsed   int64 // the bytes the song cache takes, -1 until measured
-	updates     bool  // the update plugin is used (useUpdater)
+	settings                      settings
+	settingsWin                   *mygo.Window
+	cacheUsed                     int64  // the bytes the song cache takes, -1 until measured
+	cacheDirError                 string // a directory selection that could not be applied
+	cacheMoving                   bool   // startup migration finishes before playback is restored
+	cacheMoveDone, cacheMoveTotal int64
+	updates                       bool // the update plugin is used (useUpdater)
 
 	restored     bool   // playback picked up where it was left
 	savedSession string // the session as last kept
@@ -246,7 +249,8 @@ func Run() error {
 		a.pl = player.New(a.post)
 		a.pl.Quality = func() string { return a.settings.Quality }
 		a.pl.Normalize = func() bool { return a.settings.Normalize }
-		a.pl.Cache = newSongCache(a.settings.CacheMB)
+		a.pl.Cache = newSongCache(a.settings)
+		a.cacheMoving = a.settings.PendingCacheDir != nil
 		a.pl.Changed = a.playerChanged
 		a.volume = a.settings.Volume
 		a.pl.SetVolume(a.volume)
@@ -268,7 +272,11 @@ func Run() error {
 			Content:              ui.View(a.view),
 		})
 		a.setMenu()
-		a.boot()
+		if a.cacheMoving {
+			a.startCacheMigration()
+		} else {
+			a.boot()
+		}
 		// The notch player is macOS's, over its menu bar: elsewhere it would
 		// hang at the top of the screen as a black box.
 		if runtime.GOOS == "darwin" {

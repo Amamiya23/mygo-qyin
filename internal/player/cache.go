@@ -29,6 +29,9 @@ func NewCache(dir string, limit int64) *Cache {
 	return &Cache{dir: dir, limit: limit}
 }
 
+// Directory returns the directory owned by this cache instance.
+func (c *Cache) Directory() string { return c.dir }
+
 // SetLimit changes how much the cache may take, and drops what is over.
 func (c *Cache) SetLimit(limit int64) {
 	c.mu.Lock()

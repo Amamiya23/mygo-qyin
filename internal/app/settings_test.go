@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -58,36 +59,59 @@ func TestQuitOnCloseSettings(t *testing.T) {
 	}
 }
 
-// With NM_FRAMES set, saves the close choices at the settings window's minimum width in both themes.
-func TestCloseSettingsFrames(t *testing.T) {
+// With NM_FRAMES set, saves settings and startup migration progress in both themes.
+func TestSettingsFrames(t *testing.T) {
 	dir := os.Getenv("NM_FRAMES")
 	if dir == "" {
 		t.Skip()
 	}
+	checks, downloads, checked := true, false, 0
+	defer fakeUpdater(&checks, &downloads, &checked)()
 	for _, dark := range []bool{false, true} {
-		a := newTestApp()
-		a.tray = &mygo.Tray{}
-		a.settings = defaultSettings()
-		a.settings.QuitOnClose = dark
-		tt := ui.NewTester(a.settingsView, 480, 720)
-		tt.SetScale(2)
-		tt.SetDark(dark)
-		tt.Frame()
-		name := "settings-close-light.png"
-		if dark {
-			name = "settings-close-dark.png"
-		}
-		f, err := os.Create(filepath.Join(dir, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = png.Encode(f, tt.Image())
-		closeErr := f.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if closeErr != nil {
-			t.Fatal(closeErr)
+		for _, width := range []int{480, 560, 880} {
+			a := newTestApp()
+			a.tray = &mygo.Tray{}
+			a.settings = defaultSettings()
+			a.settings.QuitOnClose = dark
+			a.settings.CacheDir = filepath.Join(t.TempDir(), "音乐缓存")
+			a.settings.CacheMB = 5120
+			a.pl.Cache = newSongCache(a.settings)
+			a.cacheUsed = 5 << 30
+			if dark {
+				pending := filepath.Join(t.TempDir(), "另一个磁盘")
+				a.settings.PendingCacheDir = &pending
+			}
+			a.updates = true
+			view, height := a.settingsView, 1400
+			if width == 880 {
+				a.cacheMoving = true
+				a.cacheMoveDone, a.cacheMoveTotal = 2<<30, 5<<30
+				view, height = a.view, 580
+			}
+			tt := ui.NewTester(view, width, height)
+			tt.SetScale(2)
+			tt.SetDark(dark)
+			tt.Frame()
+			appearance := "light"
+			if dark {
+				appearance = "dark"
+			}
+			name := fmt.Sprintf("settings-%d-%s.png", width, appearance)
+			if a.cacheMoving {
+				name = "cache-migration-" + appearance + ".png"
+			}
+			f, err := os.Create(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = png.Encode(f, tt.Image())
+			closeErr := f.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if closeErr != nil {
+				t.Fatal(closeErr)
+			}
 		}
 	}
 }

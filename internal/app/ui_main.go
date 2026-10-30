@@ -21,6 +21,11 @@ func (a *app) view(c *ui.Context) {
 	t.Selection = p.accent.Alpha(0.3)
 	c.SetTheme(&t)
 
+	if a.cacheMoving {
+		a.cacheMigrationView(c)
+		return
+	}
+
 	a.shortcuts(c)
 
 	if c.Vibrancy() {

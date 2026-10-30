@@ -11,12 +11,15 @@ import (
 
 // newSongCache returns the cache of songs played, in the app's cache
 // directory, or nil without one.
-func newSongCache(mb int) *player.Cache {
+func newSongCache(s settings) *player.Cache {
+	if s.CacheDir != "" {
+		return player.NewCache(filepath.Join(s.CacheDir, "Lilt", "songs"), int64(s.CacheMB)<<20)
+	}
 	dir, err := mygo.App.Path(mygo.PathCache)
 	if err != nil {
 		return nil
 	}
-	return player.NewCache(filepath.Join(dir, "songs"), int64(mb)<<20)
+	return player.NewCache(filepath.Join(dir, "songs"), int64(s.CacheMB)<<20)
 }
 
 // applyCacheLimit gives the cache the limit the settings say.
@@ -25,7 +28,8 @@ func (a *app) applyCacheLimit() {
 		limit := int64(a.settings.CacheMB) << 20
 		go func() {
 			cache.SetLimit(limit)
-			a.measureCache()
+			n := cache.Size()
+			a.post(func() { a.cacheMeasured(cache, n) })
 		}()
 	}
 }
@@ -39,13 +43,19 @@ func (a *app) measureCache() {
 	}
 	go func() {
 		n := cache.Size()
-		a.post(func() {
-			a.cacheUsed = n
-			if a.settingsWin != nil {
-				a.settingsWin.Invalidate()
-			}
-		})
+		a.post(func() { a.cacheMeasured(cache, n) })
 	}()
+}
+
+// cacheMeasured ignores a measurement from a directory no longer in use.
+func (a *app) cacheMeasured(cache *player.Cache, n int64) {
+	if a.pl.Cache != cache {
+		return
+	}
+	a.cacheUsed = n
+	if a.settingsWin != nil {
+		a.settingsWin.Invalidate()
+	}
 }
 
 func (a *app) clearCache() {
@@ -53,7 +63,8 @@ func (a *app) clearCache() {
 		a.cacheUsed = 0
 		go func() {
 			cache.Clear()
-			a.measureCache()
+			n := cache.Size()
+			a.post(func() { a.cacheMeasured(cache, n) })
 		}()
 	}
 }

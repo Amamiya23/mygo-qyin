@@ -75,8 +75,38 @@ func (a *app) settingsView(c *ui.Context) {
 			})
 		}
 
-		if a.canHideOnClose() {
-			group("通用", func() {
+		group("通用", func() {
+			row("外观", "", func() {
+				modes := []string{"system", "light", "dark"}
+				i := 0
+				for k, m := range modes {
+					if m == s.Appearance {
+						i = k
+					}
+				}
+				if segmented(c.Key("appearance"), &i, "跟随系统", "浅色", "深色") {
+					s.Appearance = modes[i]
+					a.changed()
+				}
+			})
+			if runtime.GOOS == "windows" {
+				row("侧边栏材质", "", func() {
+					i := 0
+					if s.sidebarVibrancy() == mygo.VibrancyMica {
+						i = 1
+					}
+					if segmented(c.Key("sidebar-material"), &i, "亚克力", "Mica") {
+						s.SidebarMaterial = []string{"acrylic", "mica"}[i]
+						if a.win != nil {
+							a.win.SetVibrancy(s.sidebarVibrancy())
+						}
+						s.save()
+						a.redraw()
+					}
+				})
+			}
+
+			if a.canHideOnClose() {
 				row("关闭主窗口时", "", func() {
 					i := 0
 					if s.QuitOnClose {
@@ -117,12 +147,10 @@ func (a *app) settingsView(c *ui.Context) {
 						}
 					})
 				}
-			})
-		}
+			}
 
-		// Only on macOS, the one with a notch player.
-		if a.notch != nil {
-			group("刘海播放器", func() {
+			// Only on macOS, the one with a notch player.
+			if a.notch != nil {
 				row("显示刘海播放器", "在屏幕顶部的刘海处显示迷你播放器，鼠标悬停即可展开", func() {
 					if ui.Switch(c.Key("notch"), &s.Notch).Label("显示刘海播放器").Changed() {
 						a.changed()
@@ -138,10 +166,8 @@ func (a *app) settingsView(c *ui.Context) {
 						a.changed()
 					}
 				})
-			})
-		}
+			}
 
-		group("播放", func() {
 			row("音质", "按 QQ 音乐账号权限播放 MP3 或 FLAC，下一首生效", func() {
 				labels := make([]string, len(qualityLevels))
 				chosen := qualityLevels[1].label
@@ -165,14 +191,8 @@ func (a *app) settingsView(c *ui.Context) {
 					a.changed()
 				}
 			})
-		})
 
-		if a.captionsShown() {
-			group("播客", func() { a.captionSettings(row, c) })
-		}
-
-		group("缓存", func() {
-			row("歌曲缓存", "听过的歌曲保存在本机，再次播放无需等待，也不耗流量；"+a.cacheUsage(), func() {
+			row("歌曲缓存", a.cacheUsage(), func() {
 				labels := make([]string, len(cacheLimits))
 				chosen := cacheLimits[2].label
 				for i, l := range cacheLimits {
@@ -181,7 +201,7 @@ func (a *app) settingsView(c *ui.Context) {
 						chosen = l.label
 					}
 				}
-				if ui.Select(c.Key("cache"), &chosen, labels).Label("歌曲缓存").Width(150).Changed() {
+				if ui.Select(c.Key("cache"), &chosen, labels).Label("歌曲缓存").Width(150).Disabled(a.cacheMoving).Changed() {
 					for _, l := range cacheLimits {
 						if l.label == chosen {
 							s.CacheMB = l.mb
@@ -191,43 +211,12 @@ func (a *app) settingsView(c *ui.Context) {
 					a.applyCacheLimit()
 				}
 			})
-			row("清除缓存", "删除保存在本机的全部歌曲", func() {
-				if ui.Button(c.Key("clear-cache"), "清除").Disabled(a.cacheUsed <= 0).Clicked() {
+			a.cacheDirectoryRow(c)
+			row("清除缓存", "", func() {
+				if ui.Button(c.Key("clear-cache"), "清除").Disabled(a.cacheMoving || a.cacheUsed <= 0).Clicked() {
 					a.clearCache()
 				}
 			})
-		})
-
-		group("外观", func() {
-			row("外观", "", func() {
-				modes := []string{"system", "light", "dark"}
-				i := 0
-				for k, m := range modes {
-					if m == s.Appearance {
-						i = k
-					}
-				}
-				if segmented(c.Key("appearance"), &i, "跟随系统", "浅色", "深色") {
-					s.Appearance = modes[i]
-					a.changed()
-				}
-			})
-			if runtime.GOOS == "windows" {
-				row("侧边栏材质", "", func() {
-					i := 0
-					if s.sidebarVibrancy() == mygo.VibrancyAcrylic {
-						i = 1
-					}
-					if segmented(c.Key("sidebar-material"), &i, "Mica", "亚克力") {
-						s.SidebarMaterial = []string{"mica", "acrylic"}[i]
-						if a.win != nil {
-							a.win.SetVibrancy(s.sidebarVibrancy())
-						}
-						s.save()
-						a.redraw()
-					}
-				})
-			}
 		})
 
 		group("实验性功能", func() {
@@ -243,35 +232,18 @@ func (a *app) settingsView(c *ui.Context) {
 			})
 		})
 
-		group("账号", func() {
-			if a.profile == nil {
-				row("未登录", "登录后，每日推荐与歌单将根据你的口味生成", func() {
-					if ui.PrimaryButton(c.Key("login"), "扫码登录").Clicked() {
-						a.showMain()
-						a.openLogin()
-						a.win.Invalidate()
+		group("关于与更新", func() {
+			row("当前版本 "+mygo.App.Version(), "", func() {
+				if a.updates {
+					if ui.Button(c.Key("check-updates"), "检查更新").Clicked() {
+						checkForUpdates()
 					}
-				})
-				return
-			}
-			prof := a.profile
-			ui.Row(c).Padding(12, 16).Gap(12).AlignItems(ui.Center).Children(func() {
-				a.avatar(c, prof.AvatarURL, 36, p.press)
-				ui.Column(c).Grow(1).Gap(2).Children(func() {
-					ui.Text(c, prof.Nickname).FontSize(13.5).FontWeight(600)
-					ui.Text(c, "已登录 QQ 音乐").FontSize(12).TextColor(p.muted)
-				})
-				if ui.Button(c.Key("logout"), "退出登录").Clicked() {
-					a.signOut()
 				}
 			})
-		})
-
-		if a.updates {
-			group("更新", func() {
-				desc := "每天检查一次是否有新版本"
+			if a.updates {
+				desc := ""
 				if t := lastUpdateCheck(); !t.IsZero() {
-					desc += "；上次检查：" + commentTime(t, time.Now())
+					desc = "上次检查：" + commentTime(t, time.Now())
 				}
 				row("自动检查更新", desc, func() {
 					on := updateChecks()
@@ -279,18 +251,13 @@ func (a *app) settingsView(c *ui.Context) {
 						setUpdateChecks(on)
 					}
 				})
-				row("自动下载并安装", "在后台下载新版本，下次打开时生效", func() {
+				row("自动下载并安装", "", func() {
 					on := updateDownloads()
 					if ui.Switch(c.Key("update-downloads"), &on).Label("自动下载并安装").Disabled(!updateChecks()).Changed() {
 						setUpdateDownloads(on)
 					}
 				})
-				row("当前版本 "+mygo.App.Version(), "", func() {
-					if ui.Button(c.Key("check-updates"), "检查更新").Clicked() {
-						checkForUpdates()
-					}
-				})
-			})
-		}
+			}
+		})
 	})
 }

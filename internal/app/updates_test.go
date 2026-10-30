@@ -41,28 +41,27 @@ func TestTurnOffUpdateChecks(t *testing.T) {
 	tt.Frame()
 	// The row's title is labelled as its switch is: click the switch, at
 	// the row's end.
-	toggle := func(title, desc string) {
+	toggle := func(title string) {
 		t.Helper()
-		top, ok1 := tt.Find(title)
-		bottom, ok2 := tt.Find(desc)
-		if !ok1 || !ok2 {
+		bounds, ok := tt.Find(title)
+		if !ok {
 			t.Fatalf("no row %s", title)
 		}
-		tt.ClickAt(560-28-16-12, (top.Y+bottom.Y+bottom.H)/2)
+		tt.ClickAt(560-28-16-12, bounds.Y+bounds.H/2)
 		tt.Frame()
 	}
-	toggle("自动检查更新", "每天检查一次是否有新版本")
+	toggle("自动检查更新")
 	if checks {
 		t.Fatal("checks for updates still")
 	}
-	toggle("自动下载并安装", "在后台下载新版本，下次打开时生效")
+	toggle("自动下载并安装")
 	if downloads {
 		t.Fatal("turned on installing updates without checking for them")
 	}
 	// It does turn on while the updater checks.
 	checks = true
 	tt.Frame()
-	toggle("自动下载并安装", "在后台下载新版本，下次打开时生效")
+	toggle("自动下载并安装")
 	if !downloads {
 		t.Fatal("didn't turn on installing updates")
 	}
