@@ -16,7 +16,7 @@ Lilt 是基于 MyGo 云音乐改造的第三方 QQ 音乐客户端，使用 Go �
 - 听过的歌曲缓存在本机，再次播放无需等待
 - 暂停与继续时淡出淡入，拖动进度无杂音
 - 退出后再打开，从上次的播放队列与进度继续
-- LRC 歌词，正在播放页的「律动」视图与歌曲评论
+- LRC 歌词与同步翻译，正在播放页的「律动」视图与歌曲评论
 - 刘海播放器：在屏幕顶部刘海处显示迷你播放器，悬停展开（在设置中开启）
 - 喜欢歌曲与收藏专辑、歌单编辑、播放队列、随机与循环播放
 - Radix 浅色 / 深色 / 跟随系统
@@ -47,6 +47,7 @@ Windows 安装包与便携版在 `build/`。默认协议测试使用本地模拟
 - [MyGo](https://github.com/egoist/mygo)：原生 UI 与应用框架
 - [mygo-cloudmusic](https://github.com/egoist/mygo-cloudmusic)：原生界面与播放器
 - [qq-music-api](https://github.com/Rain120/qq-music-api)：提供登陆、个人内容获取、歌曲播放等
+- 感谢 [Linux DO](https://linux.do/) 社区 的支持
 
 本项目与 QQ 音乐官方无关，音乐版权归各权利人所有。
 
