@@ -10,6 +10,44 @@ import (
 	"testing"
 )
 
+// Song comments must load from the current web service and advance past the first page.
+func TestLiveSongComments(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip("set LIVE to contact QQ Music")
+	}
+	previous := sessionSnapshot()
+	t.Cleanup(func() { setSession(previous) })
+	setSession(Session{})
+	for _, id := range []string{"105816212", "102150080"} {
+		t.Run(id, func(t *testing.T) {
+			first, err := ThreadComments(id, 0, 30)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.Total <= 0 || len(first.Hot) == 0 || len(first.Latest) == 0 || !first.More {
+				t.Fatalf("incomplete first page: %+v", first)
+			}
+			next, err := ThreadComments(id, len(first.Latest), 30)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(next.Latest) == 0 {
+				t.Fatal("empty second page")
+			}
+			seen := map[string]bool{}
+			for _, cm := range first.Latest {
+				seen[cm.RemoteID] = true
+			}
+			for _, cm := range next.Latest {
+				if cm.RemoteID == "" || seen[cm.RemoteID] {
+					t.Fatal("next page repeated a comment or lost its identity")
+				}
+			}
+			t.Logf("total=%d hot=%d latest=%d next=%d", first.Total, len(first.Hot), len(first.Latest), len(next.Latest))
+		})
+	}
+}
+
 // Singer discographies must remain readable and paginate while an account is present.
 func TestLiveArtistAlbums(t *testing.T) {
 	if os.Getenv("LIVE") == "" {

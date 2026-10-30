@@ -1,12 +1,93 @@
 package qqmusic
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"testing"
+
+	"lilt/internal/lyrics"
 )
+
+// The old endpoint often omits translations; a failed supplement must still leave the original readable.
+func TestLyricsTranslationFallback(t *testing.T) {
+	const original = "[00:12.50]A foreign lyric\n[00:18.00]Another line"
+	const translated = "[00:12.50]一句译文\n[00:18.00]另一句译文"
+	encode := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+	for _, tc := range []struct {
+		name, existing, fallback, want string
+		status                         int
+	}{
+		{name: "missing", fallback: encode(translated), want: translated},
+		{name: "existing", existing: encode(translated), want: translated},
+		{name: "unavailable"},
+		{name: "encrypted", fallback: "ABCDEF0123456789"},
+		{name: "malformed base64", fallback: "not-base64!"},
+		{name: "untimed", fallback: encode("没有时间戳")},
+		{name: "rejected", fallback: encode(translated), status: 2001},
+		{name: "HTTP failure", status: http.StatusBadGateway},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			RememberTracks([]Track{{ID: 994, MID: "translatedSong"}})
+			oldCalls, newCalls := 0, 0
+			withQQServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/lyric/fcgi-bin/fcg_query_lyric_new.fcg" {
+					oldCalls++
+					if r.URL.Query().Get("songmid") != "translatedSong" {
+						t.Error("lyric request lost song MID")
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "lyric": encode(original), "trans": tc.existing})
+					return
+				}
+				newCalls++
+				var request struct {
+					Comm map[string]any
+					Req  struct {
+						Module, Method string
+						Param          map[string]any
+					} `json:"req_0"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					return
+				}
+				if request.Req.Module != "music.musichallSong.PlayLyricInfo" || request.Req.Method != "GetPlayLyricInfo" || request.Req.Param["songMID"] != "translatedSong" || request.Req.Param["crypt"] != float64(0) || request.Req.Param["trans"] != float64(1) {
+					t.Errorf("wrong translation request: %+v", request.Req)
+				}
+				if request.Comm["tmeAppID"] != "qqmusiclight" || request.Comm["uid"] != "0" || request.Comm["authst"] != nil || r.Header.Get("Cookie") != "tmeLoginType=-1" || r.UserAgent() != "okhttp/3.14.9" {
+					t.Error("public lyric translation inherited account identity")
+				}
+				if tc.status == http.StatusBadGateway {
+					w.WriteHeader(tc.status)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "req_0": map[string]any{"code": tc.status, "data": map[string]any{"lyric": "encrypted-original", "trans": tc.fallback}}})
+			})
+			setSession(Session{MusicID: "123", MusicKey: "fixture-credential", LoginType: 2})
+			lrc, trans, yrc, err := Lyrics(994)
+			if err != nil || lrc != original || trans != tc.want || yrc != "" {
+				t.Fatalf("lyrics=%q translation=%q yrc=%q error=%v", lrc, trans, yrc, err)
+			}
+			wantCalls := 1
+			if tc.existing != "" {
+				wantCalls = 0
+			}
+			if oldCalls != 1 || newCalls != wantCalls {
+				t.Fatalf("requests: old=%d new=%d, want 1/%d", oldCalls, newCalls, wantCalls)
+			}
+			lines := lyrics.Build(lrc, trans, yrc)
+			wantLine := ""
+			if tc.want != "" {
+				wantLine = "一句译文"
+			}
+			if len(lines) != 2 || lines[0].Translation != wantLine {
+				t.Fatalf("translation did not reach timed lines: %+v", lines)
+			}
+		})
+	}
+}
 
 // A restored queue must retain MIDs and the chosen file size so seeking need not wait for EOF.
 func TestPlaybackRestoredSizeAndQualityFallback(t *testing.T) {

@@ -6,14 +6,13 @@ Lilt 是基于 MyGo 云音乐改造的第三方 QQ 音乐客户端，使用 Go �
 ## 功能
 
 - QQ / 微信扫码登录，登录态保存在系统凭据存储中
-- 我的主页显示免费账号、绿钻或超级会员状态
+- 我的主页显示账号会员状态
 - 每日推荐、推荐歌单、排行榜、我的歌单
-- 已购单曲与数字专辑，支持分页浏览、刷新及打开专辑
+- 已购单曲与数字专辑
 - 搜索单曲、歌手、专辑，搜索建议与历史
 - 歌手热门与最新歌曲、专辑及用户歌单
 - QQ「猜你喜欢」电台
 - 边下边播，按账号权限提供 128k / 320k MP3 / FLAC，逐级回退
-- 听过的歌曲缓存在本机，再次播放无需等待
 - 暂停与继续时淡出淡入，拖动进度无杂音
 - 退出后再打开，从上次的播放队列与进度继续
 - LRC 歌词与同步翻译，正在播放页的「律动」视图与歌曲评论
@@ -45,7 +44,7 @@ Windows 安装包与便携版在 `build/`。默认协议测试使用本地模拟
 ## 致谢
 
 - [MyGo](https://github.com/egoist/mygo)：原生 UI 与应用框架
-- [mygo-cloudmusic](https://github.com/egoist/mygo-cloudmusic)：原生界面与播放器
+- [mygo-cloudmusic](https://github.com/egoist/mygo-cloudmusic)：网易云原生界面与播放器
 - [qq-music-api](https://github.com/Rain120/qq-music-api)：提供登陆、个人内容获取、歌曲播放等
 - 感谢 [Linux DO](https://linux.do/) 社区 的支持
 

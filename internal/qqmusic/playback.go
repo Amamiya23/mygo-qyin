@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 func trackForPlayback(id int64) (Track, error) {
@@ -176,5 +178,33 @@ func Lyrics(id int64) (lrc, translation, yrc string, err error) {
 		return "", "", "", err
 	}
 	translation, err = decode(data.Translation)
+	if err == nil && data.Translation == "" {
+		translation = lyricTranslation(t.MID)
+	}
 	return lrc, translation, "", err
+}
+
+var lyricTimeTag = regexp.MustCompile(`\[\d{1,3}:\d{2}`)
+
+// QQ's old endpoint often has no translation. The newer endpoint supplies
+// base64 LRC for trans with crypt=0, but its original lyric is still encrypted.
+func lyricTranslation(mid string) string {
+	comm := map[string]any{"ct": 11, "cv": "1003006", "v": "1003006", "tmeAppID": "qqmusiclight", "nettype": "NETWORK_WIFI", "udid": "0", "uid": "0"}
+	headers := map[string]string{"Cookie": "tmeLoginType=-1", "User-Agent": "okhttp/3.14.9"}
+	param := map[string]any{
+		"songMID": mid, "songName": "", "singerName": "", "albumName": "", "interval": 0,
+		"crypt": 0, "ct": 19, "cv": 2111, "lrc_t": 0, "qrc": 0, "qrc_t": 0,
+		"roma": 0, "roma_t": 0, "trans": 1, "trans_t": 0, "type": 0,
+	}
+	var data struct {
+		Translation string `json:"trans"`
+	}
+	if err := rpcWithComm("music.musichallSong.PlayLyricInfo", "GetPlayLyricInfo", param, &data, comm, headers); err != nil {
+		return ""
+	}
+	b, err := base64.StdEncoding.DecodeString(data.Translation)
+	if err != nil || !utf8.Valid(b) || !lyricTimeTag.Match(b) {
+		return ""
+	}
+	return string(b)
 }
