@@ -4,6 +4,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 
@@ -261,7 +262,7 @@ func (a *app) sidebarSurface(c *ui.Context, fallback ui.Color, opacity float32) 
 }
 
 func (a *app) acrylicSidebar(c *ui.Context) bool {
-	return runtime.GOOS == "windows" && a.settings.SidebarMaterial == "acrylic" && c.Vibrancy()
+	return runtime.GOOS == "windows" && a.settings.sidebarVibrancy() == mygo.VibrancyAcrylic && c.Vibrancy()
 }
 
 func (a *app) sidebarNowPlaying(c *ui.Context, tr *qqmusic.Track) {

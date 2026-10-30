@@ -75,41 +75,50 @@ func (a *app) settingsView(c *ui.Context) {
 			})
 		}
 
-		group("通用", func() {
-			row("关闭主面板时", "", func() {
-				i := 0
-				if s.QuitOnClose {
-					i = 1
-				}
-				if segmented(c.Key("close-action"), &i, "最小化到托盘", "退出应用") {
-					s.QuitOnClose = i == 1
-					s.save()
-				}
-			})
-			// Only on macOS: elsewhere the icon is always in the notification
-			// area.
-			if runtime.GOOS == "darwin" {
-				row("应用图标", "显示在菜单栏时，关闭窗口后可从菜单栏图标打开", func() {
-					labels := make([]string, len(appIcons))
-					chosen := appIcons[0].label
-					for i, ic := range appIcons {
-						labels[i] = ic.label
-						if ic.id == s.AppIcon {
-							chosen = ic.label
-						}
+		if a.canHideOnClose() {
+			group("通用", func() {
+				row("关闭主窗口时", "", func() {
+					i := 0
+					if s.QuitOnClose {
+						i = 1
 					}
-					if ui.Select(c.Key("app-icon"), &chosen, labels).Label("应用图标").Width(150).Changed() {
-						for _, ic := range appIcons {
-							if ic.label == chosen {
-								s.AppIcon = ic.id
-							}
-						}
-						a.changed()
-						a.changeAppIcon()
+					keepRunning := "最小化到托盘"
+					switch runtime.GOOS {
+					case "darwin":
+						keepRunning = "保持后台运行"
+					case "linux":
+						keepRunning = "隐藏到托盘"
+					}
+					if segmented(c.Key("close-action"), &i, keepRunning, "退出应用") {
+						s.QuitOnClose = i == 1
+						s.save()
 					}
 				})
-			}
-		})
+				// Only on macOS: elsewhere the icon is always in the notification
+				// area.
+				if runtime.GOOS == "darwin" {
+					row("应用图标", "显示在菜单栏时，关闭窗口后可从菜单栏图标打开", func() {
+						labels := make([]string, len(appIcons))
+						chosen := appIcons[0].label
+						for i, ic := range appIcons {
+							labels[i] = ic.label
+							if ic.id == s.AppIcon {
+								chosen = ic.label
+							}
+						}
+						if ui.Select(c.Key("app-icon"), &chosen, labels).Label("应用图标").Width(150).Changed() {
+							for _, ic := range appIcons {
+								if ic.label == chosen {
+									s.AppIcon = ic.id
+								}
+							}
+							a.changed()
+							a.changeAppIcon()
+						}
+					})
+				}
+			})
+		}
 
 		// Only on macOS, the one with a notch player.
 		if a.notch != nil {
@@ -206,7 +215,7 @@ func (a *app) settingsView(c *ui.Context) {
 			if runtime.GOOS == "windows" {
 				row("侧边栏材质", "", func() {
 					i := 0
-					if s.SidebarMaterial == "acrylic" {
+					if s.sidebarVibrancy() == mygo.VibrancyAcrylic {
 						i = 1
 					}
 					if segmented(c.Key("sidebar-material"), &i, "Mica", "亚克力") {

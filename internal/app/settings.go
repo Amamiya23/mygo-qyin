@@ -33,7 +33,7 @@ type settings struct {
 	Quality string `json:"quality"`
 	// Appearance is light, dark, or system to follow the system.
 	Appearance string `json:"appearance"`
-	// SidebarMaterial selects mica (also when empty) or acrylic on Windows.
+	// SidebarMaterial selects mica or acrylic (also when empty) on Windows.
 	SidebarMaterial string `json:"sidebarMaterial,omitempty"`
 	// Smoke makes the progress bars comets trailing smoke as music plays,
 	// for a few percent of a core: the listener turns it on.
@@ -75,7 +75,7 @@ type settings struct {
 }
 
 func defaultSettings() settings {
-	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true}
+	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", SidebarMaterial: "acrylic", Volume: 0.8, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true}
 }
 
 func settingsPath() (string, error) {
@@ -161,10 +161,10 @@ func (s settings) sidebarVibrancy() mygo.Vibrancy {
 	if runtime.GOOS != "windows" {
 		return mygo.VibrancySidebar
 	}
-	if s.SidebarMaterial == "acrylic" {
-		return mygo.VibrancyAcrylic
+	if s.SidebarMaterial == "mica" {
+		return mygo.VibrancyMica
 	}
-	return mygo.VibrancyMica
+	return mygo.VibrancyAcrylic
 }
 
 // applyAppearance makes the windows light, dark, or follow the system.

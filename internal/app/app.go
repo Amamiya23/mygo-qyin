@@ -189,6 +189,11 @@ func (a *app) showMain() {
 	}
 }
 
+// canHideOnClose requires a way to bring the hidden main window back.
+func (a *app) canHideOnClose() bool {
+	return runtime.GOOS == "darwin" || a.tray != nil
+}
+
 // Run runs the app until it quits.
 func Run() error {
 	moveOldData()
@@ -265,7 +270,7 @@ func Run() error {
 				return
 			}
 			e.PreventDefault()
-			if !a.settings.QuitOnClose && (runtime.GOOS == "darwin" || a.tray != nil) {
+			if !a.settings.QuitOnClose && a.canHideOnClose() {
 				a.win.Hide()
 			} else {
 				mygo.App.Quit()

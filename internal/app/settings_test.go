@@ -15,17 +15,25 @@ import (
 // Choosing how the main panel closes updates and saves the choice in both directions.
 func TestQuitOnCloseSettings(t *testing.T) {
 	a := newTestApp()
+	a.tray = &mygo.Tray{} // A successfully created tray makes hiding available.
 	a.settings = defaultSettings()
 	a.settings.QuitOnClose = false
 	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
 	tt := ui.NewTester(a.settingsView, 560, 2000)
 	tt.Frame()
+	keepRunning := "最小化到托盘"
+	switch runtime.GOOS {
+	case "darwin":
+		keepRunning = "保持后台运行"
+	case "linux":
+		keepRunning = "隐藏到托盘"
+	}
 	for _, choice := range []struct {
 		label       string
 		quitOnClose bool
 	}{
 		{"退出应用", true},
-		{"最小化到托盘", false},
+		{keepRunning, false},
 		{"退出应用", true},
 	} {
 		if err := tt.Click(choice.label); err != nil {
@@ -58,6 +66,7 @@ func TestCloseSettingsFrames(t *testing.T) {
 	}
 	for _, dark := range []bool{false, true} {
 		a := newTestApp()
+		a.tray = &mygo.Tray{}
 		a.settings = defaultSettings()
 		a.settings.QuitOnClose = dark
 		tt := ui.NewTester(a.settingsView, 480, 720)
@@ -98,9 +107,9 @@ func TestSidebarMaterialSettings(t *testing.T) {
 		material string
 		vibrancy mygo.Vibrancy
 	}{
-		{"亚克力", "acrylic", mygo.VibrancyAcrylic},
 		{"Mica", "mica", mygo.VibrancyMica},
 		{"亚克力", "acrylic", mygo.VibrancyAcrylic},
+		{"Mica", "mica", mygo.VibrancyMica},
 	} {
 		if err := tt.Click(choice.label); err != nil {
 			t.Fatal(err)
