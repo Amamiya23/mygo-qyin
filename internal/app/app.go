@@ -211,6 +211,7 @@ func Run() error {
 		queueAt:    -1,
 		cacheUsed:  -1,
 	}
+	a.useUpdater()
 	mygo.App.WhenReady(func() {
 		a.settings = loadSettings()
 		a.settings.applyAppearance()

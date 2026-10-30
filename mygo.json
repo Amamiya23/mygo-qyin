@@ -2,9 +2,13 @@
   "name": "Lilt",
   "identifier": "dev.amamiya.qqmusic",
   "slug": "lilt",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "out": "build",
   "resources": ["LICENSE", "THIRD_PARTY_NOTICES.md", "README.md"],
+  "updates": {
+    "publicKey": "vNnYE6P6rNrupbggTNO1do2zPVVucUBpE0px82vyCHQ=",
+    "github": "Amamiya23/mygo-qyin"
+  },
   "macos": {
     "minimumSystemVersion": "13.0"
   },
