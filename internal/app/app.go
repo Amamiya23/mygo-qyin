@@ -110,7 +110,6 @@ type app struct {
 	npChangedAt time.Time // when it last opened or closed
 	npPane      int       // paneLyrics, paneQueue, paneStage, paneComments, paneProgram or paneCaptions
 	npPaneTop   float32   // how far the cover beside the pane starts below its top
-	npTabsH     float32   // how tall the pane's tabs were, last laid out
 	lyricScroll ui.ScrollState
 	lyricGlide  lyricGlide
 	lyricAt     int

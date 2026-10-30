@@ -2,6 +2,9 @@ package app
 
 import (
 	"fmt"
+	"image/png"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -159,5 +162,104 @@ func TestCmdNumberChoosesTab(t *testing.T) {
 				t.Errorf("%s: ⌘%d chose pane %d, want %d", c.track.Name, n, a.npPane, c.panes[i])
 			}
 		}
+	}
+}
+
+// Now Playing's tabs used to jump between panes and shift as the comments' count grew; they stay in place after either change.
+func TestNowPlayingTabsStayPut(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.pl.Cue([]qqmusic.Track{{ID: 1, Name: "一", Duration: 200000}})
+	a.pl.SetLyrics(nil)
+	a.comments = commentState{track: 1, loaded: true}
+	a.nowPlaying = true
+	tt := ui.NewTester(a.view, 1200, 800)
+	settle := func() {
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+	}
+	settle()
+	first, ok := tt.Find("歌词")
+	if !ok {
+		t.Fatal("no 歌词 tab")
+	}
+	checkPosition := func() {
+		t.Helper()
+		r, ok := tt.Find("歌词")
+		if !ok {
+			t.Fatal("no 歌词 tab")
+		}
+		if r.X != first.X || r.Y != first.Y {
+			t.Errorf("in pane %d, with %d comments, the 歌词 tab is at %v,%v, was at %v,%v", a.npPane, a.comments.total, r.X, r.Y, first.X, first.Y)
+		}
+	}
+	for _, tab := range []struct {
+		label string
+		pane  int
+	}{{"律动", paneStage}, {"待播清单", paneQueue}, {"选歌", paneWall}, {"评论", paneComments}, {"歌词", paneLyrics}} {
+		if err := tt.Click(tab.label); err != nil {
+			t.Fatal(err)
+		}
+		settle()
+		if a.npPane != tab.pane {
+			t.Fatalf("%s chose pane %d, want %d", tab.label, a.npPane, tab.pane)
+		}
+		checkPosition()
+	}
+	for _, pane := range []int{paneStage, paneLyrics} {
+		a.npPane = pane
+		a.comments.total = 0
+		settle()
+		a.comments.total = 12345678
+		settle()
+		checkPosition()
+	}
+}
+
+// With NM_FRAMES set, saves Now Playing at short, regular and wide sizes, plus the stage and wall, to inspect their shared tabs and cover alignment.
+func TestNowPlayingFrames(t *testing.T) {
+	dir := os.Getenv("NM_FRAMES")
+	if dir == "" {
+		t.Skip()
+	}
+	for _, scene := range []struct {
+		name string
+		w, h int
+		pane int
+	}{
+		{"short", 860, 560, paneLyrics},
+		{"regular", 1200, 800, paneLyrics},
+		{"wide", 1920, 1080, paneLyrics},
+		{"stage", 1200, 800, paneStage},
+		{"wall", 1200, 800, paneWall},
+	} {
+		t.Run(scene.name, func(t *testing.T) {
+			a := newTestApp()
+			a.settings = defaultSettings()
+			tr := qqmusic.Track{ID: 1, Name: "宝船", Artists: []qqmusic.Artist{{Name: "DOUDOU"}}, Album: qqmusic.Album{PicURL: "layout-cover"}, Duration: 200000}
+			a.pl.Cue([]qqmusic.Track{tr})
+			a.pl.SetLyrics(nil)
+			a.comments = commentState{track: tr.ID, loaded: true, total: 12345678}
+			a.nowPlaying, a.npPane = true, scene.pane
+			art := &artwork{bmp: solidBitmap(radixSage(true, 9)), tint: radixSage(true, 9)}
+			for _, size := range []int{96, 120, 240, 600} {
+				a.art.art[qqmusic.Sized(tr.Album.PicURL, size)] = art
+			}
+			a.art.art[qqmusic.Sized(tr.Album.PicURL, 600)+"#backdrop"] = art
+			tt := ui.NewTester(a.view, scene.w, scene.h)
+			tt.Frame()
+			tt.Move(float32(scene.w)/2, float32(scene.h)/2)
+			tt.Advance(time.Second)
+			tt.Frame()
+			f, err := os.Create(filepath.Join(dir, "now-playing-"+scene.name+".png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			if err := png.Encode(f, tt.Image()); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

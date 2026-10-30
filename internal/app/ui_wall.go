@@ -96,12 +96,13 @@ func (l wallLayout) shows(i int, off ui.Point, w, h, top, foot float32) bool {
 // wallPane fills Now Playing with the wall, the song playing over it and
 // the controls along its foot.
 func (a *app) wallPane(c *ui.Context, tr *qqmusic.Track, art *artwork, accent ui.Color, w, h float32, pointerIn bool) {
-	top := topBar(c)
+	// The song starts below the shared row of tabs.
+	top := topBar(c) + npTabsHeight
 	songH := min(max(h*0.36, 200), 320)
 	// The wall goes on under the foot of the song, into the frost; at
 	// rest, its first row is clear of the frost and its last of the
 	// controls' blur, which only covers going by pass under.
-	const frost, foot = 120, 112
+	const frost, foot = 72, 112
 	wallY := top + songH - frost/2
 	a.wall(c, wallY, w, h-wallY, frost, foot, frost)
 	// Up into the frost, covers blur more and more and fade into the
@@ -123,7 +124,7 @@ func (a *app) wallPane(c *ui.Context, tr *qqmusic.Track, art *artwork, accent ui
 		})
 	a.wallSong(c, tr, art, top, songH)
 	a.wallBar(c, accent)
-	reveal(ui.Row(c.Key("tabs")).Absolute().Top(top).Right(48).Gap(6), pointerIn).Children(func() { a.paneTabs(c) })
+	reveal(npTabsRow(c, w, h), pointerIn).Children(func() { a.paneTabs(c) })
 }
 
 // wallSong is the song playing, over the wall: its cover, which breathes

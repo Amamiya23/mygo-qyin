@@ -137,9 +137,9 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 		if a.npPane == paneStage {
 			// The stage takes the whole view: the lyrics are the show, the
 			// controls a slim bar at the foot.
-			reveal(ui.Row(c.Key("tabs")).Absolute().Top(topBar(c)).Right(48).Gap(6), pointerIn).Children(func() {
-				a.stageStyleButton(c)
+			reveal(npTabsRow(c, w, h), pointerIn).Children(func() {
 				a.paneTabs(c)
+				a.stageStyleButton(c)
 			})
 			a.stage(c, tr, accent)
 			a.stageBar(c, tr, art, accent)
@@ -151,10 +151,13 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 			return
 		}
 
-		side := float32(math.Min(float64(w)*0.36, 440))
-		// The cover leaves room above it for the pane's tabs.
-		coverSize := min(side, h-404)
-		ui.Row(c).Grow(1).Padding(0, 72, 44, 72).Gap(72).AlignItems(ui.Stretch).Children(func() {
+		coverSize := npCoverSize(w, h)
+		// The cover and what plays start at one edge, with the column
+		// wide enough for the controls even when the cover is small.
+		side := max(coverSize, 280)
+		padX := npSideX(w)
+		reveal(npTabsRow(c, w, h), pointerIn).Children(func() { a.paneTabs(c) })
+		ui.Row(c).Grow(1).Padding(0, padX, 44, padX).Gap(72).AlignItems(ui.Stretch).Children(func() {
 			var coverTop float32
 			ui.Column(c).Width(side).Justify(ui.Center).Gap(0).Children(func() {
 				coverTop = ui.Box(c.Key("cover-top")).Height(0).LayoutBounds().Y
@@ -195,26 +198,18 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 
 			pane := ui.Column(c.Key("pane")).Grow(1).Basis(0).MinWidth(0)
 			pane.Children(func() {
-				// The pane starts level with the cover beside it. Its tabs come
-				// and go with the pointer, so they sit above it, out of the flow,
-				// never over it.
-				tabs := ui.Row(c.Key("tabs")).Absolute().Left(0).Gap(6)
-				b, tb := pane.LayoutBounds(), tabs.LayoutBounds()
-				if b.H > 0 && tb.H > 0 && coverTop > 0 {
-					if top := max(coverTop-b.Y, tb.H+8); top != a.npPaneTop {
+				// The pane starts level with the cover beside it, but below the
+				// tabs, which start level with the pane's top: they come and go
+				// with the pointer, so they sit out of the flow, never over it.
+				b := pane.LayoutBounds()
+				if b.H > 0 && coverTop > 0 {
+					if top := max(coverTop-b.Y, npTabsHeight+8); top != a.npPaneTop {
 						a.npPaneTop = top
 						c.AnimationFrame()
 					}
 				} else {
 					c.AnimationFrame() // not laid out yet: the next frame places it
 				}
-				// Built anew, back from another pane, the tabs are not laid out
-				// yet: they take their height from the last time, rather than
-				// showing lower for a frame and rising.
-				if tb.H > 0 {
-					a.npTabsH = tb.H
-				}
-				reveal(tabs.Top(a.npPaneTop-8-a.npTabsH), pointerIn).Children(func() { a.paneTabs(c) })
 				ui.Box(c).Height(a.npPaneTop)
 				switch a.npPane {
 				case paneLyrics:
@@ -231,6 +226,33 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 			})
 		})
 	}
+}
+
+// npMaxWidth is how wide the cover and the pane beside it go, at most.
+const npMaxWidth = 1280
+
+// npCoverSize leaves room for the controls and the strip above the cover.
+func npCoverSize(w, h float32) float32 {
+	return min(float32(math.Min(float64(w)*0.36, 440)), h-436)
+}
+
+// npSideX is how far in from the sides of a view w wide the cover and the
+// pane beside it are: in a wide window they keep together in the middle,
+// rather than the pane taking all the width the cover leaves.
+func npSideX(w float32) float32 {
+	return max(72, (w-npMaxWidth)/2)
+}
+
+// npTabsHeight is how tall the row of Now Playing's tabs is, for what is
+// under it to start below it.
+const npTabsHeight = 28
+
+// npTabsRow is the row of Now Playing's tabs, in the same place for every
+// pane, above the right-hand content. Anchoring their start keeps them
+// still as the comments' count changes or the stage's style button appears.
+func npTabsRow(c *ui.Context, w, h float32) ui.Element {
+	left := npSideX(w) + max(npCoverSize(w, h), 280) + 72
+	return ui.Row(c.Key("tabs")).Absolute().Top(topBar(c)).Left(left).Height(npTabsHeight).Gap(6).AlignItems(ui.Center)
 }
 
 // reveal fades e in while the pointer is in the window, and out when it
