@@ -17,6 +17,79 @@ import (
 	"lilt/internal/qqmusic"
 )
 
+// Seeking in the main window while paused refreshes the compact lyric;
+// it used to stay on the old line until the notch was opened or playback resumed.
+func TestNotchLyricsFollowPausedSeek(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.Notch, a.settings.NotchVirtual, a.settings.NotchActivity = true, true, true
+	a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "测试歌曲", Duration: 60000}})
+	a.pl.SetLyrics(lyrics.Build("[00:01.00]第一句歌词\n[00:30.00]第二句歌词", "", ""))
+	out := audio.NewPlayer(&silence{})
+	out.SetVolume(0)
+	defer out.Close()
+	a.pl.Attach(out)
+	a.pl.TogglePlay()
+	a.pl.Seek(2 * time.Second)
+
+	n := &notch{a: a, w0: 200, h0: 32, winW: notchOpenW + 60, winH: 32 + notchOpenH + 30}
+	a.notch = n
+	var mainServices, notchServices ui.Services
+	main := ui.NewTester(func(c *ui.Context) {
+		mainServices = c.Services()
+		a.scrubber(c, &a.barScrub, white, white, 14, ui.Color{}).Width(400)
+		a.syncWindows()
+	}, 400, 40)
+	compact := ui.NewTester(func(c *ui.Context) {
+		notchServices = c.Services()
+		n.view(c)
+	}, int(n.winW), int(n.winH))
+	main.Advance(time.Second)
+	compact.Advance(time.Second)
+	if !compact.HasText("第一句歌词") {
+		t.Fatal("paused notch did not show the initial lyric")
+	}
+	if compact.FramePending() {
+		t.Fatal("paused notch did not settle before seeking")
+	}
+
+	// Route the real window notifications to the two headless windows.
+	a.win, n.win = &mygo.Window{}, &mygo.Window{}
+	defer func(f func(*mygo.Window)) { invalidateWindow = f }(invalidateWindow)
+	invalidateWindow = func(w *mygo.Window) {
+		switch w {
+		case a.win:
+			mainServices.Invalidate()
+		case n.win:
+			notchServices.Invalidate()
+		}
+	}
+	defer func(f func(time.Duration, func())) { sessionAfter = f }(sessionAfter)
+	sessionAfter = func(time.Duration, func()) {}
+	a.pl.Changed = a.playerChanged
+
+	bar, ok := main.Find("播放进度")
+	if !ok {
+		t.Fatal("no main progress bar")
+	}
+	x, y := bar.X+bar.W*0.6, bar.Y+bar.H/2
+	main.Press(x, y)
+	main.Frame()
+	main.Release(x, y)
+	main.Frame()
+	if a.pl.Playing() || a.pl.Position() < 30*time.Second {
+		t.Fatalf("seek did not stay paused at the new position: %v", a.pl.Position())
+	}
+	if !compact.FramePending() {
+		t.Fatal("paused seek did not request a notch frame")
+	}
+	// Process only requested frames: no input or forced Frame in the notch.
+	compact.Advance(0)
+	if !compact.HasText("第二句歌词") || compact.HasText("第一句歌词") {
+		t.Fatal("paused seek did not wake the compact lyric")
+	}
+}
+
 func TestNotchLyricTimer(t *testing.T) {
 	a := newTestApp()
 	a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "测试歌曲", Duration: 60000}})
