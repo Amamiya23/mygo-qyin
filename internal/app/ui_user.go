@@ -188,13 +188,11 @@ func (a *app) userPage(c *ui.Context) {
 			ui.Box(c).Size(artistPhotoSize, artistPhotoSize).Radius(artistPhotoSize/2).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
 				a.coverFill(c, u.AvatarURL, 600, artistPhotoSize/2)
 			})
-			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(12).Children(func() {
-				ui.Row(c).Wrap().AlignItems(ui.Center).Gap(12).Children(func() {
-					ui.Text(c, u.Nickname).Shrink(1).MinWidth(0).FontSize(30).FontWeight(700).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
-					if own {
-						a.membershipBadge(c, id, d)
-					}
-				})
+			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).AlignItems(ui.Start).Gap(8).Children(func() {
+				ui.Text(c, u.Nickname).MinWidth(0).FontSize(30).FontWeight(700).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
+				if own {
+					a.membershipBadge(c, id, d)
+				}
 				if u.Signature != "" {
 					ui.Text(c, u.Signature).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45)
 				}
