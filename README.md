@@ -46,7 +46,7 @@ Windows 安装包与便携版在 `build/`。默认协议测试使用本地模拟
 - [MyGo](https://github.com/egoist/mygo)：原生 UI 与应用框架
 - [mygo-cloudmusic](https://github.com/egoist/mygo-cloudmusic)：网易云原生界面与播放器
 - [qq-music-api](https://github.com/Rain120/qq-music-api)：提供登陆、个人内容获取、歌曲播放等
-- 感谢 [Linux DO](https://linux.do/) 社区 的支持
+- [Linux DO](https://linux.do/) 社区
 
 本项目与 QQ 音乐官方无关，音乐版权归各权利人所有。
 
