@@ -415,7 +415,7 @@ func (a *app) podcastsPage(c *ui.Context) {
 		return
 	}
 	top, bottom := a.insets(c)
-	ui.Scroll(c.Key("podcasts")).TrackScroll(&a.pageScroll).Grow(1).Padding(top+pageGap, pagePad, bottom+48, pagePad).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
+	ui.Scroll(c.Key("podcasts")).TrackScroll(&a.pageState().scroll).Grow(1).Padding(top+pageGap, pagePad, bottom+48, pagePad).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
 		a.startMark(c)
 		defer a.endMark(c)
 		a.heading(c, "播客", "")

@@ -316,7 +316,7 @@ func (a *app) artistPage(c *ui.Context) {
 // scrollPage scrolls a page of cards and rows, inset as one of tracks is:
 // a tab of a page that lists tracks puts its header in the same place.
 func (a *app) scrollPage(c *ui.Context, content func()) {
-	a.scrollPageWithState(c, &a.pageScroll, content)
+	a.scrollPageWithState(c, &a.pageState().scroll, content)
 }
 
 func (a *app) scrollPageWithState(c *ui.Context, state *ui.ScrollState, content func()) {

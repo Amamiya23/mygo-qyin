@@ -210,7 +210,7 @@ func (a *app) startHeartMode() {
 // colors, with the FM's own controls, and heart mode below.
 func (a *app) fmPage(c *ui.Context) {
 	top, bottom := a.insets(c)
-	ui.Scroll(c.Key("fm")).TrackScroll(&a.pageScroll).Grow(1).Padding(top+pageGap, pagePad, bottom+48, pagePad).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
+	ui.Scroll(c.Key("fm")).TrackScroll(&a.pageState().scroll).Grow(1).Padding(top+pageGap, pagePad, bottom+48, pagePad).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
 		a.startMark(c)
 		defer a.endMark(c)
 		// The mode the FM plays in, if it plays.

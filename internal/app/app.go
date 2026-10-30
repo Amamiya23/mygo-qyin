@@ -39,6 +39,24 @@ type route struct {
 	tab int
 }
 
+// pageScrollState belongs to one route; MyGo's list and scroll state keep stable identities.
+type pageScrollState struct {
+	tracks ui.ListState
+	scroll ui.ScrollState
+}
+
+func (a *app) pageState() *pageScrollState {
+	if a.pageStates == nil {
+		a.pageStates = make(map[route]*pageScrollState)
+	}
+	state := a.pageStates[a.route]
+	if state == nil {
+		state = &pageScrollState{}
+		a.pageStates[a.route] = state
+	}
+	return state
+}
+
 // app is the state both windows show. Everything in it is read and changed
 // on the main thread: by the views, and by goroutines through post.
 type app struct {
@@ -90,12 +108,9 @@ type app struct {
 	podcastTab      *podcastTab // the podcasts tab's lists
 	purchased       [2]*purchasedData
 	purchasedScroll [2]ui.ListState
-	trackList       ui.ListState
-	// Where the page and the sidebar are scrolled, kept while Now Playing
-	// covers them, unbuilt.
-	pageScroll ui.ScrollState
+	// Each page keeps its place when navigating or while Now Playing covers it.
+	pageStates map[route]*pageScrollState
 	navScroll  ui.ScrollState
-	scrolled   route // the page trackList and pageScroll are of
 
 	mineCollapsed, savedCollapsed bool
 

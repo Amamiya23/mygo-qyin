@@ -44,8 +44,8 @@ func (a *app) view(c *ui.Context) {
 			if npOpen && npSettled {
 				// Covered by Now Playing: not built, which would cost each
 				// of its frames as much again as the stage itself. Where
-				// it is scrolled is the app's (pageScroll, navScroll,
-				// trackList), so it shows again as it was.
+				// it is scrolled is the app's (pageStates, navScroll),
+				// so it shows again as it was.
 				return
 			}
 			side := ui.Column(c).Width(sidebarWidth)
@@ -381,11 +381,6 @@ func (a *app) pageTop(c *ui.Context) {
 }
 
 func (a *app) content(c *ui.Context) {
-	// A new page starts at its top. Not as it is opened: a control in a
-	// list, as a page's tabs in its header, opens it as the list builds.
-	if a.scrolled != a.route {
-		a.trackList, a.pageScroll, a.scrolled = ui.ListState{}, ui.ScrollState{}, a.route
-	}
 	// Pages mark where their content is, as they scroll.
 	a.underTop, a.underBottom = false, false
 	switch a.route.page {

@@ -69,7 +69,7 @@ func shown(tt *ui.Tester) string {
 // firstShown returns what a's page shows unscrolled.
 func firstShown(a *app) string {
 	b := *a
-	b.trackList, b.pageScroll = ui.ListState{}, ui.ScrollState{}
+	b.pageStates = nil
 	tt := ui.NewTester(b.view, 1200, 800)
 	tt.Frame()
 	return shown(tt)

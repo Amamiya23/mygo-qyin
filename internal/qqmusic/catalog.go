@@ -12,6 +12,7 @@ import (
 )
 
 const chartIDBase int64 = 1 << 60
+const songChartType int64 = 10005
 
 var ErrUnsupported = errors.New("QQ 音乐暂不支持此功能")
 
@@ -35,14 +36,16 @@ func FeaturedPlaylists(limit int) ([]Playlist, error) {
 
 func Charts() ([]Playlist, error) {
 	var data object
-	if err := rpc("musicToplist.ToplistInfoServer", "GetAll", map[string]any{}, &data); err != nil {
+	// The mobile identity also exposes album, MV and native-only chart pages.
+	comm := map[string]any{"ct": 24, "cv": 0}
+	if err := rpcWithComm("musicToplist.ToplistInfoServer", "GetAll", map[string]any{}, &data, comm, nil); err != nil {
 		return nil, err
 	}
 	var out []Playlist
 	for _, group := range objects(data, "group") {
 		for _, entry := range objects(group, "toplist") {
 			id := number(entry, "topId")
-			if id <= 0 {
+			if id <= 0 || number(entry, "recType") != songChartType {
 				continue
 			}
 			p := Playlist{ID: chartIDBase + id, Name: text(entry, "title"), CoverURL: text(entry, "headPicUrl", "frontPicUrl", "musichallPicUrl"), Description: text(entry, "intro"), TrackCount: int(number(entry, "totalNum")), PlayCount: float64(number(entry, "listenNum")), UpdateFreq: text(entry, "updateTime")}
@@ -58,11 +61,19 @@ func Charts() ([]Playlist, error) {
 func PlaylistDetail(id int64) (*Playlist, error) {
 	if id >= chartIDBase {
 		var data object
-		if err := rpc("musicToplist.ToplistInfoServer", "GetDetail", map[string]any{"topid": id - chartIDBase, "offset": 0, "num": 100, "period": ""}, &data); err != nil {
+		comm := map[string]any{"ct": 24, "cv": 0}
+		if err := rpcWithComm("musicToplist.ToplistInfoServer", "GetDetail", map[string]any{"topid": id - chartIDBase, "offset": 0, "num": 100, "period": ""}, &data, comm, nil); err != nil {
 			return nil, err
 		}
 		info := obj(data["data"])
-		p := &Playlist{ID: id, Name: text(info, "title"), CoverURL: text(info, "headPicUrl", "frontPicUrl"), Description: text(info, "intro"), TrackCount: int(number(info, "totalNum")), Tracks: convertTracks(objects(data, "songInfoList"))}
+		if number(info, "recType") != songChartType {
+			return nil, ErrUnsupported
+		}
+		tracks := convertTracks(objects(data, "songInfoList"))
+		if len(tracks) == 0 {
+			return nil, fmt.Errorf("qqmusic: chart %d has no songs", id-chartIDBase)
+		}
+		p := &Playlist{ID: id, Name: text(info, "title"), CoverURL: text(info, "headPicUrl", "frontPicUrl"), Description: text(info, "intro"), TrackCount: int(number(info, "totalNum")), UpdateFreq: text(info, "updateTime"), Tracks: tracks}
 		return p, nil
 	}
 	if isOwnedPlaylist(id) {
