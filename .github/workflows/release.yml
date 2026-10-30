@@ -46,6 +46,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      # MyGo merges the release's shared SHA256SUMS before uploading it.
+      # Serialize platforms so that each upload preserves the previous one.
+      max-parallel: 1
       matrix:
         include:
           - { name: macOS, os: macos-latest, platform: "darwin/arm64,darwin/amd64" }
