@@ -93,8 +93,7 @@ func UserPlaylists(uid int64) (made, saved []Playlist, err error) {
 	return made, saved, errors.New("QQ 音乐收藏歌单过多，未能完整读取")
 }
 
-func libraryMore(o object) bool                 { return number(o, "hasmore") == 1 || string(o["hasmore"]) == "true" }
-func RecommendedPlaylists() ([]Playlist, error) { return FeaturedPlaylists(25) }
+func libraryMore(o object) bool { return number(o, "hasmore") == 1 || string(o["hasmore"]) == "true" }
 func DailySongs() ([]Track, error) {
 	if _, err := signedSession(); err != nil {
 		return nil, err

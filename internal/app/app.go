@@ -55,7 +55,7 @@ type app struct {
 
 	profile      *qqmusic.Profile
 	mine, saved  []qqmusic.Playlist // the listener's playlists: made, and saved
-	recPlaylists []qqmusic.Playlist // the day's playlists picked for the listener
+	recPlaylists []qqmusic.Playlist // playlists picked for the listener by the home feed
 	login        loginState
 	accountOpen  bool           // the dropdown of the account row shows
 	naming       nameDialog     // the name of a playlist asked for

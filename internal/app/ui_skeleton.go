@@ -103,7 +103,7 @@ func (a *app) homeSkeleton(c *ui.Context, s shimmer) {
 	}
 	a.section(c, "官方榜单")
 	a.chartCardsSkeleton(c, s)
-	a.section(c, "推荐歌单")
+	a.section(c, "精选歌单")
 	a.playlistCardsSkeleton(c.Key("featured"), s, cards*2, 168, false)
 }
 

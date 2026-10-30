@@ -6,6 +6,7 @@ mygo_windows_*.syso
 /.tools/
 /lilt
 /lilt.exe
+/design/
 
 # Local development configuration
 /AGENTS.md
