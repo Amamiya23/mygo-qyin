@@ -6,7 +6,7 @@ Dependencies are vendored so normal `go test`, `go tool mygo dev` and
 
 ## MyGo Windows menu width
 
-Base: `github.com/egoist/mygo v0.7.1-0.20261027023711-da3657e7f86a`.
+Base: `github.com/egoist/mygo v0.7.3`.
 
 `mygo-windows-menu-width.patch` fixes Windows 11 owner-drawn popup menus.
 Measurement now reports the complete width used to draw labels, padding,

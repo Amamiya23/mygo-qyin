@@ -543,14 +543,17 @@ func (a *Application) OnWindowCreated(fn func(w *Window)) (off func()) {
 	return a.onWindowCreated.add(fn, false)
 }
 
-// ClearBrowsingData deletes what the app's pages stored: cookies, local
-// and session storage, IndexedDB, service workers and caches, e.g. when the
-// user signs out. Open pages keep what they hold in memory until they are
-// reloaded.
+// ClearBrowsingData deletes what the app's pages stored in the default
+// session: cookies, local and session storage, IndexedDB, service workers
+// and caches, e.g. when the user signs out. Open pages keep what they hold
+// in memory until they are reloaded. Session.ClearData clears the data of
+// other sessions, or some kinds of data.
 func (a *Application) ClearBrowsingData() error {
 	needsApp("App.ClearBrowsingData")
 	ch := make(chan error, 1)
-	onMain(func() { backend().App().ClearBrowsingData(func(err error) { deliver(ch, err) }) })
+	onMain(func() {
+		backend().App().ClearBrowsingData(nil, platform.SiteDataAll, func(err error) { deliver(ch, err) })
+	})
 	return await(ch)
 }
 

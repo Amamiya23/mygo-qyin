@@ -1348,6 +1348,8 @@ func Local[T any](e Element, key any, init func() T) *T {
 //			}
 //		}
 //	})
+//
+// PopoverMenuButton draws its menu in the window, with the theme's look.
 func MenuButton(c *Context, label string, build func(m *Menu)) Element {
 	_ctx := c.build()
 	if _ctx == nil {
@@ -1517,6 +1519,28 @@ func PopoverBase(c *Context, anchor Element, open *bool, fn func(panel Element))
 	}
 	_ctx.rt.beginBuild()
 	_e := corePopoverBase(_ctx, anchor.nodeFor(_ctx.rt), open, func(panel *node) { fn(wrapElement(panel)) })
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
+}
+
+// PopoverMenuButton creates a button showing label and an arrow, as
+// MenuButton does, whose menu MyGo draws in the window with the theme's
+// look, as PopoverMenu draws a context menu (Element.PopoverMenuButton):
+//
+//	ui.PopoverMenuButton(c, "Sort by", func(m *ui.Menu) {
+//		for _, by := range []string{"Name", "Date", "Size"} {
+//			if m.Item(by).Radio(app.sort == by).Chosen() {
+//				app.sort = by
+//			}
+//		}
+//	})
+func PopoverMenuButton(c *Context, label string, build func(m *Menu)) Element {
+	_ctx := c.build()
+	if _ctx == nil {
+		return Element{}
+	}
+	_ctx.rt.beginBuild()
+	_e := corePopoverMenuButton(_ctx, label, build)
 	_ctx.rt.endBuild()
 	return wrapElement(_e)
 }
@@ -1730,8 +1754,8 @@ func ScrollHorizontal(c *Context) Element {
 // SearchField creates a field for searching, editing *query: a magnifying
 // glass, the text, and a button clearing it while it holds any, as Escape
 // does then. Enter is its Submitted, and Changed reports a change. It
-// shows Search while empty, and assistive technology sees a search field;
-// name it with Label.
+// shows Search while empty, or what Placeholder sets, and assistive
+// technology sees a search field; name it with Label.
 //
 //	if ui.SearchField(c, &app.query).Label("Search mail").Changed() {
 //		app.filter()
@@ -2537,6 +2561,37 @@ func TreeItem(c *Context, label string, open *bool, children func()) Element {
 	return wrapElement(_e)
 }
 
+// Video creates an element showing a player's video, by default at its
+// size as DIPs, scaled to fit when given another size, as Image shows a
+// bitmap:
+//
+//	//go:embed waves.gif
+//	var wavesGIF []byte
+//
+//	d, err := ui.NewGIFDecoder(wavesGIF)
+//	...
+//	app.waves, err = ui.NewVideoPlayer(d)
+//	app.waves.SetLoop(true)
+//
+//	ui.Video(c, app.waves).Fill().Fit(ui.Cover)
+//
+// The video moves on only while the view builds it and some of the window
+// shows: one that went out of the view, or a window out of sight, goes on
+// from where it stood. Each frame of the video is a frame of the window,
+// which After asks for as it comes due. While the desktop asks for less
+// motion (Preferences.ReduceMotion), it shows its first frame and does
+// not play.
+func Video(c *Context, p *VideoPlayer) Element {
+	_ctx := c.build()
+	if _ctx == nil {
+		return Element{}
+	}
+	_ctx.rt.beginBuild()
+	_e := coreVideo(_ctx, p)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
+}
+
 // View returns the content of a window whose user interface view builds,
 // for mygo.WindowOptions.Content:
 //
@@ -3315,6 +3370,8 @@ func (_handle Element) ContentTransition(t ContentTransition) Element {
 //		m.Separator()
 //		m.EditItems()
 //	})
+//
+// PopoverMenu draws the same menu in the window, with the theme's look.
 func (_handle Element) ContextMenu(build func(m *Menu)) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -4645,6 +4702,9 @@ func (_handle Element) MaximizeButton() Element {
 //			app.duplicate()
 //		}
 //	})
+//
+// PopoverMenuButton draws the same menu in the window, with the theme's
+// look.
 func (_handle Element) Menu(build func(m *Menu)) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -4922,7 +4982,9 @@ func (_handle Element) Perspective(distance float32) Element {
 	return wrapElement(_node.Perspective(distance))
 }
 
-// Placeholder shows s in an empty text input.
+// Placeholder shows s in an empty text input. On a field around an input,
+// as SearchField, TokenField and Combobox, it shows in the field's input,
+// in place of the field's own: SearchField shows Search without one.
 func (_handle Element) Placeholder(s string) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -4946,6 +5008,84 @@ func (_handle Element) PointerPosition() (float32, float32, bool) {
 	return _node.PointerPosition()
 }
 
+// PopoverMenu gives the element a context menu, as ContextMenu does, which
+// MyGo draws in the window with the theme's look, as a popover, rather
+// than the system showing one of its own. It opens where the element is
+// clicked with the secondary button, or Control-clicked on macOS, and,
+// while the element or one inside it has the focus, below it when the
+// menu key or Shift+F10 is pressed. build fills it with the items
+// ContextMenu's function takes, and the item chosen reports Chosen as
+// there:
+//
+//	row.PopoverMenu(func(m *ui.Menu) {
+//		if m.Item("Rename").Shortcut(0, ui.KeyF2).Chosen() {
+//			app.renaming = i
+//		}
+//		if m.Item("Pinned").Checked(note.pinned).Chosen() {
+//			note.pinned = !note.pinned
+//		}
+//		m.Separator()
+//		if m.Item("Delete").Disabled(note.locked).Chosen() {
+//			app.delete(i)
+//		}
+//	})
+//
+// The menu takes the focus as it opens and gives it back as it closes, to
+// the element that had it. Up and Down move among its items, past those
+// disabled, as do Home, End and typing the first letters of an item;
+// Right opens a submenu and Left closes it, the other way round right to
+// left (Direction); Enter and Space choose an item, Escape closes the
+// submenu on top, and a press outside the menu closes it. It shows below
+// and after where it opened, and on the other side where the window has
+// no room. Assistive technology sees a menu of items, check box items and
+// radio items, as the system's.
+//
+// PopoverMenuButton draws the menu of a menu button so.
+func (_handle Element) PopoverMenu(build func(m *Menu)) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PopoverMenu(build))
+}
+
+// PopoverMenuButton makes the element a menu button, as Menu does, whose
+// menu MyGo draws in the window with the theme's look, as PopoverMenu
+// draws a context menu, rather than the system showing one of its own. It
+// opens below the element, or above it where the window has no room, as
+// the pointer goes down on it, and for Enter, Space or Down while it has
+// the focus, which it takes. build fills it with the items Menu's
+// function takes, and the item chosen reports Chosen as there:
+//
+//	more := ui.ButtonBase(c).Label("More").Padding(4).Radius(6)
+//	more.Children(func() { ui.Icon(c, moreIcon).Size(16, 16) })
+//	more.PopoverMenuButton(func(m *ui.Menu) {
+//		if m.Item("Duplicate").Chosen() {
+//			app.duplicate()
+//		}
+//		if m.Item("Delete").Disabled(app.locked).Chosen() {
+//			app.delete()
+//		}
+//	})
+//
+// The menu has the keys of PopoverMenu's, and takes the focus as it opens
+// and gives it back as it closes, as there; a press on the element closes
+// it too. Opened by the keyboard, it starts on its first item. Assistive
+// technology sees a menu button, expanded while its menu shows, and the
+// menu as PopoverMenu's. The function PopoverMenuButton is a button with
+// such a menu, as MenuButton is one with a menu of the system's.
+func (_handle Element) PopoverMenuButton(build func(m *Menu)) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PopoverMenuButton(build))
+}
+
 // Pressed reports whether the element is being pressed with the pointer,
 // unless it is disabled.
 func (_handle Element) Pressed() bool {
@@ -4965,7 +5105,8 @@ func (_handle Element) Pressed() bool {
 // closes then, the press going on to what is under the pointer, as
 // PopoverBase does. The last press decides: one on the button opening a
 // popover after a press elsewhere, as on a web view's page, in the same
-// frame, keeps it open.
+// frame, keeps it open. A press before the element showed, as the one
+// opening it, is not outside it: an Overlay opened by a press stays.
 func (_handle Element) PressedOutside() bool {
 	_node := _handle.node()
 	if _node == nil {
