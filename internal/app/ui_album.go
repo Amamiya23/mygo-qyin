@@ -86,9 +86,7 @@ func (a *app) albumHeader(c *ui.Context, al *qqmusic.AlbumProfile) {
 				}
 				ui.Text(c, meta)
 			})
-			if d := strings.TrimSpace(al.Description); d != "" {
-				ui.Text(c, strings.ReplaceAll(d, "\n", " ")).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45).Margin(2, 0, 0, 0)
-			}
+			a.collectionDescription(c, al.Description)
 			ui.Row(c).Gap(10).Margin(10, 0, 0, 0).Children(func() {
 				if pillButton(c.Key("play"), iconPlay, "播放", p.accent, p.onAccent).Clicked() {
 					if a.pl.Shuffle() {

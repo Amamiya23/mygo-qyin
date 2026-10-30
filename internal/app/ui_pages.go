@@ -316,9 +316,7 @@ func (a *app) collectionHeader(c *ui.Context, pl *qqmusic.Playlist, kind, meta s
 			ui.Text(c, kind).FontSize(12).FontWeight(600).TextColor(p.accent)
 			ui.Text(c, pl.Name).FontSize(30).FontWeight(800).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
 			ui.Text(c, meta).FontSize(13).TextColor(p.muted).SingleLine()
-			if d := strings.TrimSpace(pl.Description); d != "" {
-				ui.Text(c, strings.ReplaceAll(d, "\n", " ")).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45).Margin(2, 0, 0, 0)
-			}
+			a.collectionDescription(c, pl.Description)
 			ui.Row(c).Height(36).Gap(10).Margin(10, 0, 0, 0).Children(actions)
 		})
 	})
