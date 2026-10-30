@@ -167,11 +167,20 @@ func (a *app) post(fn func()) {
 
 func (a *app) redraw() {
 	if a.win != nil {
-		a.win.Invalidate()
+		invalidateWindow(a.win)
 	}
 	if a.notch != nil && a.notch.win != nil {
-		a.notch.win.Invalidate()
+		invalidateWindow(a.notch.win)
 	}
+}
+
+var invalidateWindow = (*mygo.Window).Invalidate
+
+// playerChanged keeps every window in sync, including seeks while paused.
+func (a *app) playerChanged() {
+	a.keepSession()
+	a.syncCaptions()
+	a.redraw()
 }
 
 // shotHook, when set, drives the app to check its design.
@@ -223,10 +232,7 @@ func Run() error {
 		a.pl.Quality = func() string { return a.settings.Quality }
 		a.pl.Normalize = func() bool { return a.settings.Normalize }
 		a.pl.Cache = newSongCache(a.settings.CacheMB)
-		a.pl.Changed = func() {
-			a.keepSession()
-			a.syncCaptions()
-		}
+		a.pl.Changed = a.playerChanged
 		a.volume = a.settings.Volume
 		a.pl.SetVolume(a.volume)
 		a.win = mygo.NewWindow(mygo.WindowOptions{
