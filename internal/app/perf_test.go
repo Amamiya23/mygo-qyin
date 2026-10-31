@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/audio"
 	"github.com/egoist/mygo/ui"
 
 	"lilt/internal/lyrics"
@@ -115,5 +116,52 @@ func TestBackdropFadeEnds(t *testing.T) {
 	tt.Frame()
 	if a.backdropCache.before != nil {
 		t.Error("the last song's backdrop still fades after the fade")
+	}
+}
+
+// The squiggly seekbar stops continuous frames after pausing or when reduced motion is requested.
+func TestSquigglyFrameBudget(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.setProgressEffect(progressSquiggly)
+	a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "宝船", Duration: 200000}})
+	out := audio.NewPlayer(&silence{})
+	defer out.Close()
+	out.Seek(70 * time.Second)
+	a.pl.Attach(out)
+	tt := ui.NewTester(func(c *ui.Context) {
+		a.scrubber(c, &a.barScrub, radixSage(false, 5), radixSage(false, 12), 16, ui.Color{}).Width(400)
+	}, 400, 40)
+	tt.Frame()
+	if !tt.FramePending() {
+		t.Fatal("playing squiggle does not request another animation frame")
+	}
+	a.pl.TogglePlay()
+	tt.Frame()
+	tt.Advance(100 * time.Millisecond)
+	if !tt.FramePending() {
+		t.Fatal("paused squiggle stopped frames before its amplitude settled")
+	}
+	tt.Advance(time.Second)
+	if tt.FramePending() {
+		t.Fatal("paused squiggle still requests continuous frames after settling")
+	}
+	a.pl.Attach(out)
+	tt.Frame()
+	tt.Advance(time.Second)
+	if !tt.FramePending() {
+		t.Fatal("resumed squiggle does not request animation frames")
+	}
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	// Playback may still schedule occasional progress updates through After;
+	// FramePending here checks only that the continuous wave loop has stopped.
+	if tt.FramePending() {
+		t.Fatal("reduced motion keeps the squiggle animation running")
+	}
+	a.pl.TogglePlay()
+	tt.Frame()
+	tt.Advance(time.Second)
+	if tt.FramePending() {
+		t.Fatal("paused reduced-motion seekbar does not settle")
 	}
 }

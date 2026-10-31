@@ -58,6 +58,8 @@ func (a *app) scrubber(c *ui.Context, st *scrubState, track, fill ui.Color, heig
 	case s.Changed():
 		pl.Seek(secs(min(st.v, max(0, dur-1))))
 	}
+	effect := a.settings.progressEffect()
+	wavy := effect == progressSquiggly
 	hot := s.Hovered() || pressed
 	thick := float32(4)
 	if hot {
@@ -65,13 +67,25 @@ func (a *app) scrubber(c *ui.Context, st *scrubState, track, fill ui.Color, heig
 	}
 	thick = s.AnimateTo("thick", thick, ui.Snappy)
 	knob := float32(0)
+	// The wave keeps its playhead visible even without hover or playback.
+	if wavy {
+		knob = 2.0 / 3 // 8 DIPs, growing to 12 under the pointer.
+	}
 	if hot {
 		knob = 1
 	}
 	knob = s.AnimateTo("knob", knob, ui.Snappy)
+	waveHeight := float32(0)
+	waveAnimation := ui.Animation{Duration: 550 * time.Millisecond}
+	if wavy && pl.Playing() && !pl.Loading() && !c.Preferences().ReduceMotion {
+		waveHeight = 1
+		waveAnimation.Duration = 800 * time.Millisecond
+		waveAnimation.Delay = 60 * time.Millisecond
+	}
+	waveHeight = s.AnimateTo("wave-height", waveHeight, waveAnimation)
 	// The smoke settles away as the music pauses, and while dragging.
 	smoking := float32(0)
-	if smoke.A > 0 && a.settings.Smoke && pl.Playing() && !pl.Loading() && !st.active {
+	if smoke.A > 0 && effect == progressSmoke && pl.Playing() && !pl.Loading() && !st.active {
 		smoking = 1
 	}
 	smoking = s.AnimateTo("smoke", smoking, ui.Animation{Duration: 600 * time.Millisecond})
@@ -86,27 +100,31 @@ func (a *app) scrubber(c *ui.Context, st *scrubState, track, fill ui.Color, heig
 		}
 		y := r.Y + (r.H-thick)/2
 		head, cy := r.X+r.W*frac, r.Y+r.H/2
-		p.Fill(ui.Rect{X: r.X, Y: y, W: r.W, H: thick}, track, thick/2)
-		// What has downloaded, a shade lighter.
-		if got, ok := pl.Downloaded(); ok && float32(got) < 1 {
-			p.Fill(ui.Rect{X: r.X, Y: y, W: r.W * float32(got), H: thick}, track, thick/2)
-		}
-		played := ui.Rect{X: r.X, Y: y, W: max(thick, head-r.X), H: thick}
-		if smoking > 0.01 {
-			// A streak of light, brightest at the head.
-			p.FillGradient(played, ui.LinearGradient{Angle: 90, Oklab: true,
-				From: fill.Mix(smoke, smoking).Alpha(0.3), To: fill.Mix(smoke, 0.8*smoking)}, thick/2)
-			lv, live := pl.Levels()
-			st.level.step(p.Now(), lv, live)
-			bass := st.level.group(0, 6)
-			drawSmoke(p, head, cy, p.Now(), bass, smoke, smoking)
-			// The glow of the head, swelling with the bass, and its core.
-			glow := 9 + 8*bass
-			p.Shadow(ui.Rect{X: head, Y: cy}, 0, 0, 0, glow, 2.5+2.5*bass, smoke.Alpha(0.95*smoking))
-			core := thick * (1 + 0.25*bass)
-			p.Fill(ui.Rect{X: head - core/2, Y: cy - core/2, W: core, H: core}, white.Mix(smoke, 0.15).Alpha(smoking), core/2)
+		if wavy {
+			drawSquiggly(p, r, head, thick, waveHeight, track, fill)
 		} else {
-			p.Fill(played, fill, thick/2)
+			p.Fill(ui.Rect{X: r.X, Y: y, W: r.W, H: thick}, track, thick/2)
+			// What has downloaded, a shade lighter.
+			if got, ok := pl.Downloaded(); ok && float32(got) < 1 {
+				p.Fill(ui.Rect{X: r.X, Y: y, W: r.W * float32(got), H: thick}, track, thick/2)
+			}
+			played := ui.Rect{X: r.X, Y: y, W: max(thick, head-r.X), H: thick}
+			if smoking > 0.01 {
+				// A streak of light, brightest at the head.
+				p.FillGradient(played, ui.LinearGradient{Angle: 90, Oklab: true,
+					From: fill.Mix(smoke, smoking).Alpha(0.3), To: fill.Mix(smoke, 0.8*smoking)}, thick/2)
+				lv, live := pl.Levels()
+				st.level.step(p.Now(), lv, live)
+				bass := st.level.group(0, 6)
+				drawSmoke(p, head, cy, p.Now(), bass, smoke, smoking)
+				// The glow of the head, swelling with the bass, and its core.
+				glow := 9 + 8*bass
+				p.Shadow(ui.Rect{X: head, Y: cy}, 0, 0, 0, glow, 2.5+2.5*bass, smoke.Alpha(0.95*smoking))
+				core := thick * (1 + 0.25*bass)
+				p.Fill(ui.Rect{X: head - core/2, Y: cy - core/2, W: core, H: core}, white.Mix(smoke, 0.15).Alpha(smoking), core/2)
+			} else {
+				p.Fill(played, fill, thick/2)
+			}
 		}
 		if knob > 0.01 {
 			k := 12 * knob
@@ -114,6 +132,8 @@ func (a *app) scrubber(c *ui.Context, st *scrubState, track, fill ui.Color, heig
 			p.Fill(ui.Rect{X: head - k/2, Y: r.Y + (r.H-k)/2, W: k, H: k}, fill, k/2)
 		}
 		switch {
+		case wavy && waveHeight > 0.01 && frac > 0:
+			p.AnimationFrameRate(30)
 		case smoking > 0.01 && (pl.Playing() || smoking < 1):
 			// The smoke drifts slowly, under a point a frame at 30 frames
 			// a second, which show it smooth for a quarter of what a 120 Hz

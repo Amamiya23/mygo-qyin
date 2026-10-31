@@ -155,3 +155,49 @@ func TestSidebarMaterialSettings(t *testing.T) {
 		}
 	}
 }
+
+// Choosing a progress effect from the dropdown saves it across launches and replaces the old smoke-only choice.
+func TestProgressEffectSettings(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	if err := json.Unmarshal([]byte("{\"smoke\":true}"), &a.settings); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.settings.progressEffect(); got != progressSmoke {
+		t.Fatalf("old smoke setting selects %q, want %q", got, progressSmoke)
+	}
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	tt := ui.NewTester(a.settingsView, 560, 2000)
+	tt.Frame()
+	for _, choice := range []struct{ label, effect string }{
+		{"波浪", progressSquiggly},
+		{"标准", progressStandard},
+		{"烟雾", progressSmoke},
+		{"波浪", progressSquiggly},
+	} {
+		if err := tt.Click("选择进度条特效"); err != nil {
+			t.Fatal(err)
+		}
+		if err := tt.Click(choice.label); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if got := a.settings.progressEffect(); got != choice.effect {
+			t.Fatalf("after choosing %q, progress effect = %q, want %q", choice.label, got, choice.effect)
+		}
+		b, err := os.ReadFile(a.settings.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored := defaultSettings()
+		if err := json.Unmarshal(b, &restored); err != nil {
+			t.Fatal(err)
+		}
+		if got := restored.progressEffect(); got != choice.effect {
+			t.Fatalf("after choosing %q, restored effect = %q, want %q", choice.label, got, choice.effect)
+		}
+		if restored.Smoke != (choice.effect == progressSmoke) {
+			t.Fatalf("after choosing %q, saved smoke compatibility = %t", choice.label, restored.Smoke)
+		}
+	}
+}

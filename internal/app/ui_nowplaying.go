@@ -129,7 +129,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 		// showing only while the pointer is in the window, as the pane tabs do.
 		ui.Row(c).Height(topBar(c)).Justify(ui.Center).AlignItems(ui.Center).DragWindow().Children(func() {
 			reveal(ui.Box(c.Key("close-reveal")), pointerIn).Children(func() {
-				if iconButton(c.Key("close"), iconDown, 22, white.Alpha(0.7), "关闭").Clicked() {
+				if npCollapseButton(c.Key("close")).Clicked() {
 					a.nowPlaying = false
 				}
 			})
@@ -258,6 +258,26 @@ const npTabsHeight = 28
 // the optical leading of its 30 DIP type. Move the viewport with the row
 // so its hover background is not clipped; the paused cover moves alone.
 const npLyricsTextInset = 18
+
+// npCollapseButton uses translucent media controls over the cover's dark
+// backdrop, independently of the appearance of the pages underneath it.
+func npCollapseButton(c *ui.Context) ui.Element {
+	b := ui.ButtonBase(c).Size(40, 32).Center().Radius(10).Label("收起播放页").Tooltip("收起播放页")
+	bg, fg := ui.Transparent, radixWhite(10)
+	if b.Hovered() || b.FocusVisible() {
+		bg, fg = radixWhite(2), radixWhite(12)
+	}
+	pose := ui.Pose{}
+	if b.Pressed() {
+		bg, fg = radixWhite(3), radixPaper
+		pose.Scale = 0.94
+	}
+	motion := ui.Animation{Duration: 140 * time.Millisecond}
+	b.Background(b.AnimateColor("bg", bg, motion)).
+		TextColor(b.AnimateColor("fg", fg, motion)).AnimatePose(pose, motion)
+	b.Children(func() { ui.Icon(c, iconDown).Size(20, 20) })
+	return b
+}
 
 // npTabsRow is the row of Now Playing's tabs, in the same place for every
 // pane, above the right-hand content. Anchoring their start keeps them

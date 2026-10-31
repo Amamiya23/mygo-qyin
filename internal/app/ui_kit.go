@@ -279,7 +279,7 @@ func drawBars(p *ui.Painter, r ui.Rect, st *barState, n int, color ui.Color, min
 // the user chose another.
 func segmented(c *ui.Context, selected *int, labels ...string) bool {
 	t := c.Theme()
-	const height, inset, radius = 24, 2, 6
+	const height, inset, radius = 28, 2, 6
 	width := float32(0)
 	for _, l := range labels {
 		w, _ := c.MeasureText(0, ui.Span{Text: l, Size: 13})

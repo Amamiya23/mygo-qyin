@@ -38,6 +38,9 @@ type settings struct {
 	// Smoke makes the progress bars comets trailing smoke as music plays,
 	// for a few percent of a core: the listener turns it on.
 	Smoke bool `json:"smoke"`
+	// ProgressEffect selects the progress bar's look. Empty keeps the old
+	// Smoke choice when reading settings saved before the effect selector.
+	ProgressEffect string `json:"progressEffect,omitempty"`
 	// LyricsStage shows lyrics on the stage, Folia's style, in Now
 	// Playing, rather than scrolling.
 	LyricsStage bool `json:"lyricsStage"`
@@ -82,6 +85,34 @@ type settings struct {
 
 func defaultSettings() settings {
 	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", SidebarMaterial: "acrylic", Volume: 0.8, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true}
+}
+
+const (
+	progressStandard = "standard"
+	progressSmoke    = "smoke"
+	progressSquiggly = "squiggly"
+)
+
+var progressEffects = []struct{ id, label string }{
+	{progressStandard, "标准"},
+	{progressSmoke, "烟雾"},
+	{progressSquiggly, "波浪"},
+}
+
+func (s settings) progressEffect() string {
+	switch s.ProgressEffect {
+	case progressStandard, progressSmoke, progressSquiggly:
+		return s.ProgressEffect
+	}
+	if s.Smoke {
+		return progressSmoke
+	}
+	return progressStandard
+}
+
+func (s *settings) setProgressEffect(effect string) {
+	s.ProgressEffect = effect
+	s.Smoke = effect == progressSmoke
 }
 
 func settingsPath() (string, error) {

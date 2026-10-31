@@ -13,6 +13,7 @@ import (
 	"lilt/internal/qqmusic"
 )
 
+// Clicking the collapse control dismisses Now Playing as one layer over the page.
 func TestNowPlayingClosesAsOneLayer(t *testing.T) {
 	a := newTestApp()
 	a.settings = defaultSettings()
@@ -29,7 +30,14 @@ func TestNowPlayingClosesAsOneLayer(t *testing.T) {
 		t.Fatal("now playing did not open")
 	}
 	// Mid-way out, it still covers the page and the sidebar alike.
-	a.nowPlaying = false
+	tt.Move(600, 400)
+	tt.Advance(250 * time.Millisecond)
+	if err := tt.Click("收起播放页"); err != nil {
+		t.Fatal(err)
+	}
+	if a.nowPlaying {
+		t.Fatal("the collapse control did not dismiss Now Playing")
+	}
 	tt.Frame()
 	tt.Advance(60 * time.Millisecond)
 	tt.Frame()
@@ -217,7 +225,7 @@ func TestNowPlayingTabsStayPut(t *testing.T) {
 	}
 }
 
-// With NM_FRAMES set, saves Now Playing at short, regular and wide sizes, plus the stage and wall, to inspect their shared tabs and cover alignment.
+// With NM_FRAMES set, saves Now Playing's layouts and collapse-button states to inspect their alignment and media colors.
 func TestNowPlayingFrames(t *testing.T) {
 	dir := os.Getenv("NM_FRAMES")
 	if dir == "" {
@@ -230,6 +238,9 @@ func TestNowPlayingFrames(t *testing.T) {
 	}{
 		{"short", 860, 560, paneLyrics},
 		{"regular", 1200, 800, paneLyrics},
+		{"collapse-hover-light", 1200, 800, paneLyrics},
+		{"collapse-hover-dark", 1200, 800, paneLyrics},
+		{"collapse-pressed", 1200, 800, paneLyrics},
 		{"wide", 1920, 1080, paneLyrics},
 		{"stage", 1200, 800, paneStage},
 		{"wall", 1200, 800, paneWall},
@@ -248,10 +259,24 @@ func TestNowPlayingFrames(t *testing.T) {
 			}
 			a.art.art[qqmusic.Sized(tr.Album.PicURL, 600)+"#backdrop"] = art
 			tt := ui.NewTester(a.view, scene.w, scene.h)
+			tt.SetDark(scene.name == "collapse-hover-dark")
 			tt.Frame()
 			tt.Move(float32(scene.w)/2, float32(scene.h)/2)
 			tt.Advance(time.Second)
 			tt.Frame()
+			switch scene.name {
+			case "collapse-hover-light", "collapse-hover-dark", "collapse-pressed":
+				b, ok := tt.Find("收起播放页")
+				if !ok {
+					t.Fatal("no collapse control")
+				}
+				tt.Move(b.X+b.W/2, b.Y+b.H/2)
+				if scene.name == "collapse-pressed" {
+					tt.Press(b.X+b.W/2, b.Y+b.H/2)
+				}
+				tt.Advance(200 * time.Millisecond)
+				tt.Frame()
+			}
 			f, err := os.Create(filepath.Join(dir, "now-playing-"+scene.name+".png"))
 			if err != nil {
 				t.Fatal(err)

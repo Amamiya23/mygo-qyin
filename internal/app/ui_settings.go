@@ -220,9 +220,23 @@ func (a *app) settingsView(c *ui.Context) {
 		})
 
 		group("实验性功能", func() {
-			row("进度条烟雾特效", "播放时进度条化作拖着烟雾的光点，随音乐起伏；会多用一些电量", func() {
-				if ui.Switch(c.Key("smoke"), &s.Smoke).Label("进度条烟雾特效").Changed() {
-					a.changed()
+			row("进度条特效", "", func() {
+				chosen := progressEffects[0].label
+				labels := make([]string, len(progressEffects))
+				for k, effect := range progressEffects {
+					labels[k] = effect.label
+					if effect.id == s.progressEffect() {
+						chosen = effect.label
+					}
+				}
+				if ui.Select(c.Key("progress-effect"), &chosen, labels).Label("选择进度条特效").Width(150).Changed() {
+					for _, effect := range progressEffects {
+						if effect.label == chosen {
+							s.setProgressEffect(effect.id)
+						}
+					}
+					s.save()
+					a.redraw()
 				}
 			})
 			row("烟雾背景", "播放页的背景化作封面色调的烟雾，缓缓升起，随低音起伏；仍在打磨，会多用一些电量", func() {
