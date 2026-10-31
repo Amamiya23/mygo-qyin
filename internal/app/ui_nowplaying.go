@@ -198,12 +198,19 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 
 			pane := ui.Column(c.Key("pane")).Grow(1).Basis(0).MinWidth(0)
 			pane.Children(func() {
-				// The pane starts level with the cover beside it, but below the
-				// tabs, which start level with the pane's top: they come and go
-				// with the pointer, so they sit out of the flow, never over it.
+				// Lyrics align their text with the full-size cover, leaving the
+				// row's padding above it for hover and clicks. Keep the whole
+				// scroll viewport below the tabs, including in short windows.
 				b := pane.LayoutBounds()
 				if b.H > 0 && coverTop > 0 {
-					if top := max(coverTop-b.Y, npTabsHeight+8); top != a.npPaneTop {
+					top := max(coverTop-b.Y, npTabsHeight+8)
+					if a.npPane == paneLyrics {
+						if lines, loaded := pl.Lyrics(); !loaded || len(lines) > 0 {
+							// The row's own padding leaves air below the tabs.
+							top = max(coverTop-b.Y-npLyricsTextInset, npTabsHeight)
+						}
+					}
+					if top != a.npPaneTop {
 						a.npPaneTop = top
 						c.AnimationFrame()
 					}
@@ -246,6 +253,11 @@ func npSideX(w float32) float32 {
 // npTabsHeight is how tall the row of Now Playing's tabs is, for what is
 // under it to start below it.
 const npTabsHeight = 28
+
+// npLyricsTextInset includes the lyric button's 10 DIP top padding and
+// the optical leading of its 30 DIP type. Move the viewport with the row
+// so its hover background is not clipped; the paused cover moves alone.
+const npLyricsTextInset = 18
 
 // npTabsRow is the row of Now Playing's tabs, in the same place for every
 // pane, above the right-hand content. Anchoring their start keeps them
