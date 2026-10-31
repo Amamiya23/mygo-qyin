@@ -430,7 +430,7 @@ func (a *app) programLikesAnswered(uid int64, asked []int64, liked map[int64]boo
 // likeButton is a heart that likes tr: filled in red once liked. Liking
 // pops it in on a spring while a ring swells around it and confetti flies
 // out; unliking lets it give a little.
-func (a *app) likeButton(c *ui.Context, tr *qqmusic.Track, size float32, color ui.Color) ui.Element {
+func (a *app) likeButton(c *ui.Context, tr *qqmusic.Track, size float32, color ui.Color, surface ...buttonSurface) ui.Element {
 	if tr.ProgramID != 0 {
 		a.askProgramLikes([]int64{tr.ProgramID})
 	}
@@ -442,7 +442,7 @@ func (a *app) likeButton(c *ui.Context, tr *qqmusic.Track, size float32, color u
 	// The burst goes on a wrapper, which the heart's pop does not scale.
 	wrap := ui.Box(c).Center()
 	var b ui.Element
-	wrap.Children(func() { b = iconButton(c, icon, size, color, label) })
+	wrap.Children(func() { b = iconButton(c, icon, size, color, label, surface...) })
 	scale := b.AnimateTo("pop", 1, ui.Animation{Spring: ui.SpringOptions{Duration: 550 * time.Millisecond, Bounce: 0.55}})
 	b.Scale(scale, scale)
 	burst := ui.Local(wrap, "burst", func() time.Time { return time.Time{} })

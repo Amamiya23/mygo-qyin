@@ -225,25 +225,44 @@ func TestNowPlayingTabsStayPut(t *testing.T) {
 	}
 }
 
-// With NM_FRAMES set, saves Now Playing's layouts and collapse-button states to inspect their alignment and media colors.
+// With NM_FRAMES set, saves Now Playing's layouts and control states to inspect alignment and media contrast in both appearances.
 func TestNowPlayingFrames(t *testing.T) {
 	dir := os.Getenv("NM_FRAMES")
 	if dir == "" {
 		t.Skip()
 	}
 	for _, scene := range []struct {
-		name string
-		w, h int
-		pane int
+		name    string
+		w, h    int
+		pane    int
+		hover   string
+		pressed bool
+		dark    bool
 	}{
-		{"short", 860, 560, paneLyrics},
-		{"regular", 1200, 800, paneLyrics},
-		{"collapse-hover-light", 1200, 800, paneLyrics},
-		{"collapse-hover-dark", 1200, 800, paneLyrics},
-		{"collapse-pressed", 1200, 800, paneLyrics},
-		{"wide", 1920, 1080, paneLyrics},
-		{"stage", 1200, 800, paneStage},
-		{"wall", 1200, 800, paneWall},
+		{name: "short", w: 860, h: 560},
+		{name: "regular", w: 1200, h: 800},
+		{name: "collapse-hover-light", w: 1200, h: 800, hover: "收起播放页"},
+		{name: "collapse-hover-dark", w: 1200, h: 800, hover: "收起播放页", dark: true},
+		{name: "collapse-pressed", w: 1200, h: 800, hover: "收起播放页", pressed: true},
+		{name: "play-hover-light", w: 1200, h: 800, hover: "播放/暂停"},
+		{name: "play-hover-dark", w: 1200, h: 800, hover: "播放/暂停", dark: true},
+		{name: "play-pressed", w: 1200, h: 800, hover: "播放/暂停", pressed: true},
+		{name: "previous-hover", w: 1200, h: 800, hover: "上一首"},
+		{name: "next-hover", w: 1200, h: 800, hover: "下一首"},
+		{name: "shuffle-hover", w: 1200, h: 800, hover: "随机播放"},
+		{name: "shuffle-on-hover", w: 1200, h: 800, hover: "随机播放"},
+		{name: "repeat-hover", w: 1200, h: 800, hover: "循环"},
+		{name: "like-hover", w: 1200, h: 800, hover: "喜欢"},
+		{name: "liked-hover", w: 1200, h: 800, hover: "取消喜欢"},
+		{name: "more-hover", w: 1200, h: 800, hover: "更多"},
+		{name: "mute-hover", w: 1200, h: 800, hover: "静音"},
+		{name: "volume-hover", w: 1200, h: 800, hover: "音量"},
+		{name: "tab-hover", w: 1200, h: 800, hover: "待播清单"},
+		{name: "wide", w: 1920, h: 1080},
+		{name: "stage", w: 1200, h: 800, pane: paneStage},
+		{name: "stage-play-hover", w: 1200, h: 800, pane: paneStage, hover: "播放/暂停"},
+		{name: "wall", w: 1200, h: 800, pane: paneWall},
+		{name: "wall-play-hover", w: 1200, h: 800, pane: paneWall, hover: "播放/暂停"},
 	} {
 		t.Run(scene.name, func(t *testing.T) {
 			a := newTestApp()
@@ -251,6 +270,14 @@ func TestNowPlayingFrames(t *testing.T) {
 			tr := qqmusic.Track{ID: 1, Name: "宝船", Artists: []qqmusic.Artist{{Name: "DOUDOU"}}, Album: qqmusic.Album{PicURL: "layout-cover"}, Duration: 200000}
 			a.pl.Cue([]qqmusic.Track{tr})
 			a.pl.SetLyrics(nil)
+			a.volume = 0.72
+			a.pl.SetVolume(a.volume)
+			if scene.hover == "取消喜欢" {
+				a.liked = map[int64]bool{tr.ID: true}
+			}
+			if scene.name == "shuffle-on-hover" {
+				a.pl.ToggleShuffle()
+			}
 			a.comments = commentState{track: tr.ID, loaded: true, total: 12345678}
 			a.nowPlaying, a.npPane = true, scene.pane
 			art := &artwork{bmp: solidBitmap(radixSage(true, 9)), tint: radixSage(true, 9)}
@@ -259,19 +286,18 @@ func TestNowPlayingFrames(t *testing.T) {
 			}
 			a.art.art[qqmusic.Sized(tr.Album.PicURL, 600)+"#backdrop"] = art
 			tt := ui.NewTester(a.view, scene.w, scene.h)
-			tt.SetDark(scene.name == "collapse-hover-dark")
+			tt.SetDark(scene.dark)
 			tt.Frame()
 			tt.Move(float32(scene.w)/2, float32(scene.h)/2)
 			tt.Advance(time.Second)
 			tt.Frame()
-			switch scene.name {
-			case "collapse-hover-light", "collapse-hover-dark", "collapse-pressed":
-				b, ok := tt.Find("收起播放页")
+			if scene.hover != "" {
+				b, ok := tt.Find(scene.hover)
 				if !ok {
-					t.Fatal("no collapse control")
+					t.Fatalf("no %s control", scene.hover)
 				}
 				tt.Move(b.X+b.W/2, b.Y+b.H/2)
-				if scene.name == "collapse-pressed" {
+				if scene.pressed {
 					tt.Press(b.X+b.W/2, b.Y+b.H/2)
 				}
 				tt.Advance(200 * time.Millisecond)

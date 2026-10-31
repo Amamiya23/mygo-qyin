@@ -154,8 +154,8 @@ func (a *app) wallSong(c *ui.Context, tr *qqmusic.Track, art *artwork, top, h fl
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, tr.Name).FontSize(26).FontWeight(800).LetterSpacing(-0.4).SingleLine().Shrink(1).MinWidth(0)
-				a.likeButton(c.Key("like"), tr, 20, white.Alpha(0.7))
-				a.songMenu(c.Key("more"), tr, 20, white.Alpha(0.7)).Margin(0, -8, 0, 0)
+				a.likeButton(c.Key("like"), tr, 20, white.Alpha(0.7), mediaSurface)
+				a.songMenu(c.Key("more"), tr, 20, white.Alpha(0.7), mediaSurface).Margin(0, -8, 0, 0)
 			})
 			a.artistLinks(c, tr, white.Alpha(0.6), white, true).FontSize(14).SingleLine()
 			lines, _ := pl.Lyrics()
@@ -369,7 +369,7 @@ func (a *app) wallBar(c *ui.Context, accent ui.Color) {
 			ui.Row(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
 				ui.Text(c, clock(pl.Position())).FontSize(11.5).FontFeatures("tnum").TextColor(white.Alpha(0.5))
 			})
-			a.transport(c, white, white.Alpha(0.45), white, 22)
+			a.transport(c, white, white.Alpha(0.45), white, 22, mediaSurface)
 			ui.Row(c).Grow(1).Basis(0).MinWidth(0).Justify(ui.End).Children(func() {
 				ui.Text(c, "-"+clock(pl.Duration()-pl.Position())).FontSize(11.5).FontFeatures("tnum").TextColor(white.Alpha(0.5))
 			})

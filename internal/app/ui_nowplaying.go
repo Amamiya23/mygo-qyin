@@ -171,8 +171,8 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 						ui.Text(c, tr.Name).FontSize(22).FontWeight(700).LetterSpacing(-0.3).SingleLine()
 						a.artistLinks(c, tr, white.Alpha(0.6), white, true).FontSize(15).SingleLine()
 					})
-					a.likeButton(c.Key("like"), tr, 22, white.Alpha(0.7))
-					a.songMenu(c.Key("more"), tr, 22, white.Alpha(0.7)).Margin(0, -8, 0, 0)
+					a.likeButton(c.Key("like"), tr, 22, white.Alpha(0.7), mediaSurface)
+					a.songMenu(c.Key("more"), tr, 22, white.Alpha(0.7), mediaSurface).Margin(0, -8, 0, 0)
 				})
 				a.scrubber(c.Key("np-scrub"), &a.npScrub, white.Alpha(0.18), white.Alpha(0.9), 16, accent.Mix(white, 0.35))
 				// As tall with the quality's badge as without it: the badge goes
@@ -189,10 +189,10 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 					ui.Text(c, status).FontSize(11).FontFeatures("tnum").TextColor(white.Alpha(0.5))
 				})
 				ui.Box(c).Margin(14, 0, 18, 0).Children(func() {
-					a.transport(c, white, white.Alpha(0.45), accent, 28)
+					a.transport(c, white, white.Alpha(0.45), accent, 28, mediaSurface)
 				})
 				ui.Row(c).Justify(ui.Center).Children(func() {
-					a.volumeSlider(c, white.Alpha(0.7), white.Alpha(0.18), 180)
+					a.volumeSlider(c, white.Alpha(0.7), white.Alpha(0.18), 180, mediaSurface)
 				})
 			})
 
@@ -263,18 +263,7 @@ const npLyricsTextInset = 18
 // backdrop, independently of the appearance of the pages underneath it.
 func npCollapseButton(c *ui.Context) ui.Element {
 	b := ui.ButtonBase(c).Size(40, 32).Center().Radius(10).Label("收起播放页").Tooltip("收起播放页")
-	bg, fg := ui.Transparent, radixWhite(10)
-	if b.Hovered() || b.FocusVisible() {
-		bg, fg = radixWhite(2), radixWhite(12)
-	}
-	pose := ui.Pose{}
-	if b.Pressed() {
-		bg, fg = radixWhite(3), radixPaper
-		pose.Scale = 0.94
-	}
-	motion := ui.Animation{Duration: 140 * time.Millisecond}
-	b.Background(b.AnimateColor("bg", bg, motion)).
-		TextColor(b.AnimateColor("fg", fg, motion)).AnimatePose(pose, motion)
+	mediaFeedback(b, radixWhite(10))
 	b.Children(func() { ui.Icon(c, iconDown).Size(20, 20) })
 	return b
 }
@@ -367,10 +356,15 @@ func (a *app) radioChip(c *ui.Context, name string) {
 	chip := ui.ButtonBase(c.Key("radio-chip")).Gap(5).Padding(3, 6, 3, 8).Margin(0, 0, 4, -8).Radius(999).
 		AlignItems(ui.Center).AlignSelf(ui.Start).FocusRing(false).Label(exit).Tooltip(exit)
 	bg, fg, cross := ui.Transparent, white.Alpha(0.6), float32(0.5)
-	if chip.Hovered() {
-		bg, fg, cross = white.Alpha(0.12), white.Alpha(0.85), 1
+	if chip.Hovered() || chip.FocusVisible() {
+		bg, fg, cross = radixWhite(2), radixWhite(12), 1
 	}
-	chip.Background(chip.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond})).TextColor(fg)
+	if chip.Pressed() {
+		bg = radixWhite(3)
+	}
+	motion := ui.Animation{Duration: 140 * time.Millisecond}
+	chip.Background(chip.AnimateColor("bg", bg, motion)).TextColor(chip.AnimateColor("fg", fg, motion))
+	cross = chip.AnimateTo("cross", cross, motion)
 	chip.Children(func() {
 		ui.Icon(c, icon).Size(12, 12)
 		ui.Text(c, radioLabel(name)).FontSize(11.5).FontWeight(700).LetterSpacing(0.3)
@@ -411,10 +405,10 @@ func (a *app) stageBar(c *ui.Context, tr *qqmusic.Track, art *artwork, accent ui
 					ui.Text(c, tr.Name).FontSize(14).FontWeight(700).SingleLine()
 					a.artistLinks(c, tr, white.Alpha(0.55), white).FontSize(12).SingleLine()
 				})
-				a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6))
-				a.songMenu(c.Key("more"), tr, 17, white.Alpha(0.6)).Margin(0, 0, 0, -10)
+				a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6), mediaSurface)
+				a.songMenu(c.Key("more"), tr, 17, white.Alpha(0.6), mediaSurface).Margin(0, 0, 0, -10)
 			})
-			a.transport(c, white, white.Alpha(0.45), white, 22)
+			a.transport(c, white, white.Alpha(0.45), white, 22, mediaSurface)
 			ui.Row(c).Grow(1).Basis(0).MinWidth(0).Justify(ui.End).Children(func() {
 				ui.Text(c, clock(pl.Position())+" / "+clock(pl.Duration())).FontSize(11.5).FontFeatures("tnum").TextColor(white.Alpha(0.5))
 			})
@@ -426,11 +420,20 @@ func (a *app) paneTab(c *ui.Context, i int, label string) {
 	b := ui.ButtonBase(c.Key(i)).Padding(6, 14).Radius(999).FocusRing(false).Label(label)
 	bg, fg := ui.Transparent, white.Alpha(0.55)
 	if a.npPane == i {
-		bg, fg = white.Alpha(0.14), white
-	} else if b.Hovered() {
-		bg = white.Alpha(0.06)
+		bg, fg = radixWhite(3), white
 	}
-	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
+	if b.Hovered() || b.FocusVisible() {
+		bg, fg = radixWhite(2), radixWhite(12)
+		if a.npPane == i {
+			bg = radixWhite(4)
+		}
+	}
+	if b.Pressed() {
+		bg, fg = radixWhite(5), white
+	}
+	motion := ui.Animation{Duration: 140 * time.Millisecond}
+	b.Background(b.AnimateColor("bg", bg, motion))
+	fg = b.AnimateColor("fg", fg, motion)
 	b.Children(func() {
 		if i != paneComments {
 			ui.Text(c, label).FontSize(13).FontWeight(600).TextColor(fg)

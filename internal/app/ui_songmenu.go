@@ -12,8 +12,8 @@ import (
 var copyText = func(text string) error { return mygo.Clipboard.Write(transfer.TextData(text)) }
 
 // songMenu is three dots that open the menu of tr.
-func (a *app) songMenu(c *ui.Context, tr *qqmusic.Track, size float32, color ui.Color) ui.Element {
-	b := iconButton(c, iconMore, size, color, "更多")
+func (a *app) songMenu(c *ui.Context, tr *qqmusic.Track, size float32, color ui.Color, surface ...buttonSurface) ui.Element {
+	b := iconButton(c, iconMore, size, color, "更多", surface...)
 	b.Menu(a.songItems(tr, 0))
 	return b
 }

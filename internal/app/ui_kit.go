@@ -49,16 +49,16 @@ func paletteFor(t *ui.Theme) palette {
 
 // iconButton is a borderless button showing an icon, which a soft circle
 // marks under the pointer and which gives a little as it is pressed.
-func iconButton(c *ui.Context, icon *ui.SVG, size float32, color ui.Color, label string) ui.Element {
-	b := roundButton(c, size, color, label)
+func iconButton(c *ui.Context, icon *ui.SVG, size float32, color ui.Color, label string, surface ...buttonSurface) ui.Element {
+	b := roundButton(c, size, color, label, surface...)
 	b.Children(func() { ui.Icon(c, icon).Size(size, size) })
 	return b
 }
 
 // playButton is the icon button that plays and pauses, its icon turning
 // from one into the other.
-func playButton(c *ui.Context, playing bool, size float32, color ui.Color) ui.Element {
-	b := roundButton(c, size, color, "播放/暂停")
+func playButton(c *ui.Context, playing bool, size float32, color ui.Color, surface ...buttonSurface) ui.Element {
+	b := roundButton(c, size, color, "播放/暂停", surface...)
 	b.Children(func() { playPause(c, b, playing, size) })
 	return b
 }
@@ -86,9 +86,34 @@ func playPause(c *ui.Context, b ui.Element, playing bool, size float32) {
 	})
 }
 
+// buttonSurface keeps media controls legible over artwork, independently
+// of the appearance of the pages underneath them.
+type buttonSurface uint8
+
+const mediaSurface buttonSurface = 1
+
+// mediaFeedback gives controls a translucent hover and press over artwork.
+// Brightening alpha preserves the hue of liked hearts and active modes.
+func mediaFeedback(b ui.Element, color ui.Color) ui.Element {
+	bg, fg := ui.Transparent, color
+	pose := ui.Pose{}
+	if b.Hovered() || b.FocusVisible() {
+		bg, fg = radixWhite(2), color.Alpha(1)
+	}
+	if b.Pressed() {
+		bg, fg, pose.Scale = radixWhite(3), color.Alpha(1), 0.94
+	}
+	motion := ui.Animation{Duration: 140 * time.Millisecond}
+	return b.Background(b.AnimateColor("bg", bg, motion)).
+		TextColor(b.AnimateColor("fg", fg, motion)).AnimatePose(pose, motion)
+}
+
 // roundButton is the button of iconButton, without its icon.
-func roundButton(c *ui.Context, size float32, color ui.Color, label string) ui.Element {
+func roundButton(c *ui.Context, size float32, color ui.Color, label string, surface ...buttonSurface) ui.Element {
 	b := ui.ButtonBase(c).Size(size+16, size+16).Center().Radius(999).Label(label).TextColor(color)
+	if len(surface) > 0 && surface[0] == mediaSurface {
+		return mediaFeedback(b, color)
+	}
 	bg := ui.Transparent
 	if b.Hovered() {
 		bg = radixSage(c.Theme().Dark, 3)

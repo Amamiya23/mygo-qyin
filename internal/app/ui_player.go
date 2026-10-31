@@ -288,12 +288,12 @@ func volumeIcon(v float64) *ui.SVG {
 }
 
 // muteButton is the speaker, which mutes and unmutes.
-func (a *app) muteButton(c *ui.Context, color ui.Color) {
+func (a *app) muteButton(c *ui.Context, color ui.Color, surface ...buttonSurface) {
 	icon := iconVolume
 	if a.volume == 0 {
 		icon = iconMute
 	}
-	if iconButton(c.Key("mute"), icon, 16, color, "静音").Clicked() {
+	if iconButton(c.Key("mute"), icon, 16, color, "静音", surface...).Clicked() {
 		if a.volume > 0 {
 			a.mutedFrom, a.volume = a.volume, 0
 		} else {
@@ -304,46 +304,54 @@ func (a *app) muteButton(c *ui.Context, color ui.Color) {
 }
 
 // volumeSlider is a slim slider with the speaker before it, which mutes.
-func (a *app) volumeSlider(c *ui.Context, color, track ui.Color, width float32) {
+func (a *app) volumeSlider(c *ui.Context, color, track ui.Color, width float32, surface ...buttonSurface) {
 	ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-		a.muteButton(c, color)
-		s := ui.SliderBase(c.Key("volume"), &a.volume, 0, 1).Width(width).Height(16).FocusRing(false).Label("音量")
+		a.muteButton(c, color, surface...)
+		s := ui.SliderBase(c.Key("volume"), &a.volume, 0, 1).Width(width).Height(16).FocusRing(false).Label("音量").Cursor(ui.CursorPointer)
 		if s.Changed() {
 			a.pl.SetVolume(a.volume)
 		}
-		hot := s.Hovered() || s.Pressed()
-		thick := float32(4)
+		hot := s.Hovered() || s.Pressed() || s.FocusVisible()
+		thick, knob, fill := float32(4), float32(0), color
 		if hot {
-			thick = 5
+			thick, knob, fill = 5, 1, color.Alpha(1)
 		}
-		thick = s.AnimateTo("thick", thick, ui.Snappy)
+		motion := ui.Animation{Duration: 140 * time.Millisecond}
+		thick = s.AnimateTo("thick", thick, motion)
+		knob = s.AnimateTo("knob", knob, motion)
+		fill = s.AnimateColor("fill", fill, motion)
 		v := float32(a.volume)
 		s.Draw(func(p *ui.Painter, r ui.Rect) {
 			y := r.Y + (r.H-thick)/2
 			p.Fill(ui.Rect{X: r.X, Y: y, W: r.W, H: thick}, track, thick/2)
-			p.Fill(ui.Rect{X: r.X, Y: y, W: max(thick, r.W*v), H: thick}, color, thick/2)
+			p.Fill(ui.Rect{X: r.X, Y: y, W: max(thick, r.W*v), H: thick}, fill, thick/2)
+			if knob > 0.01 {
+				k := 10 * knob
+				x := r.X + r.W*v
+				p.Fill(ui.Rect{X: x - k/2, Y: r.Y + (r.H-k)/2, W: k, H: k}, fill, k/2)
+			}
 		})
 	})
 }
 
 // transport is the row of controls: shuffle, previous, play, next, repeat.
-func (a *app) transport(c *ui.Context, color, dim, on ui.Color, size float32) {
+func (a *app) transport(c *ui.Context, color, dim, on ui.Color, size float32, surface ...buttonSurface) {
 	pl := a.pl
 	ui.Row(c).Gap(size * 0.5).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
 		shuffle := dim
 		if pl.Shuffle() {
 			shuffle = on
 		}
-		if iconButton(c.Key("shuffle"), iconShuffle, size*0.62, shuffle, "随机播放").Clicked() {
+		if iconButton(c.Key("shuffle"), iconShuffle, size*0.62, shuffle, "随机播放", surface...).Clicked() {
 			pl.ToggleShuffle()
 		}
-		if iconButton(c.Key("prev"), iconPrev, size*0.85, color, "上一首").Clicked() {
+		if iconButton(c.Key("prev"), iconPrev, size*0.85, color, "上一首", surface...).Clicked() {
 			pl.Prev()
 		}
-		if playButton(c.Key("play"), pl.Playing(), size*1.25, color).Clicked() {
+		if playButton(c.Key("play"), pl.Playing(), size*1.25, color, surface...).Clicked() {
 			pl.TogglePlay()
 		}
-		if iconButton(c.Key("next"), iconNext, size*0.85, color, "下一首").Clicked() {
+		if iconButton(c.Key("next"), iconNext, size*0.85, color, "下一首", surface...).Clicked() {
 			pl.Next()
 		}
 		repeat, ricon := dim, iconRepeat
@@ -353,7 +361,7 @@ func (a *app) transport(c *ui.Context, color, dim, on ui.Color, size float32) {
 		case player.RepeatOne:
 			repeat, ricon = on, iconRepeat1
 		}
-		if iconButton(c.Key("repeat"), ricon, size*0.62, repeat, "循环").Clicked() {
+		if iconButton(c.Key("repeat"), ricon, size*0.62, repeat, "循环", surface...).Clicked() {
 			pl.CycleRepeat()
 		}
 	})
