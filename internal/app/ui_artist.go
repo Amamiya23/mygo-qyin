@@ -332,13 +332,18 @@ func (a *app) scrollPageWithState(c *ui.Context, state *ui.ScrollState, content 
 // their shared tab control in one place as the tabs change.
 func (a *app) listPageWithKey(c *ui.Context, key any, state *ui.ListState, content func()) {
 	top, bottom := a.insets(c)
-	ui.List(c.Key(key), state, 1, func(int) {
-		ui.Column(c).Children(func() {
-			a.startMark(c)
-			defer a.endMark(c)
-			content()
+	// Detach the song tab's offset tracker before the list restores this
+	// tab's row anchor. Both tabs share the animated header's identity.
+	ui.List(c.Key(key), state, 1).TrackScroll(nil).Grow(1).
+		Padding(top+pageGap, pagePad-12, bottom+32, pagePad-12).ScrollbarInsets(top, 0, bottom, 0).
+		Rows(func(item ui.ListRow) {
+			c := item.Context
+			ui.Column(c).Children(func() {
+				a.startMark(c)
+				defer a.endMark(c)
+				content()
+			})
 		})
-	}).Grow(1).Padding(top+pageGap, pagePad-12, bottom+32, pagePad-12).ScrollbarInsets(top, 0, bottom, 0)
 }
 
 // empty says a list has nothing in it.

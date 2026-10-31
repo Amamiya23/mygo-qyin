@@ -65,7 +65,7 @@ func (a *app) signedIn(prof *qqmusic.Profile) {
 	a.artists, a.albums, a.users, a.podcasts = map[int64]*artistData{}, map[int64]*albumData{}, map[int64]*userData{}, map[int64]*podcastData{}
 	a.podcastTab = &podcastTab{}
 	a.purchased = [2]*purchasedData{}
-	a.purchasedScroll = [2]ui.ListState{}
+	a.purchasedScroll = [2]listScrollState{}
 	a.searches = map[route]*searchData{}
 	a.load(a.route)
 	a.loadHome()

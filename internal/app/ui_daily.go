@@ -124,7 +124,7 @@ func (a *app) dailyCard(c *ui.Context, now time.Time) {
 				})
 			})
 			if showPicks {
-				a.dailyPicks(c, songs, ours)
+				a.dailyPicks(c, songs)
 			}
 			if showStack {
 				a.dailyStack(c, songs, hovered && !still, out)
@@ -345,9 +345,9 @@ func (a *app) dailyPlayButton(c *ui.Context, songs []qqmusic.Track, ours, playin
 	}
 }
 
-// dailyPicks lists the day's first songs, numbered, the one playing with
-// its bars; each plays the day's songs from it.
-func (a *app) dailyPicks(c *ui.Context, songs []qqmusic.Track, ours bool) {
+// dailyPicks lists the day's first songs. The current song pauses or resumes;
+// another starts the day's queue from that song.
+func (a *app) dailyPicks(c *ui.Context, songs []qqmusic.Track) {
 	cur := a.pl.Current()
 	ui.Column(c.Key("picks")).Width(236).Shrink(0).Gap(2).Children(func() {
 		for i := range min(3, len(songs)) {
@@ -359,11 +359,11 @@ func (a *app) dailyPicks(c *ui.Context, songs []qqmusic.Track, ours bool) {
 				bg = white.Alpha(0.1)
 			}
 			row.Background(row.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
-			current := ours && cur != nil && cur.ID == tr.ID
+			current := cur != nil && cur.ID == tr.ID
 			row.Children(func() {
 				ui.Box(c).Width(18).Center().Children(func() {
 					if current {
-						ui.Icon(c, iconPlay).Size(11, 11).TextColor(white)
+						a.nowPlayingBars(c, white)
 					} else {
 						ui.Textf(c, "%02d", i+1).FontSize(12).FontWeight(700).FontFeatures("tnum").TextColor(white.Alpha(0.45))
 					}
@@ -374,7 +374,11 @@ func (a *app) dailyPicks(c *ui.Context, songs []qqmusic.Track, ours bool) {
 				})
 			})
 			if row.Clicked() {
-				a.pl.PlayQueue(songs, i)
+				if current {
+					a.pl.TogglePlay()
+				} else {
+					a.pl.PlayQueue(songs, i)
+				}
 			}
 		}
 	})

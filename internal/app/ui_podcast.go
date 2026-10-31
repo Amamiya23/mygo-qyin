@@ -243,8 +243,12 @@ func (a *app) programRow(c *ui.Context, d *podcastData, i int, cur *qqmusic.Trac
 	row := ui.ButtonBase(c).Height(60).PaddingX(12).Gap(14).Radius(8).AlignItems(ui.Center).FocusRing(false).
 		Label(pr.Name).Disabled(pr.MainSong.ID == 0)
 	switch {
+	case playing && row.Pressed():
+		row.Background(radixGreen(p.dark, 5))
+	case playing && row.Hovered():
+		row.Background(radixGreen(p.dark, 4))
 	case playing:
-		row.Background(p.accent.Alpha(0.08))
+		row.Background(radixGreen(p.dark, 3))
 	case row.Hovered():
 		row.Background(p.hover)
 	}
@@ -262,7 +266,7 @@ func (a *app) programRow(c *ui.Context, d *podcastData, i int, cur *qqmusic.Trac
 			ui.Text(c, time.UnixMilli(pr.CreateTime).Format("2006-01-02")).FontSize(12).TextColor(p.muted)
 		})
 		if playing {
-			a.nowPlayingBars(c)
+			a.nowPlayingBars(c, p.accent)
 		}
 		// A liked episode's heart shows; the others' as the pointer is on them.
 		ui.Box(c).Size(32, 32).Center().Children(func() {
@@ -274,7 +278,11 @@ func (a *app) programRow(c *ui.Context, d *podcastData, i int, cur *qqmusic.Trac
 		ui.Text(c, clock(time.Duration(pr.Duration)*time.Millisecond)).FontSize(12).FontFeatures("tnum").TextColor(p.muted)
 	})
 	if row.Clicked() {
-		a.playProgram(d, i)
+		if playing {
+			a.pl.TogglePlay()
+		} else {
+			a.playProgram(d, i)
+		}
 	}
 }
 

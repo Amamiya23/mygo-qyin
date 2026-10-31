@@ -328,13 +328,26 @@ func (a *app) trackRows(c *ui.Context, tracks []qqmusic.Track, covers bool, head
 	a.trackRowsWithState(c, &a.pageState().tracks, tracks, covers, header, footer...)
 }
 
-func (a *app) trackRowsWithState(c *ui.Context, state *ui.ListState, tracks []qqmusic.Track, covers bool, header func(c *ui.Context), footer ...func(c *ui.Context)) {
+func (a *app) trackRowsWithState(c *ui.Context, state *listScrollState, tracks []qqmusic.Track, covers bool, header func(c *ui.Context), footer ...func(c *ui.Context)) {
 	a.trackRowsWithKey(c, a.route, state, tracks, covers, header, footer...)
 }
 
-func (a *app) trackRowsWithKey(c *ui.Context, key any, state *ui.ListState, tracks []qqmusic.Track, covers bool, header func(c *ui.Context), footer ...func(c *ui.Context)) {
+func (a *app) trackRowsWithKey(c *ui.Context, key any, state *listScrollState, tracks []qqmusic.Track, covers bool, header func(c *ui.Context), footer ...func(c *ui.Context)) {
 	p := a.pal
 	cur := a.pl.Current()
+	current := -1
+	if cur != nil {
+		for i := range tracks {
+			if tracks[i].ID == cur.ID {
+				current = i
+				break
+			}
+		}
+	}
+	// Geometry and offset come from the same committed frame. Any measured
+	// song can locate another: song rows share a height, unlike the header.
+	scrollY := state.scroll.Y
+	currentTop, measured := float32(0), false
 	// A song's menu can take it out of the playlist it is listed in.
 	var pid int64
 	if a.route.page == pagePlaylist {
@@ -348,99 +361,118 @@ func (a *app) trackRowsWithKey(c *ui.Context, key any, state *ui.ListState, trac
 	// scrolled away from its start or end has content under the bars.
 	a.underTop, a.underBottom = true, true
 	rows := len(tracks) + 1 + len(footer)
-	ui.List(c.Key(key), state, rows, func(i int) {
-		if i == 0 {
-			ui.Column(c).Children(func() {
-				a.startMark(c)
-				header(c)
-			})
-			return
-		}
-		if i == rows-1 {
-			defer a.endMark(c)
-		}
-		if i > len(tracks) {
-			footer[i-len(tracks)-1](c)
-			return
-		}
-		i--
-		tr := &tracks[i]
-		playing := cur != nil && cur.ID == tr.ID
-		row := ui.ButtonBase(c.Key(tr.ID)).Height(54).PaddingX(12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
-			ContextMenu(a.songItems(tr, pid))
-		hovered := row.Hovered()
-		bg := ui.Transparent
-		switch {
-		case playing:
-			bg = p.accent.Alpha(0.09)
-		case hovered:
-			bg = p.hover
-		}
-		row.Background(row.AnimateColor("bg", bg, ui.Animation{Duration: 100 * time.Millisecond}))
-		if !tr.Playable() {
-			row.Opacity(0.42)
-		}
-		row.Children(func() {
-			ui.Box(c).Width(26).Center().Children(func() {
-				switch {
-				case playing:
-					a.nowPlayingBars(c)
-				case hovered && tr.Playable():
-					ui.Icon(c, iconPlay).Size(13, 13).TextColor(p.text)
-				default:
-					ui.Textf(c, "%d", i+1).FontSize(13).FontFeatures("tnum").TextColor(p.faint)
+	ui.List(c.Key(key), &state.ListState, rows).TrackScroll(&state.scroll).Grow(1).
+		Padding(top+pageGap, pagePad-12, bottom+32, pagePad-12).ScrollbarInsets(top, 0, bottom, 0).
+		Rows(func(item ui.ListRow) {
+			c := item.Context
+			i := item.Index
+			if i == 0 {
+				heading := ui.Column(c)
+				if r := heading.Bounds(); current >= 0 && r.H > 0 {
+					currentTop, measured = r.Y+r.H+float32(current)*trackRowHeight, true
 				}
-			})
-			if covers {
-				a.cover(c, tr.Album.PicURL, 96, 38, 6)
+				heading.Children(func() {
+					a.startMark(c)
+					header(c)
+				})
+				return
 			}
-			ui.Column(c).Grow(3).Basis(0).MinWidth(0).Gap(3).Children(func() {
-				name := p.text
+			if i == rows-1 {
+				defer a.endMark(c)
+			}
+			if i > len(tracks) {
+				footer[i-len(tracks)-1](c)
+				return
+			}
+			i--
+			tr := &tracks[i]
+			playing := cur != nil && cur.ID == tr.ID
+			row := ui.ButtonBase(c.Key(tr.ID)).Height(trackRowHeight).PaddingX(12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
+				ContextMenu(a.songItems(tr, pid))
+			if r := row.Bounds(); current >= 0 && !measured && r.H > 0 {
+				currentTop, measured = r.Y+float32(current-i)*trackRowHeight, true
+			}
+			hovered := row.Hovered()
+			bg := ui.Transparent
+			switch {
+			case playing && row.Pressed():
+				bg = radixGreen(p.dark, 5)
+			case playing && hovered:
+				bg = radixGreen(p.dark, 4)
+			case playing:
+				bg = radixGreen(p.dark, 3)
+			case hovered:
+				bg = p.hover
+			}
+			row.Background(row.AnimateColor("bg", bg, ui.Animation{Duration: 100 * time.Millisecond}))
+			if !tr.Playable() {
+				row.Opacity(0.42)
+			}
+			row.Children(func() {
+				ui.Box(c).Width(26).Center().Children(func() {
+					switch {
+					case playing:
+						a.nowPlayingBars(c, p.accent)
+					case hovered && tr.Playable():
+						ui.Icon(c, iconPlay).Size(13, 13).TextColor(p.text)
+					default:
+						ui.Textf(c, "%d", i+1).FontSize(13).FontFeatures("tnum").TextColor(p.faint)
+					}
+				})
+				if covers {
+					a.cover(c, tr.Album.PicURL, 96, 38, 6)
+				}
+				ui.Column(c).Grow(3).Basis(0).MinWidth(0).Gap(3).Children(func() {
+					name := p.text
+					if playing {
+						name = p.accent
+					}
+					spans := []ui.Span{{Text: tr.Name, Weight: 500, Color: name}}
+					if len(tr.Alias) > 0 {
+						spans = append(spans, ui.Span{Text: "（" + tr.Alias[0] + "）", Color: p.faint})
+					}
+					ui.RichText(c, spans...).FontSize(14).SingleLine()
+					ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+						if !tr.Playable() {
+							ui.Text(c, "VIP").FontSize(9).FontWeight(800).TextColor(p.accent).Padding(0, 4).Radius(3).Border(1, p.accent.Alpha(0.6))
+						}
+						a.artistLinks(c, tr, p.muted, p.text).FontSize(12.5).SingleLine().Shrink(1).MinWidth(0)
+						if tr.Reason != "" {
+							ui.Text(c, tr.Reason).FontSize(10.5).FontWeight(600).TextColor(p.accent).Padding(1, 6).Radius(999).Background(p.accent.Alpha(0.1)).SingleLine()
+						}
+					})
+				})
+				if wide {
+					album := ui.RichText(c).Grow(2).Basis(0).MinWidth(0).FontSize(12.5).TextColor(p.muted).SingleLine()
+					album.Children(func() {
+						if tr.Album.ID == 0 {
+							ui.Text(c, tr.Album.Name)
+						} else {
+							a.link(c.Key("album"), tr.Album.Name, p.muted, p.text, route{page: pageAlbum, id: tr.Album.ID})
+						}
+					})
+				}
+				// A liked song's heart shows; the others' as the pointer is on them.
+				ui.Box(c).Size(32, 32).Center().Children(func() {
+					if a.liked[tr.ID] || hovered {
+						a.likeButton(c.Key("like"), tr, 15, p.muted)
+					}
+				})
+				ui.Text(c, clock(tr.Length())).FontSize(12.5).FontFeatures("tnum").TextColor(p.faint).Width(44).TextAlign(ui.End)
+			})
+			if row.Clicked() && tr.Playable() {
 				if playing {
-					name = p.accent
+					a.pl.TogglePlay()
+				} else {
+					a.pl.PlayQueue(tracks, i)
 				}
-				spans := []ui.Span{{Text: tr.Name, Weight: 500, Color: name}}
-				if len(tr.Alias) > 0 {
-					spans = append(spans, ui.Span{Text: "（" + tr.Alias[0] + "）", Color: p.faint})
-				}
-				ui.RichText(c, spans...).FontSize(14).SingleLine()
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					if !tr.Playable() {
-						ui.Text(c, "VIP").FontSize(9).FontWeight(800).TextColor(p.accent).Padding(0, 4).Radius(3).Border(1, p.accent.Alpha(0.6))
-					}
-					a.artistLinks(c, tr, p.muted, p.text).FontSize(12.5).SingleLine().Shrink(1).MinWidth(0)
-					if tr.Reason != "" {
-						ui.Text(c, tr.Reason).FontSize(10.5).FontWeight(600).TextColor(p.accent).Padding(1, 6).Radius(999).Background(p.accent.Alpha(0.1)).SingleLine()
-					}
-				})
-			})
-			if wide {
-				album := ui.RichText(c).Grow(2).Basis(0).MinWidth(0).FontSize(12.5).TextColor(p.muted).SingleLine()
-				album.Children(func() {
-					if tr.Album.ID == 0 {
-						ui.Text(c, tr.Album.Name)
-					} else {
-						a.link(c.Key("album"), tr.Album.Name, p.muted, p.text, route{page: pageAlbum, id: tr.Album.ID})
-					}
-				})
 			}
-			// A liked song's heart shows; the others' as the pointer is on them.
-			ui.Box(c).Size(32, 32).Center().Children(func() {
-				if a.liked[tr.ID] || hovered {
-					a.likeButton(c.Key("like"), tr, 15, p.muted)
-				}
-			})
-			ui.Text(c, clock(tr.Length())).FontSize(12.5).FontFeatures("tnum").TextColor(p.faint).Width(44).TextAlign(ui.End)
 		})
-		if row.Clicked() && tr.Playable() {
-			a.pl.PlayQueue(tracks, i)
-		}
-	}).Grow(1).Padding(top+pageGap, pagePad-12, bottom+32, pagePad-12).ScrollbarInsets(top, 0, bottom, 0)
+	a.locateTrackButton(c.Key(key), state, cur, current, currentTop, scrollY, measured)
 }
 
 // nowPlayingBars dance in the row of the track playing.
-func (a *app) nowPlayingBars(c *ui.Context) {
-	color := a.pal.accent
+func (a *app) nowPlayingBars(c *ui.Context, color ui.Color) {
 	ui.Box(c).Size(16, 14).Draw(func(p *ui.Painter, r ui.Rect) {
 		lv, live := a.pl.Levels()
 		a.rowBars.step(p.Now(), lv, live)

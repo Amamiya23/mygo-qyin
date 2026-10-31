@@ -92,7 +92,7 @@ func (a *app) purchasedPage(c *ui.Context) {
 	}
 	if tab == purchasedSongs {
 		if !d.page.loaded && d.page.loading {
-			a.listPageWithKey(c, content, &a.purchasedScroll[purchasedSongs], func() {
+			a.listPageWithKey(c, content, &a.purchasedScroll[purchasedSongs].ListState, func() {
 				a.underTop, a.underBottom = false, true
 				a.trackSkeletonRows(c, a.pageShimmer(c), true, header)
 			})
@@ -101,7 +101,7 @@ func (a *app) purchasedPage(c *ui.Context) {
 		a.trackRowsWithKey(c, content, &a.purchasedScroll[purchasedSongs], d.songs, true, header, foot)
 		return
 	}
-	a.listPageWithKey(c, content, &a.purchasedScroll[tab], func() {
+	a.listPageWithKey(c, content, &a.purchasedScroll[tab].ListState, func() {
 		header(c)
 		a.albumGrid(c, d.albums)
 		if !d.page.loaded && d.page.loading {

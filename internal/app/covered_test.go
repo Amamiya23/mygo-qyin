@@ -29,10 +29,24 @@ func TestCoveredPageKeepsItsPlace(t *testing.T) {
 	for _, r := range []route{{page: pagePlaylist, id: 42}, {page: pageCharts}} {
 		a.open(r)
 		tt.Frame()
+		var names []string
+		if r.page == pagePlaylist {
+			for _, track := range tracks {
+				names = append(names, track.Name)
+			}
+		} else {
+			for _, chart := range a.charts {
+				names = append(names, chart.Name)
+			}
+		}
+		initialName, initialAt := visibleNavigationItem(t, tt, names)
 		tt.Wheel(700, 400, 0, 2400)
 		tt.Advance(time.Second)
 		tt.Frame()
-		before := shown(tt)
+		name, before := visibleNavigationItem(t, tt, names)
+		if name == initialName && before == initialAt {
+			t.Fatalf("%+v: the wheel did not scroll it", r)
+		}
 
 		a.nowPlaying = true
 		tt.Frame()
@@ -46,31 +60,8 @@ func TestCoveredPageKeepsItsPlace(t *testing.T) {
 		tt.Frame()
 		tt.Advance(time.Second)
 		tt.Frame()
-		if after := shown(tt); after != before {
-			t.Errorf("%+v: shows\n%s\nafter Now Playing, was\n%s", r, after, before)
-		}
-		if before == firstShown(a) {
-			t.Errorf("%+v: the wheel did not scroll it", r)
-		}
+		// Check the content's actual anchor, not the incidental phase of
+		// every hovered heart and animated control elsewhere in the window.
+		assertNavigationPosition(t, tt, name, before)
 	}
-}
-
-// shown returns the texts the window shows, each where it is.
-func shown(tt *ui.Tester) string {
-	var s string
-	for _, text := range tt.Texts() {
-		if r, ok := tt.Find(text); ok {
-			s += fmt.Sprintf("%s@%.0f,%.0f ", text, r.X, r.Y)
-		}
-	}
-	return s
-}
-
-// firstShown returns what a's page shows unscrolled.
-func firstShown(a *app) string {
-	b := *a
-	b.pageStates = nil
-	tt := ui.NewTester(b.view, 1200, 800)
-	tt.Frame()
-	return shown(tt)
 }

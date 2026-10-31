@@ -33,7 +33,7 @@ type likedAlbumData struct {
 
 // Each collection keeps its own place when switching tabs or returning from a detail page.
 type likedScrollState struct {
-	songs  ui.ListState
+	songs  listScrollState
 	albums ui.ListState
 }
 
@@ -112,12 +112,12 @@ func (a *app) likedPlaylistPage(c *ui.Context, id int64) {
 	}
 	if pl == nil {
 		if a.loadingPl[id] {
-			a.listPageWithKey(c, content, &a.likedScroll.songs, func() {
+			a.listPageWithKey(c, content, &a.likedScroll.songs.ListState, func() {
 				a.underTop, a.underBottom = false, true
 				a.trackSkeletonRows(c, a.pageShimmer(c), true, header)
 			})
 		} else {
-			a.listPageWithKey(c, content, &a.likedScroll.songs, func() {
+			a.listPageWithKey(c, content, &a.likedScroll.songs.ListState, func() {
 				header(c)
 				a.centered(c, a.plErr[id], func() { a.loadPlaylist(id, false) })
 			})

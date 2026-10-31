@@ -665,8 +665,12 @@ func (a *app) queuePane(c *ui.Context) {
 			})
 			ui.Text(c, clock(tr.Length())).FontSize(12).FontFeatures("tnum").TextColor(white.Alpha(0.4))
 		})
-		if row.Clicked() && tr.Playable() && !playing {
-			pl.Jump(i)
+		if row.Clicked() && tr.Playable() {
+			if playing {
+				pl.TogglePlay()
+			} else {
+				pl.Jump(i)
+			}
 		}
 	}).Grow(1).Padding(8, 0, 40, 0).Gap(2)
 }

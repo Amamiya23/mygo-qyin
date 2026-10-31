@@ -41,7 +41,7 @@ type route struct {
 
 // pageScrollState belongs to one route; MyGo's list and scroll state keep stable identities.
 type pageScrollState struct {
-	tracks ui.ListState
+	tracks listScrollState
 	scroll ui.ScrollState
 }
 
@@ -107,7 +107,7 @@ type app struct {
 	podcasts        map[int64]*podcastData
 	podcastTab      *podcastTab // the podcasts tab's lists
 	purchased       [2]*purchasedData
-	purchasedScroll [2]ui.ListState
+	purchasedScroll [2]listScrollState
 	// Each page keeps its place when navigating or while Now Playing covers it.
 	pageStates map[route]*pageScrollState
 	navScroll  ui.ScrollState
