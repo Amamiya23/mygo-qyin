@@ -59,6 +59,45 @@ func TestQuitOnCloseSettings(t *testing.T) {
 	}
 }
 
+// Toggling volume balance applies it to the current player and persists both on and off across launches.
+func TestVolumeBalanceSettings(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	var applied []bool
+	a.pl.Normalize = func() bool {
+		applied = append(applied, a.settings.Normalize)
+		return a.settings.Normalize
+	}
+	tt := ui.NewTester(a.settingsView, 560, 2000)
+	tt.Frame()
+	for _, enabled := range []bool{false, true, false} {
+		before := len(applied)
+		if err := tt.Click("切换音量平衡"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if a.settings.Normalize != enabled {
+			t.Fatalf("volume balance = %t, want %t", a.settings.Normalize, enabled)
+		}
+		if len(applied) <= before || applied[len(applied)-1] != enabled {
+			t.Fatalf("current player did not apply volume balance %t: %v", enabled, applied)
+		}
+		b, err := os.ReadFile(a.settings.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored := defaultSettings()
+		restored.Normalize = !enabled
+		if err := json.Unmarshal(b, &restored); err != nil {
+			t.Fatal(err)
+		}
+		if restored.Normalize != enabled {
+			t.Fatalf("restored volume balance = %t, want %t", restored.Normalize, enabled)
+		}
+	}
+}
+
 // With NM_FRAMES set, saves settings and startup migration progress in both themes.
 func TestSettingsFrames(t *testing.T) {
 	dir := os.Getenv("NM_FRAMES")

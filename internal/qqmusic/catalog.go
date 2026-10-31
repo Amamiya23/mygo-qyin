@@ -224,6 +224,9 @@ func SongDetails(ids []int64) ([]Track, error) {
 		if track.ID <= 0 || track.MID == "" {
 			return out, fmt.Errorf("qqmusic: song %d not found", id)
 		}
+		if track.Volume != nil {
+			songLoudnessCache.put(map[string]Loudness{track.MID: *track.Volume}, time.Now())
+		}
 		out = append(out, track)
 	}
 	return out, nil

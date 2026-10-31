@@ -52,9 +52,9 @@ type settings struct {
 	StageSparks bool `json:"stageSparks,omitempty"`
 	// Volume is where the volume was left, from 0 to 1.
 	Volume float64 `json:"volume"`
-	// Normalize evens out the loudness of tracks, by what NetEase
-	// measured of each.
-	Normalize bool `json:"normalize"`
+	// Normalize uses QQ's measured loudness to balance songs. The new key
+	// leaves the unused NetEase normalize setting behind on existing installs.
+	Normalize bool `json:"volumeBalance"`
 	// HotComments shows a song's hot comments in its quiet parts, in
 	// place of the lyrics (quietComment): the listener turns it on.
 	HotComments bool `json:"hotComments"`
@@ -84,7 +84,7 @@ type settings struct {
 }
 
 func defaultSettings() settings {
-	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", SidebarMaterial: "acrylic", Volume: 0.8, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true}
+	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", SidebarMaterial: "acrylic", Volume: 0.8, Normalize: true, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true}
 }
 
 const (

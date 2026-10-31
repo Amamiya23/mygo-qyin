@@ -117,8 +117,12 @@ func (a *app) searchField(c *ui.Context) {
 			cb.SetOpen(false)
 		}
 		cb.Popup(func(panel ui.Element) {
+			width := float32(360)
+			if q == "" {
+				width = field.Bounds().W
+			}
 			panel.AttachTo(field, ui.AnchorBottomStart, ui.AnchorTopStart).
-				Width(360).Padding(6).Margin(8, 0, 0, 0).Radius(12).
+				Width(width).Padding(6).Margin(8, 0, 0, 0).Radius(12).
 				Background(p.bg).Border(1, p.hairline).
 				Shadow(0, 8, 24, -4, radixInk.Alpha(0.2))
 			option := func(key, label string) ui.Element {

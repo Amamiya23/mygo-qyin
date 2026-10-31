@@ -100,7 +100,11 @@ func SongURL(id int64, level string) (*Stream, error) {
 			if err != nil {
 				return nil, err
 			}
-			return &Stream{URL: u.ResolveReference(p).String(), Type: q.extension, Level: q.level, Size: q.size}, nil
+			stream := &Stream{URL: u.ResolveReference(p).String(), Type: q.extension, Level: q.level, Size: q.size}
+			if t.Volume != nil {
+				stream.Gain, stream.Peak = t.Volume.Gain, t.Volume.Peak
+			}
+			return stream, nil
 		}
 	}
 	return nil, ErrUnavailable

@@ -56,7 +56,6 @@ type Player struct {
 	stream  stream
 	info    *qqmusic.Stream // what the current track streams
 	fade    fader
-	gain    float64 // the current track's normalizing gain
 	loading bool
 	playing bool // what the listener wants: false while paused
 	err     string
@@ -75,7 +74,7 @@ type Player struct {
 }
 
 func New(post func(func())) *Player {
-	p := &Player{post: post, at: -1, volume: 0.8, gain: 1}
+	p := &Player{post: post, at: -1, volume: 0.8}
 	// Music, mixed far enough ahead to play on while macOS keeps the app
 	// waiting, as it does while its appearance changes.
 	audio.SetLatency(audio.LatencyPlayback)
@@ -503,27 +502,45 @@ func (p *Player) SetVolume(v float64) {
 	p.applyGain()
 }
 
+// RefreshGain applies a changed normalization setting to the current song.
+func (p *Player) RefreshGain() {
+	p.applyGain()
+	if p.Normalize == nil || !p.Normalize() || p.info == nil || p.track == nil {
+		return
+	}
+	// A song loaded with balancing off never waited for measurements. When
+	// enabled mid-song, fetch them without restarting or blocking playback.
+	t, gen := *p.track, p.gen
+	go func() {
+		v, err := songLoudness(t)
+		if err != nil {
+			return
+		}
+		p.post(func() {
+			if gen == p.gen && p.info != nil {
+				p.info = withLoudness(p.info, v)
+				p.applyGain()
+			}
+		})
+	}()
+}
+
 // applyGain sets the volume of what plays: the listener's, which the ear
 // hears in powers, and the track's gain, if normalizing.
 func (p *Player) applyGain() {
 	g := p.volume * p.volume
 	if p.Normalize != nil && p.Normalize() {
-		g *= p.gain
+		g *= normGain(p.info)
 	}
 	p.fade.setGain(g)
 }
 
-// normPreamp lifts normalized tracks, which NetEase brings to the quiet
-// loudness of ReplayGain, nearer to how loud music plays elsewhere.
-const normPreamp = 4
-
-// normGain is the gain that brings a track as loud as others, as NetEase
-// measured it, but never so loud that its peaks would clip.
+// normGain uses QQ's measured gain directly, limiting it so peaks cannot clip.
 func normGain(st *qqmusic.Stream) float64 {
 	if st == nil || st.Gain == 0 && st.Peak == 0 {
 		return 1
 	}
-	g := math.Pow(10, (st.Gain+normPreamp)/20)
+	g := math.Pow(10, st.Gain/20)
 	if st.Peak > 0 {
 		g = min(g, 1/st.Peak)
 	}
@@ -614,12 +631,13 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 			}
 		})
 	}()
+	level := "exhigh"
+	if p.Quality != nil {
+		level = p.Quality()
+	}
+	normalize := p.Normalize != nil && p.Normalize()
 	go func() {
-		level := "exhigh"
-		if p.Quality != nil {
-			level = p.Quality()
-		}
-		info, s, err := p.open(t, level)
+		info, s, err := p.open(t, level, normalize)
 		p.post(func() {
 			if gen != p.gen {
 				if s != nil {
@@ -651,7 +669,6 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 				return
 			}
 			p.stream, p.info = s, info
-			p.gain = normGain(info)
 			p.out = audio.NewPlayer(s)
 			// From its middle, as a session picked up again, it fades in.
 			level := 1.0
@@ -659,7 +676,11 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 				level = 0
 			}
 			p.fade.attach(p.out, level)
-			p.applyGain()
+			if normalize {
+				p.applyGain()
+			} else {
+				p.RefreshGain()
+			}
 			p.out.OnEnd(func() {
 				p.post(func() {
 					if gen == p.gen {
@@ -682,7 +703,21 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 
 // open opens track t's audio at level: kept in the cache, or else
 // streamed into it, and kept once it has all come in.
-func (p *Player) open(t qqmusic.Track, level string) (*qqmusic.Stream, stream, error) {
+func (p *Player) open(t qqmusic.Track, level string, normalize bool) (*qqmusic.Stream, stream, error) {
+	// Resolve loudness while the audio opens, including for songs already on
+	// disk. A failed metadata request leaves the stream's gain unchanged.
+	var loudness chan *qqmusic.Loudness
+	if normalize {
+		loudness = make(chan *qqmusic.Loudness, 1)
+		go func() {
+			v, err := songLoudness(t)
+			if err != nil {
+				loudness <- nil
+				return
+			}
+			loudness <- &v
+		}()
+	}
 	dl, info, ok := p.Cache.lookup(t.ID, level)
 	if !ok {
 		var err error
@@ -697,7 +732,22 @@ func (p *Player) open(t qqmusic.Track, level string) (*qqmusic.Stream, stream, e
 		dl.Close()
 		return nil, nil, err
 	}
+	if loudness != nil {
+		if v := <-loudness; v != nil {
+			info = withLoudness(info, *v)
+		}
+	}
 	return info, s, nil
+}
+
+var songLoudness = qqmusic.SongLoudness
+
+func withLoudness(info *qqmusic.Stream, v qqmusic.Loudness) *qqmusic.Stream {
+	// Downloads keep their own metadata on completion; do not mutate the
+	// Stream they may still be reading on their goroutine.
+	st := *info
+	st.Gain, st.Peak = v.Gain, v.Peak
+	return &st
 }
 
 // Session is where playback was left, to pick up again.

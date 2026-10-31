@@ -36,6 +36,15 @@ type Track struct {
 	ProgramID   int64      `json:"programId,omitempty"`
 	PodcastID   int64      `json:"podcastId,omitempty"`
 	Description string     `json:"description,omitempty"`
+	Volume      *Loudness  `json:"volume,omitempty"`
+}
+
+// Loudness is QQ's measured gain in dB, sample peak and loudness range for
+// the standard master. The source-specific vf groups are not interchangeable.
+type Loudness struct {
+	Gain float64 `json:"gain"`
+	Peak float64 `json:"peak"`
+	LRA  float64 `json:"lra"`
 }
 type Privilege struct {
 	ID int64 `json:"id"`

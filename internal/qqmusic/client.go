@@ -330,6 +330,12 @@ func convertTrack(o object) Track {
 		o = nested
 	}
 	t := Track{ID: number(o, "id", "songid", "songId"), MID: text(o, "mid", "songmid", "songMid"), Name: text(o, "title", "name", "songname", "songName"), Duration: number(o, "interval") * 1000}
+	if raw := o["volume"]; len(raw) > 0 {
+		var volume *Loudness
+		if json.Unmarshal(raw, &volume) == nil && volume != nil && volume.Peak >= 0 {
+			t.Volume = volume
+		}
+	}
 	for _, a := range objects(o, "singer", "singers") {
 		t.Artists = append(t.Artists, convertArtist(a))
 	}

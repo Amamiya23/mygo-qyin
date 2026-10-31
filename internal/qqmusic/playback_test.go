@@ -91,7 +91,7 @@ func TestLyricsTranslationFallback(t *testing.T) {
 
 // A restored queue must retain MIDs and the chosen file size so seeking need not wait for EOF.
 func TestPlaybackRestoredSizeAndQualityFallback(t *testing.T) {
-	track := convertTrack(obj(json.RawMessage(`{"id":993,"mid":"restoredSong","title":"Song","file":{"media_mid":"restoredMedia","size_128mp3":123456,"size_320mp3":345678,"size_flac":987654}}`)))
+	track := convertTrack(obj(json.RawMessage(`{"id":993,"mid":"restoredSong","title":"Song","file":{"media_mid":"restoredMedia","size_128mp3":123456,"size_320mp3":345678,"size_flac":987654},"volume":{"gain":-7.603,"peak":0.946,"lra":3.712}}`)))
 	encoded, err := json.Marshal([]Track{track})
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestPlaybackRestoredSizeAndQualityFallback(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if stream.Level != served.level || stream.Size != served.size {
+			if stream.Level != served.level || stream.Size != served.size || stream.Gain != -7.603 || stream.Peak != 0.946 {
 				t.Fatalf("quality and size disagree: %+v", stream)
 			}
 		})
