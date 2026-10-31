@@ -90,42 +90,36 @@ func TestLiveArtistAlbums(t *testing.T) {
 	}
 }
 
-// Public search must return usable songs, artists and albums even while an account is present.
+// Anonymous search must return usable songs, artists and albums when QQ allows the public endpoint.
 func TestLiveSearch(t *testing.T) {
 	if os.Getenv("LIVE") == "" {
 		t.Skip("set LIVE to contact QQ Music")
 	}
 	previous := sessionSnapshot()
 	t.Cleanup(func() { setSession(previous) })
-	for _, loggedIn := range []bool{false, true} {
-		setSession(Session{})
-		if loggedIn {
-			// A fixture exercises account-independent search without reading a real credential.
-			setSession(Session{MusicID: "123", MusicKey: "fixture-credential", LoginType: 2})
+	setSession(Session{})
+	for _, kind := range []SearchType{SearchSongs, SearchArtists, SearchAlbums} {
+		result, err := SearchPage("周杰伦", kind, 20, 0)
+		if err != nil {
+			t.Fatalf("anonymous kind=%d: %v", kind, err)
 		}
-		for _, kind := range []SearchType{SearchSongs, SearchArtists, SearchAlbums} {
-			result, err := SearchPage("周杰伦", kind, 5, 0)
-			if err != nil {
-				t.Fatalf("account=%v kind=%d: %v", loggedIn, kind, err)
-			}
-			if result.Len() == 0 || result.Total == 0 {
-				t.Fatalf("account=%v kind=%d: empty public search", loggedIn, kind)
-			}
-			var id int64
-			var mid string
-			switch kind {
-			case SearchSongs:
-				id, mid = result.Songs[0].ID, result.Songs[0].MID
-			case SearchArtists:
-				id, mid = result.Artists[0].ID, result.Artists[0].MID
-			case SearchAlbums:
-				id, mid = result.Albums[0].ID, result.Albums[0].MID
-			}
-			if id <= 0 || mid == "" {
-				t.Fatalf("account=%v kind=%d: missing catalog identifiers", loggedIn, kind)
-			}
-			t.Logf("account=%v kind=%d: %d of %d", loggedIn, kind, result.Len(), result.Total)
+		if result.Len() == 0 || result.Total == 0 {
+			t.Fatalf("anonymous kind=%d: empty public search", kind)
 		}
+		var id int64
+		var mid string
+		switch kind {
+		case SearchSongs:
+			id, mid = result.Songs[0].ID, result.Songs[0].MID
+		case SearchArtists:
+			id, mid = result.Artists[0].ID, result.Artists[0].MID
+		case SearchAlbums:
+			id, mid = result.Albums[0].ID, result.Albums[0].MID
+		}
+		if id <= 0 || mid == "" {
+			t.Fatalf("anonymous kind=%d: missing catalog identifiers", kind)
+		}
+		t.Logf("anonymous kind=%d: %d of %d", kind, result.Len(), result.Total)
 	}
 }
 

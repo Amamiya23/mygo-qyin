@@ -124,6 +124,20 @@ func TestLoudnessPartialFailure(t *testing.T) {
 // A restored song with only its numeric ID uses the numeric detail method and learns its MID.
 func TestLoudnessNumericID(t *testing.T) {
 	isolateLoudnessCache(t)
+	// This case needs an unknown MID; an earlier -count run may have learned it.
+	mediaRegistry.Lock()
+	previous, existed := mediaRegistry.tracks[901337]
+	delete(mediaRegistry.tracks, 901337)
+	mediaRegistry.Unlock()
+	t.Cleanup(func() {
+		mediaRegistry.Lock()
+		defer mediaRegistry.Unlock()
+		if existed {
+			mediaRegistry.tracks[901337] = previous
+		} else {
+			delete(mediaRegistry.tracks, 901337)
+		}
+	})
 	withQQServer(t, func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Req struct {

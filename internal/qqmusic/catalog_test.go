@@ -30,16 +30,19 @@ func withQQServer(t *testing.T, handler http.HandlerFunc) {
 	server := httptest.NewServer(handler)
 	old := httpClient
 	oldSession := sessionSnapshot()
+	oldSearches := searches
+	searches = newSearchEngine()
+	searches.interval = 0
 	setSession(Session{})
 	httpClient = &http.Client{Transport: redirectTransport{server.URL, http.DefaultTransport}}
-	t.Cleanup(func() { httpClient = old; setSession(oldSession); server.Close() })
+	t.Cleanup(func() { httpClient = old; searches = oldSearches; setSession(oldSession); server.Close() })
 }
 func rpcReply(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "req_0": map[string]any{"code": 0, "data": data}})
 }
 
-// Anonymous search uses QQ's accepted type and retains the IDs needed by later playback.
+// Anonymous Lite search retains the IDs needed by later playback.
 func TestAnonymousSearchKeepsMID(t *testing.T) {
 	withQQServer(t, func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -64,7 +67,7 @@ func TestAnonymousSearchKeepsMID(t *testing.T) {
 		}
 		rpcReply(w, map[string]any{"body": map[string]any{"item_song": []any{map[string]any{"id": 101, "mid": "songMid", "title": "Song", "interval": 180, "singer": []any{map[string]any{"id": 201, "mid": "artistMid", "name": "Artist"}}, "album": map[string]any{"id": 301, "mid": "albumMid", "name": "Album"}, "file": map[string]any{"media_mid": "mediaMid"}}}}, "meta": map[string]any{"sum": 23}})
 	})
-	result, err := SearchPage("Song", SearchSongs, 20, 0)
+	result, err := SearchPageSource("Song", SearchSongs, 20, 0, SearchLite)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,8 +80,8 @@ func TestAnonymousSearchKeepsMID(t *testing.T) {
 	}
 }
 
-// Logging in used to switch Lite search to the main client's identity, which returned filtered empty lists.
-func TestSearchUsesLiteIdentityWithSession(t *testing.T) {
+// Logged-in search needs the PC identity; Android comm returned filtered empty results and forced anonymity was rejected.
+func TestSearchUsesPCIdentityWithSession(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		kind SearchType
@@ -86,7 +89,7 @@ func TestSearchUsesLiteIdentityWithSession(t *testing.T) {
 		key  string
 		item string
 	}{
-		{"songs", SearchSongs, 7, "item_song", `{"id":101,"mid":"songMid","title":"Song"}`},
+		{"songs", SearchSongs, 0, "item_song", `{"id":101,"mid":"songMid","title":"Song"}`},
 		{"artists", SearchArtists, 1, "singer", `{"id":201,"mid":"artistMid","name":"Artist"}`},
 		{"albums", SearchAlbums, 2, "item_album", `{"id":301,"mid":"albumMid","name":"Album"}`},
 	} {
@@ -102,9 +105,9 @@ func TestSearchUsesLiteIdentityWithSession(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 					t.Error(err)
 				}
-				if request.Comm["tmeAppID"] != "qqmusiclight" || request.Comm["cv"] != "1003006" || request.Comm["qq"] != nil || request.Comm["authst"] != nil || r.Header.Get("Cookie") != "tmeLoginType=-1" || r.UserAgent() != "okhttp/3.14.9" {
-					t.Error("public search inherited the account's main-client identity")
-					// This is the successful envelope returned by the filtered main-client search.
+				if request.Comm["ct"] != float64(24) || request.Comm["cv"] != float64(0) || request.Comm["uin"] != "123" || request.Comm["qq"] != "123" || request.Comm["authst"] != "fixture-credential" || request.Comm["tmeLoginType"] != float64(2) || request.Comm["format"] != "json" || request.Comm["tmeAppID"] != nil || r.UserAgent() != UserAgent || !strings.Contains(r.Header.Get("Cookie"), "qm_keyst=fixture-credential") {
+					t.Error("logged-in search did not use the verified PC identity")
+					// The old Android identity returned success with this filtered empty body.
 					rpcReply(w, map[string]any{"code": 0, "body": map[string]any{tc.key: []any{}}, "meta": map[string]any{"sum": 0, "is_filter": -9}})
 					return
 				}
@@ -114,7 +117,7 @@ func TestSearchUsesLiteIdentityWithSession(t *testing.T) {
 				rpcReply(w, map[string]any{"code": 0, "body": map[string]any{tc.key: []json.RawMessage{json.RawMessage(tc.item)}}, "meta": map[string]any{"sum": 45}})
 			})
 			setSession(Session{MusicID: "123", MusicKey: "fixture-credential", LoginType: 2})
-			result, err := SearchPage(" 周杰伦 ", tc.kind, 20, 20)
+			result, err := SearchPageSource(" 周杰伦 ", tc.kind, 20, 20, SearchLite)
 			if err != nil || result.Len() != 1 || result.Total != 45 {
 				t.Fatalf("search became empty: length=%d total=%d error=%v", result.Len(), result.Total, err)
 			}
@@ -139,13 +142,16 @@ func TestSearchResponseValidation(t *testing.T) {
 		{"null entry", `{"code":0,"body":{"singer":[null]},"meta":{"sum":1}}`, false},
 		{"missing list", `{"code":0,"body":{},"meta":{"sum":0}}`, false},
 		{"invalid meta", `{"code":0,"body":{"singer":[]},"meta":[]}`, false},
+		{"filtered empty", `{"code":0,"body":{"singer":[]},"meta":{"sum":0,"is_filter":-9}}`, false},
+		{"anonymous filtered empty", `{"code":0,"body":{"singer":[]},"meta":{"sum":0,"is_filter":-12}}`, false},
 		{"empty search", `{"code":0,"body":{"singer":[]},"meta":{"sum":0}}`, true},
+		{"unfiltered empty search", `{"code":0,"body":{"singer":[]},"meta":{"sum":0,"is_filter":0}}`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			withQQServer(t, func(w http.ResponseWriter, r *http.Request) {
 				rpcReply(w, json.RawMessage(tc.data))
 			})
-			result, err := SearchPage("周杰伦", SearchArtists, 20, 0)
+			result, err := SearchPageSource("周杰伦", SearchArtists, 20, 0, SearchLite)
 			if (err == nil) != tc.ok {
 				t.Fatalf("error=%v, want success=%v", err, tc.ok)
 			}
@@ -153,6 +159,12 @@ func TestSearchResponseValidation(t *testing.T) {
 				var protocol *ProtocolError
 				if !errors.As(err, &protocol) || protocol.Code != 2001 {
 					t.Fatalf("lost search rejection: %v", err)
+				}
+			}
+			if tc.name == "filtered empty" || tc.name == "anonymous filtered empty" {
+				var filtered *SearchFilterError
+				if !errors.As(err, &filtered) || filtered.Filter >= 0 {
+					t.Fatalf("lost server filtering: %v", err)
 				}
 			}
 			if tc.ok && (result.Len() != 0 || result.Total != 0) {

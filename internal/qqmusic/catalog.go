@@ -1,6 +1,7 @@
 package qqmusic
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -326,7 +327,15 @@ func searchID() string {
 	}
 	return string(b[:])
 }
-func SearchPage(query string, kind SearchType, limit, offset int) (SearchResult, error) {
+
+// SearchFilterError distinguishes a suppressed response from a genuine empty search.
+type SearchFilterError struct{ Filter int }
+
+func (e *SearchFilterError) Error() string {
+	return fmt.Sprintf("qqmusic: empty search response filtered (is_filter=%d)", e.Filter)
+}
+
+func searchMusicu(ctx context.Context, source SearchSource, query string, kind SearchType, limit, offset int, s Session) (SearchResult, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return SearchResult{}, nil
@@ -346,12 +355,37 @@ func SearchPage(query string, kind SearchType, limit, offset int) (SearchResult,
 	default:
 		return SearchResult{}, ErrUnsupported
 	}
-	// This public Lite endpoint needs its own client identity. The main client's
-	// identity can return successful but filtered empty lists after login.
+	// Anonymous Lite search remains available without a session, but QQ can
+	// reject it with 2001. Signed-in search needs PC comm: Android comm can
+	// instead return success with is_filter=-9 and an empty list.
 	comm := map[string]any{"ct": 11, "cv": "1003006", "v": "1003006", "tmeAppID": "qqmusiclight", "nettype": "NETWORK_WIFI", "udid": "0", "uid": "0"}
 	headers := map[string]string{"Cookie": "tmeLoginType=-1", "User-Agent": "okhttp/3.14.9"}
+	method := "DoSearchForQQMusicLite"
+	if source == SearchDesktop {
+		method = "DoSearchForQQMusicDesktop"
+		comm = map[string]any{"ct": 11, "cv": 0, "uin": "0", "format": "json"}
+		headers["User-Agent"] = "Mozilla/5.0"
+		if kind == SearchSongs {
+			code = 0
+		}
+	}
+	if s.valid() {
+		comm = map[string]any{"ct": 24, "cv": 0, "uin": s.MusicID, "qq": s.MusicID, "authst": s.MusicKey, "tmeLoginType": s.LoginType, "format": "json"}
+		if source == SearchDesktop {
+			comm["ct"] = 11
+		}
+		headers = map[string]string{"Cookie": searchCookie(s)}
+		if kind == SearchSongs {
+			code = 0
+		}
+	}
+	param := map[string]any{"query": query, "search_type": code, "num_per_page": limit, "page_num": offset/limit + 1}
+	if source != SearchDesktop {
+		param["search_id"], param["remoteplace"] = searchID(), "search.android.keyboard"
+		param["highlight"], param["nqc_flag"], param["page_id"], param["grp"] = 0, 0, 1, 1
+	}
 	var data object
-	err := rpcWithComm("music.search.SearchCgiService", "DoSearchForQQMusicLite", map[string]any{"search_id": searchID(), "remoteplace": "search.android.keyboard", "query": query, "search_type": code, "num_per_page": limit, "page_num": offset/limit + 1, "highlight": 0, "nqc_flag": 0, "page_id": 1, "grp": 1}, &data, comm, headers)
+	err := rpcWithCommContext(ctx, "music.search.SearchCgiService", method, param, &data, comm, headers)
 	if err != nil {
 		return SearchResult{}, err
 	}
@@ -361,13 +395,27 @@ func SearchPage(query string, kind SearchType, limit, offset int) (SearchResult,
 			return SearchResult{}, fmt.Errorf("qqmusic: invalid search status")
 		}
 		if code != 0 {
-			return SearchResult{}, &ProtocolError{0, code, "music.search.SearchCgiService", "DoSearchForQQMusicLite"}
+			return SearchResult{}, &ProtocolError{0, code, "music.search.SearchCgiService", method}
 		}
 	}
 	body := obj(data["body"])
 	meta := obj(data["meta"])
+	if source == SearchDesktop {
+		switch kind {
+		case SearchSongs:
+			key = "song"
+		case SearchArtists:
+			key = "singer"
+		case SearchAlbums:
+			key = "album"
+		}
+	}
+	rawEntries := body[key]
+	if source == SearchDesktop {
+		rawEntries = obj(rawEntries)["list"]
+	}
 	var entries []object
-	if body == nil || meta == nil || json.Unmarshal(body[key], &entries) != nil || entries == nil {
+	if body == nil || meta == nil || json.Unmarshal(rawEntries, &entries) != nil || entries == nil {
 		return SearchResult{}, fmt.Errorf("qqmusic: malformed search response")
 	}
 	for _, entry := range entries {
@@ -375,14 +423,33 @@ func SearchPage(query string, kind SearchType, limit, offset int) (SearchResult,
 			return SearchResult{}, fmt.Errorf("qqmusic: malformed search entry")
 		}
 	}
-	result := SearchResult{Total: int(number(meta, "sum"))}
+	if filter := int(number(meta, "is_filter")); len(entries) == 0 && filter < 0 {
+		return SearchResult{}, &SearchFilterError{Filter: filter}
+	}
+	return decodeSearchEntries(entries, kind, int(number(meta, "sum")), source, limit, offset), nil
+}
+
+func decodeSearchEntries(entries []object, kind SearchType, total int, source SearchSource, limit, offset int) SearchResult {
+	result := SearchResult{Total: total, Source: source, NextOffset: offset}
+	if len(entries) > 0 {
+		result.NextOffset = offset + limit
+	}
 	switch kind {
 	case SearchSongs:
-		result.Songs = convertTracks(entries)
+		result.Songs = searchTracks(entries)
 	case SearchAlbums:
 		for _, o := range entries {
-			p := AlbumProfile{Album: convertAlbum(o)}
-			for _, a := range objects(o, "singer") {
+			p := AlbumProfile{Album: convertAlbum(o), Size: int(number(o, "song_count"))}
+			if p.ID <= 0 || p.MID == "" {
+				continue
+			}
+			if pic := text(o, "albumPic"); pic != "" {
+				p.PicURL = pic
+			}
+			if date, err := time.Parse("2006-01-02", text(o, "publicTime")); err == nil {
+				p.PublishTime = date.UnixMilli()
+			}
+			for _, a := range objects(o, "singer", "singer_list") {
 				p.Artists = append(p.Artists, convertArtist(a))
 			}
 			result.Albums = append(result.Albums, p)
@@ -390,21 +457,19 @@ func SearchPage(query string, kind SearchType, limit, offset int) (SearchResult,
 	case SearchArtists:
 		for _, o := range entries {
 			a := convertArtist(o)
-			result.Artists = append(result.Artists, ArtistProfile{Artist: a, Avatar: artistCover(a.MID), PicURL: artistCover(a.MID)})
+			if a.ID <= 0 || a.MID == "" {
+				continue
+			}
+			pic := text(o, "singerPic")
+			if pic == "" {
+				pic = artistCover(a.MID)
+			}
+			result.Artists = append(result.Artists, ArtistProfile{Artist: a, Avatar: pic, PicURL: pic, MusicSize: int(number(o, "songNum")), AlbumSize: int(number(o, "albumNum"))})
 		}
 	}
-	return result, nil
+	return result
 }
 func Search(query string, limit int) ([]Track, error) {
 	r, err := SearchPage(query, SearchSongs, limit, 0)
 	return r.Songs, err
-}
-
-// The native suggestion UI previews playable songs rather than plain search words.
-func SearchSuggest(query string) (Suggestions, error) {
-	tracks, err := Search(query, 5)
-	if err != nil {
-		return Suggestions{}, err
-	}
-	return Suggestions{Songs: tracks, Order: []string{"songs"}}, nil
 }

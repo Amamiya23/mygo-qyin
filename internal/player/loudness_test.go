@@ -86,7 +86,7 @@ func TestEnableNormalizationDuringPlayback(t *testing.T) {
 			defer out.Close()
 			p.fade.attach(out, 1)
 			p.RefreshGain()
-			want := 0.25 * math.Pow(10, -6.6/20)
+			want := 0.25 * math.Pow(10, -2.6/20)
 			switch state {
 			case "disabled":
 				enabled = false
@@ -96,7 +96,7 @@ func TestEnableNormalizationDuringPlayback(t *testing.T) {
 				p.gen++
 				p.info = &qqmusic.Stream{Gain: -2, Peak: 0.9}
 				p.applyGain()
-				want = 0.25 * math.Pow(10, -2.0/20)
+				want = 0.25 / 0.9
 			}
 			next(t, ch)
 			if got := out.Volume(); math.Abs(got-want) > 1e-9 {

@@ -37,6 +37,9 @@ type Track struct {
 	PodcastID   int64      `json:"podcastId,omitempty"`
 	Description string     `json:"description,omitempty"`
 	Volume      *Loudness  `json:"volume,omitempty"`
+	// NeedsDetails keeps a sparse search result from supplying an incomplete
+	// playback filename, including after restoring a saved queue.
+	NeedsDetails bool `json:"needsDetails,omitempty"`
 }
 
 // Loudness is QQ's measured gain in dB, sample peak and loudness range for
@@ -177,6 +180,9 @@ type SearchResult struct {
 	Users    []User
 	Podcasts []Podcast
 	Total    int
+	Source   SearchSource
+	// NextOffset follows the upstream page boundary after decoding filters.
+	NextOffset int
 }
 
 func (r *SearchResult) Len() int {
@@ -189,6 +195,12 @@ func (r *SearchResult) Append(n SearchResult) {
 	r.Users = append(r.Users, n.Users...)
 	r.Podcasts = append(r.Podcasts, n.Podcasts...)
 	r.Total = n.Total
+	if n.Source != SearchAuto {
+		r.Source = n.Source
+	}
+	if n.NextOffset > 0 {
+		r.NextOffset = n.NextOffset
+	}
 }
 
 type Suggestions struct {

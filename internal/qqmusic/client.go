@@ -2,6 +2,7 @@ package qqmusic
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -101,6 +102,10 @@ func rpc(module, method string, param any, out any) error {
 	return rpcWithComm(module, method, param, out, nil, nil)
 }
 func rpcWithComm(module, method string, param any, out any, comm map[string]any, headers map[string]string) error {
+	return rpcWithCommContext(context.Background(), module, method, param, out, comm, headers)
+}
+
+func rpcWithCommContext(ctx context.Context, module, method string, param any, out any, comm map[string]any, headers map[string]string) error {
 	s := sessionSnapshot()
 	if comm == nil {
 		comm = map[string]any{"ct": 24, "cv": 0}
@@ -112,7 +117,7 @@ func rpcWithComm(module, method string, param any, out any, comm map[string]any,
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, musicuURL, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, musicuURL, bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
@@ -320,6 +325,13 @@ func convertAlbum(o object) Album {
 	return a
 }
 func convertTrack(o object) Track {
+	t := parseTrack(o)
+	RememberTracks([]Track{t})
+	return t
+}
+
+// parseTrack decodes a song without replacing the playback registry entry.
+func parseTrack(o object) Track {
 	if nested := obj(o["musicData"]); nested != nil {
 		o = nested
 	}
@@ -361,7 +373,6 @@ func convertTrack(o object) Track {
 	if t.MediaMID == "" {
 		t.MediaMID = text(o, "strMediaMid", "media_mid")
 	}
-	RememberTracks([]Track{t})
 	return t
 }
 func convertTracks(entries []object) []Track {

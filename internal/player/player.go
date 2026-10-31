@@ -535,12 +535,15 @@ func (p *Player) applyGain() {
 	p.fade.setGain(g)
 }
 
-// normGain uses QQ's measured gain directly, limiting it so peaks cannot clip.
+// normPreamp lifts balanced playback by 4 dB before peak protection.
+const normPreamp = 4
+
+// normGain adds our preamp to QQ's measured gain, limiting it so peaks cannot clip.
 func normGain(st *qqmusic.Stream) float64 {
 	if st == nil || st.Gain == 0 && st.Peak == 0 {
 		return 1
 	}
-	g := math.Pow(10, st.Gain/20)
+	g := math.Pow(10, (st.Gain+normPreamp)/20)
 	if st.Peak > 0 {
 		g = min(g, 1/st.Peak)
 	}

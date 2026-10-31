@@ -142,7 +142,7 @@ func TestRadioRefills(t *testing.T) {
 	}
 }
 
-// QQ's gain is applied without the old +4 dB preamp and is capped by its peak.
+// QQ's gain receives +4 dB compensation before peak protection, leaving unmeasured songs unchanged.
 func TestNormGain(t *testing.T) {
 	for _, c := range []struct {
 		st   *qqmusic.Stream
@@ -150,13 +150,15 @@ func TestNormGain(t *testing.T) {
 	}{
 		{nil, 1},
 		{&qqmusic.Stream{}, 1},
-		{&qqmusic.Stream{Gain: -7.603, Peak: 0.946}, math.Pow(10, -7.603/20)},
-		{&qqmusic.Stream{Gain: -6.6, Peak: 1}, math.Pow(10, -6.6/20)},
+		{&qqmusic.Stream{Gain: -7.603, Peak: 0.946}, math.Pow(10, -3.603/20)},
+		{&qqmusic.Stream{Gain: -6.6, Peak: 1}, math.Pow(10, -2.6/20)},
+		{&qqmusic.Stream{Gain: -2, Peak: 1}, 1},
 		// Quiet, it is lifted, but not past its peak.
 		{&qqmusic.Stream{Gain: 3, Peak: 0.8}, 1.25},
-		{&qqmusic.Stream{Gain: -4, Peak: 0}, math.Pow(10, -4.0/20)},
-		{&qqmusic.Stream{Gain: 3, Peak: 0}, math.Pow(10, 3.0/20)},
-		{&qqmusic.Stream{Gain: 0, Peak: 0.8}, 1},
+		{&qqmusic.Stream{Gain: -4, Peak: 0}, 1},
+		{&qqmusic.Stream{Gain: 3, Peak: 0}, math.Pow(10, 7.0/20)},
+		{&qqmusic.Stream{Gain: 0, Peak: 0.8}, 1.25},
+		{&qqmusic.Stream{Gain: 0, Peak: 0.1}, math.Pow(10, 4.0/20)},
 	} {
 		if g := normGain(c.st); math.Abs(g-c.want) > 1e-9 {
 			t.Errorf("%+v: %v, want %v", c.st, g, c.want)
@@ -176,14 +178,14 @@ func TestRefreshNormalization(t *testing.T) {
 		p.RefreshGain()
 		want := 0.25
 		if on {
-			want *= math.Pow(10, -6.6/20)
+			want *= math.Pow(10, -2.6/20)
 		}
 		if got := out.Volume(); math.Abs(got-want) > 1e-9 {
 			t.Fatalf("normalization %t: output gain %v, want %v", on, got, want)
 		}
 	}
 	p.SetVolume(0.8)
-	if got, want := out.Volume(), 0.64*math.Pow(10, -6.6/20); math.Abs(got-want) > 1e-9 {
+	if got, want := out.Volume(), 0.64*math.Pow(10, -2.6/20); math.Abs(got-want) > 1e-9 {
 		t.Fatalf("volume change: output gain %v, want %v", got, want)
 	}
 	p.info = &qqmusic.Stream{}

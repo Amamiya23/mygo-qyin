@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"image/png"
@@ -165,8 +166,11 @@ func TestSearchHistoryChoice(t *testing.T) {
 // its page, remembering the query.
 func TestSuggestionOpensPage(t *testing.T) {
 	asked := make(chan string, 4)
-	searchSuggest = func(q string) (qqmusic.Suggestions, error) { asked <- q; return qqmusic.Suggestions{}, nil }
-	defer func() { searchSuggest = qqmusic.SearchSuggest }()
+	searchSuggest = func(_ context.Context, q string) (qqmusic.Suggestions, error) {
+		asked <- q
+		return qqmusic.Suggestions{}, nil
+	}
+	defer func() { searchSuggest = qqmusic.SearchSuggestContext }()
 	a := newTestApp()
 	a.settings = defaultSettings()
 	tt := ui.NewTester(a.view, 1200, 800)

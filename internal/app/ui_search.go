@@ -1,7 +1,9 @@
 package app
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -9,10 +11,11 @@ import (
 	"lilt/internal/qqmusic"
 )
 
-// searchResults and searchSuggest search NetEase; tests replace them.
+// searchResults and searchSuggest search QQ Music; tests replace them.
 var (
-	searchResults = qqmusic.SearchPage
-	searchSuggest = qqmusic.SearchSuggest
+	searchResults     = qqmusic.SearchPage
+	searchResultsFrom = qqmusic.SearchPageSource
+	searchSuggest     = qqmusic.SearchSuggestContext
 )
 
 // searchLimit is how many results load at a time.
@@ -62,8 +65,12 @@ func (a *app) searchFor(r route) {
 
 // loadSearch loads the first page of a search, unless it has, or again.
 func (a *app) loadSearch(r route, again bool) {
-	if a.searches[r] != nil && !again {
-		return
+	if d := a.searches[r]; d != nil && !again {
+		// A failed first page is not a cached result. Reopening it retries,
+		// while loaded pages (including failed pagination) and active loads stay.
+		if d.page.loaded || d.page.loading || d.page.err == "" {
+			return
+		}
 	}
 	d := &searchData{}
 	a.searches[r] = d
@@ -77,20 +84,58 @@ func (a *app) moreResults(r route, d *searchData) {
 		return
 	}
 	d.page.loading, d.page.err = true, ""
-	offset := d.res.Len()
+	offset := d.res.NextOffset
+	if offset <= 0 {
+		offset = d.res.Len()
+	}
+	source, fetch, fetchFrom := d.res.Source, searchResults, searchResultsFrom
 	go func() {
-		res, err := searchResults(r.query, r.kind, searchLimit, offset)
+		var res qqmusic.SearchResult
+		var err error
+		if source == qqmusic.SearchAuto {
+			res, err = fetch(r.query, r.kind, searchLimit, offset)
+		} else {
+			res, err = fetchFrom(r.query, r.kind, searchLimit, offset, source)
+		}
 		a.post(func() {
-			d.page.loading = false
-			if err != nil {
-				d.page.err = "搜索失败，请稍后再试"
-				return
-			}
-			d.res.Append(res)
-			// A server can claim more while sending none.
-			d.page.loaded, d.page.more = true, res.Len() > 0 && d.res.Len() < d.res.Total
+			d.finishPage(res, err)
 		})
 	}()
+}
+
+func (d *searchData) finishPage(res qqmusic.SearchResult, err error) {
+	d.page.loading = false
+	if err != nil {
+		d.page.err = searchErrorMessage(err)
+		return
+	}
+	d.res.Append(res)
+	offset := d.res.NextOffset
+	if offset <= 0 {
+		offset = d.res.Len()
+	}
+	// Follow the upstream page boundary when unusable entries were filtered.
+	// A server can still claim more while sending none.
+	d.page.loaded, d.page.more = true, res.Len() > 0 && offset < d.res.Total
+}
+
+func searchErrorMessage(err error) string {
+	var cooldown *qqmusic.SearchCooldownError
+	var protocol *qqmusic.ProtocolError
+	var filtered *qqmusic.SearchFilterError
+	var networkError net.Error
+	switch {
+	case errors.As(err, &cooldown):
+		return "搜索暂时不可用，请稍后重试"
+	case errors.As(err, &protocol) && protocol.Code == 2001:
+		return "QQ 音乐拒绝搜索（2001），请确认登录后重试"
+	case errors.As(err, &filtered):
+		return fmt.Sprintf("QQ 音乐过滤了搜索结果（%d），请稍后重试", filtered.Filter)
+	case errors.As(err, &networkError) && networkError.Timeout():
+		return "搜索超时，请检查网络后重试"
+	default:
+		return "搜索失败，请稍后再试"
+	}
 }
 
 // searchHistoryLimit is how many searches the history keeps.

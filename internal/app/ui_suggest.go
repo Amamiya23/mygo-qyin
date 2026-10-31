@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -20,6 +21,8 @@ type suggestState struct {
 	loading bool
 	failed  bool
 	timer   *time.Timer // waiting for typing to pause
+	cancel  context.CancelFunc
+	gen     uint64 // survives dismissal so an old reply cannot match a later identical query
 }
 
 // suggestion is a page a query may be after: a song's search, or an
@@ -39,17 +42,27 @@ func (a *app) suggest(q string) {
 	}
 	a.dismissSuggestions()
 	s.query, s.loading = q, true
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	gen, fetch := s.gen, searchSuggest
 	s.timer = time.AfterFunc(suggestDelay, func() {
-		res, err := searchSuggest(q)
+		res, err := fetch(ctx, q)
 		a.post(func() {
-			// Typed on, or searched since.
-			if q != s.query {
-				return
-			}
-			s.timer, s.loading, s.failed = nil, false, err != nil
-			s.items = suggestionList(res)
+			a.finishSuggestions(gen, q, res, err)
 		})
 	})
+}
+
+func (a *app) finishSuggestions(gen uint64, q string, res qqmusic.Suggestions, err error) {
+	s := &a.suggestions
+	if gen != s.gen || q != s.query {
+		return
+	}
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.timer, s.cancel, s.loading, s.failed = nil, nil, false, err != nil
+	s.items = suggestionList(res)
 }
 
 func (a *app) dismissSuggestions() {
@@ -57,23 +70,36 @@ func (a *app) dismissSuggestions() {
 	if s.timer != nil {
 		s.timer.Stop()
 	}
-	*s = suggestState{}
+	if s.cancel != nil {
+		s.cancel()
+	}
+	*s = suggestState{gen: s.gen + 1}
 }
 
 // suggestionList is the first ten suggestions, the kinds in the order
-// NetEase ranks them.
+// QQ Music ranks them.
 func suggestionList(res qqmusic.Suggestions) []suggestion {
 	byKind := map[string][]suggestion{}
 	for _, t := range res.Songs {
-		byKind["songs"] = append(byKind["songs"], suggestion{fmt.Sprint("song:", t.ID), t.Name, t.ArtistNames(), "单曲",
+		key := suggestionKey("song", t.ID, t.MID)
+		if key == "" {
+			continue
+		}
+		byKind["songs"] = append(byKind["songs"], suggestion{key, t.Name, t.ArtistNames(), "单曲",
 			route{page: pageSearch, query: t.Name, kind: qqmusic.SearchSongs}})
 	}
 	for _, ar := range res.Artists {
-		byKind["artists"] = append(byKind["artists"], suggestion{fmt.Sprint("artist:", ar.ID), ar.Name, "", "歌手",
+		if ar.ID <= 0 {
+			continue
+		}
+		byKind["artists"] = append(byKind["artists"], suggestion{suggestionKey("artist", ar.ID, ar.MID), ar.Name, "", "歌手",
 			route{page: pageArtist, id: ar.ID}})
 	}
 	for _, al := range res.Albums {
-		byKind["albums"] = append(byKind["albums"], suggestion{fmt.Sprint("album:", al.ID), al.Name, al.ArtistNames(), "专辑",
+		if al.ID <= 0 {
+			continue
+		}
+		byKind["albums"] = append(byKind["albums"], suggestion{suggestionKey("album", al.ID, al.MID), al.Name, al.ArtistNames(), "专辑",
 			route{page: pageAlbum, id: al.ID}})
 	}
 	for _, pl := range res.Playlists {
@@ -86,6 +112,16 @@ func suggestionList(res qqmusic.Suggestions) []suggestion {
 		delete(byKind, kind) // listed once, if also in the order
 	}
 	return out[:min(len(out), 10)]
+}
+
+func suggestionKey(kind string, id int64, mid string) string {
+	if mid != "" {
+		return kind + ":mid:" + mid
+	}
+	if id > 0 {
+		return fmt.Sprint(kind, ":id:", id)
+	}
+	return ""
 }
 
 // searchField is the search field atop the sidebar, which suggests what

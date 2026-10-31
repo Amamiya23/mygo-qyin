@@ -12,7 +12,7 @@ import (
 )
 
 func trackForPlayback(id int64) (Track, error) {
-	if t, ok := knownTrack(id); ok && t.MID != "" {
+	if t, ok := knownTrack(id); ok && t.MID != "" && !t.NeedsDetails {
 		return t, nil
 	}
 	tracks, err := SongDetails([]int64{id})
