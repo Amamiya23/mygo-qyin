@@ -39,7 +39,7 @@ func TestExitQQRadio(t *testing.T) {
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Advance(time.Second)
 	tt.Frame()
-	if err := tt.Click("退出私人 FM"); err != nil {
+	if err := tt.Click("退出电台"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()

@@ -32,7 +32,8 @@ func (a *app) view(c *ui.Context) {
 		c.Root().Background(ui.Transparent)
 	}
 	root := ui.Box(c).Fill()
-	if !c.Focused(a.searchBox) {
+	settingsFocused := a.route.page == pageSettings && !a.nowPlaying && a.settingsPane.FocusWithin(c)
+	if !c.Focused(a.searchBox) && !settingsFocused {
 		// Space plays and pauses wherever the focus is, as in Music. On
 		// the container around everything, it comes before a button the
 		// pointer focused, which would take Space as a click; on the
@@ -150,6 +151,8 @@ func (a *app) load(r route) {
 		a.loadPodcastTab()
 	case pagePurchased:
 		a.loadPurchased(r.tab, false)
+	case pageSettings:
+		a.measureCache()
 	}
 }
 
@@ -197,7 +200,7 @@ func (a *app) sidebar(c *ui.Context) {
 		ui.Scroll(c.Key("nav")).TrackScroll(&a.navScroll).Grow(1).Margin(0, -6).Padding(0, 6).Gap(4).Children(func() {
 			a.navItem(c, iconHome, "为你推荐", route{page: pageHome})
 			a.navItem(c, iconDaily, "每日推荐", route{page: pageDaily})
-			a.navItem(c, iconRadio, "私人 FM", route{page: pageFM})
+			a.navItem(c, iconRadio, "电台", route{page: pageFM})
 			a.navItem(c, iconCharts, "排行榜", route{page: pageCharts})
 			a.navItem(c, iconPurchased, "已购音乐", route{page: pagePurchased, tab: purchasedAlbums})
 			if a.searched.query != "" {
@@ -413,6 +416,8 @@ func (a *app) content(c *ui.Context) {
 		a.podcastsPage(c)
 	case pagePurchased:
 		a.purchasedPage(c)
+	case pageSettings:
+		a.settingsPage(c)
 	}
 }
 

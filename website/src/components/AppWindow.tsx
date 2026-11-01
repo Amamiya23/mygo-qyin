@@ -19,7 +19,7 @@ function greeting(h: number) {
 const nav: { icon: IconName; label: string }[] = [
   { icon: 'home', label: '为你推荐' },
   { icon: 'calendar', label: '每日推荐' },
-  { icon: 'radio', label: '私人 FM' },
+  { icon: 'radio', label: '电台' },
   { icon: 'chart', label: '排行榜' },
 ]
 

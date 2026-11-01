@@ -8,8 +8,17 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// openSettings shows the settings window, opening it the first time.
+// openSettings uses a separate window on macOS and the main navigation elsewhere.
 func (a *app) openSettings() {
+	if runtime.GOOS != "darwin" {
+		a.showMain()
+		if a.route.page == pageSettings {
+			a.measureCache()
+		}
+		a.open(route{page: pageSettings})
+		a.redraw()
+		return
+	}
 	if a.settingsWin != nil {
 		a.settingsWin.Show()
 		a.settingsWin.Focus()
@@ -26,10 +35,8 @@ func (a *app) openSettings() {
 		StateKey:        "settings",
 		DisableMaximize: true,
 		DisableMinimize: true,
-		// The app's menu has nothing for this window: on Linux and
-		// Windows it stays out of sight until Alt shows it.
 		AutoHideMenuBar: true,
-		BackgroundColor: "light-dark(#f7f9f8, #171918)",
+		BackgroundColor: "light-dark(" + radixSageLight[1] + ", " + radixSageDark[1] + ")",
 		Content:         ui.View(a.settingsView),
 	})
 	a.settingsWin.OnClosed(func() {
@@ -56,229 +63,251 @@ func (a *app) settingsView(c *ui.Context) {
 	c.SetTheme(&t)
 	c.Root().Background(p.sidebar)
 	c.OnShortcut(ui.Cmd, ui.KeyW, func() { a.settingsWin.Close() })
+	ui.Scroll(c).Fill().Padding(24, 28, 32, 28).Gap(8).Children(func() {
+		a.settingsContent(c)
+	})
+}
+
+// settingsPage shares the settings controls with the macOS window.
+func (a *app) settingsPage(c *ui.Context) {
+	top, bottom := a.insets(c)
+	ui.Scroll(c.Key("settings-page")).Bind(&a.settingsPane).TrackScroll(&a.pageState().scroll).
+		Fill().Background(a.pal.sidebar).Padding(top+pageGap, pagePad, bottom+48, pagePad).
+		ScrollbarInsets(top, 0, bottom, 0).Children(func() {
+		a.startMark(c)
+		defer a.endMark(c)
+		ui.Row(c).Justify(ui.Center).Children(func() {
+			ui.Column(c).Grow(1).MinWidth(0).MaxWidth(760).Gap(8).Children(func() {
+				a.heading(c, "设置", "")
+				a.settingsContent(c)
+			})
+		})
+	})
+}
+
+func (a *app) settingsContent(c *ui.Context) {
+	p := paletteFor(c.Theme())
 	s := &a.settings
 
-	ui.Scroll(c).Fill().Padding(24, 28, 32, 28).Gap(8).Children(func() {
-		group := func(title string, rows func()) {
-			ui.Text(c, title).FontSize(12).FontWeight(600).TextColor(p.muted).Margin(14, 4, 4, 4)
-			ui.Column(c).Radius(12).Background(p.bg).Border(1, p.hairline).Dividers(1, p.hairline).Children(rows)
-		}
-		row := func(label, desc string, control func()) {
-			ui.Row(c).Padding(12, 16).Gap(16).AlignItems(ui.Center).MinHeight(48).Children(func() {
-				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
-					ui.Text(c, label).FontSize(13.5).FontWeight(500)
-					if desc != "" {
-						ui.Text(c, desc).FontSize(12).TextColor(p.muted).LineHeight(1.4)
-					}
-				})
-				control()
+	group := func(title string, rows func()) {
+		ui.Text(c, title).FontSize(12).FontWeight(600).TextColor(p.muted).Margin(14, 4, 4, 4)
+		ui.Column(c).Radius(12).Background(p.bg).Border(1, p.hairline).Dividers(1, p.hairline).Children(rows)
+	}
+	row := func(label, desc string, control func()) {
+		ui.Row(c).Padding(12, 16).Gap(16).AlignItems(ui.Center).MinHeight(48).Children(func() {
+			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
+				ui.Text(c, label).FontSize(13.5).FontWeight(500)
+				if desc != "" {
+					ui.Text(c, desc).FontSize(12).TextColor(p.muted).LineHeight(1.4)
+				}
 			})
-		}
+			control()
+		})
+	}
 
-		group("通用", func() {
-			row("外观", "", func() {
-				modes := []string{"system", "light", "dark"}
+	group("通用", func() {
+		row("外观", "", func() {
+			modes := []string{"system", "light", "dark"}
+			i := 0
+			for k, m := range modes {
+				if m == s.Appearance {
+					i = k
+				}
+			}
+			if segmented(c.Key("appearance"), &i, "跟随系统", "浅色", "深色") {
+				s.Appearance = modes[i]
+				a.changed()
+			}
+		})
+		if runtime.GOOS == "windows" {
+			row("侧边栏材质", "", func() {
 				i := 0
-				for k, m := range modes {
-					if m == s.Appearance {
-						i = k
-					}
+				if s.sidebarVibrancy() == mygo.VibrancyMica {
+					i = 1
 				}
-				if segmented(c.Key("appearance"), &i, "跟随系统", "浅色", "深色") {
-					s.Appearance = modes[i]
-					a.changed()
-				}
-			})
-			if runtime.GOOS == "windows" {
-				row("侧边栏材质", "", func() {
-					i := 0
-					if s.sidebarVibrancy() == mygo.VibrancyMica {
-						i = 1
-					}
-					if segmented(c.Key("sidebar-material"), &i, "亚克力", "Mica") {
-						s.SidebarMaterial = []string{"acrylic", "mica"}[i]
-						if a.win != nil {
-							a.win.SetVibrancy(s.sidebarVibrancy())
-						}
-						s.save()
-						a.redraw()
-					}
-				})
-			}
-
-			if a.canHideOnClose() {
-				row("关闭主窗口时", "", func() {
-					i := 0
-					if s.QuitOnClose {
-						i = 1
-					}
-					keepRunning := "最小化到托盘"
-					switch runtime.GOOS {
-					case "darwin":
-						keepRunning = "保持后台运行"
-					case "linux":
-						keepRunning = "隐藏到托盘"
-					}
-					if segmented(c.Key("close-action"), &i, keepRunning, "退出应用") {
-						s.QuitOnClose = i == 1
-						s.save()
-					}
-				})
-				// Only on macOS: elsewhere the icon is always in the notification
-				// area.
-				if runtime.GOOS == "darwin" {
-					row("应用图标", "显示在菜单栏时，关闭窗口后可从菜单栏图标打开", func() {
-						labels := make([]string, len(appIcons))
-						chosen := appIcons[0].label
-						for i, ic := range appIcons {
-							labels[i] = ic.label
-							if ic.id == s.AppIcon {
-								chosen = ic.label
-							}
-						}
-						if ui.Select(c.Key("app-icon"), &chosen, labels).Label("应用图标").Width(150).Changed() {
-							for _, ic := range appIcons {
-								if ic.label == chosen {
-									s.AppIcon = ic.id
-								}
-							}
-							a.changed()
-							a.changeAppIcon()
-						}
-					})
-				}
-			}
-
-			// Only on macOS, the one with a notch player.
-			if a.notch != nil {
-				row("显示刘海播放器", "在屏幕顶部的刘海处显示迷你播放器，鼠标悬停即可展开", func() {
-					if ui.Switch(c.Key("notch"), &s.Notch).Label("显示刘海播放器").Changed() {
-						a.changed()
-					}
-				})
-				row("播放时显示实时活动", "在刘海两侧显示封面与音频波形，可能遮挡刘海旁的菜单栏图标", func() {
-					if ui.Switch(c.Key("activity"), &s.NotchActivity).Label("播放时显示实时活动").Disabled(!s.Notch).Changed() {
-						a.changed()
-					}
-				})
-				row("在无刘海的屏幕上常驻显示", "关闭时，将鼠标移至屏幕顶部中央即可唤出，不会遮挡菜单栏", func() {
-					if ui.Switch(c.Key("virtual"), &s.NotchVirtual).Label("在无刘海的屏幕上常驻显示").Disabled(!s.Notch).Changed() {
-						a.changed()
-					}
-				})
-			}
-
-			row("音质", "按 QQ 音乐账号权限播放 MP3 或 FLAC，下一首生效", func() {
-				labels := make([]string, len(qualityLevels))
-				chosen := qualityLevels[1].label
-				for i, q := range qualityLevels {
-					labels[i] = q.label
-					if q.level == s.Quality {
-						chosen = q.label
-					}
-				}
-				if ui.Select(c.Key("quality"), &chosen, labels).Label("音质").Width(150).Changed() {
-					for _, q := range qualityLevels {
-						if q.label == chosen {
-							s.Quality = q.level
-						}
-					}
-					a.changed()
-				}
-			})
-			row("音量平衡", "", func() {
-				if ui.Switch(c.Key("volume-balance"), &s.Normalize).Label("切换音量平衡").Changed() {
-					a.pl.RefreshGain()
-					s.save()
-					a.redraw()
-				}
-			})
-			row("间奏时显示热评", "前奏、间奏与尾奏时，歌词处换成这首歌的热门评论", func() {
-				if ui.Switch(c.Key("hot-comments"), &s.HotComments).Label("间奏时显示热评").Changed() {
-					a.changed()
-				}
-			})
-
-			row("歌曲缓存", a.cacheUsage(), func() {
-				labels := make([]string, len(cacheLimits))
-				chosen := cacheLimits[2].label
-				for i, l := range cacheLimits {
-					labels[i] = l.label
-					if l.mb == s.CacheMB {
-						chosen = l.label
-					}
-				}
-				if ui.Select(c.Key("cache"), &chosen, labels).Label("歌曲缓存").Width(150).Disabled(a.cacheMoving).Changed() {
-					for _, l := range cacheLimits {
-						if l.label == chosen {
-							s.CacheMB = l.mb
-						}
-					}
-					a.changed()
-					a.applyCacheLimit()
-				}
-			})
-			a.cacheDirectoryRow(c)
-			row("清除缓存", "", func() {
-				if ui.Button(c.Key("clear-cache"), "清除").Disabled(a.cacheMoving || a.cacheUsed <= 0).Clicked() {
-					a.clearCache()
-				}
-			})
-		})
-
-		group("实验性功能", func() {
-			row("进度条特效", "", func() {
-				chosen := progressEffects[0].label
-				labels := make([]string, len(progressEffects))
-				for k, effect := range progressEffects {
-					labels[k] = effect.label
-					if effect.id == s.progressEffect() {
-						chosen = effect.label
-					}
-				}
-				if ui.Select(c.Key("progress-effect"), &chosen, labels).Label("选择进度条特效").Width(150).Changed() {
-					for _, effect := range progressEffects {
-						if effect.label == chosen {
-							s.setProgressEffect(effect.id)
-						}
+				if segmented(c.Key("sidebar-material"), &i, "亚克力", "Mica") {
+					s.SidebarMaterial = []string{"acrylic", "mica"}[i]
+					if a.win != nil {
+						a.win.SetVibrancy(s.sidebarVibrancy())
 					}
 					s.save()
 					a.redraw()
 				}
 			})
-			row("烟雾背景", "播放页的背景化作封面色调的烟雾，缓缓升起，随低音起伏；仍在打磨，会多用一些电量", func() {
-				if ui.Switch(c.Key("fog"), &s.Fog).Label("烟雾背景").Changed() {
+		}
+
+		if a.canHideOnClose() {
+			row("关闭主窗口时", "", func() {
+				i := 0
+				if s.QuitOnClose {
+					i = 1
+				}
+				keepRunning := "最小化到托盘"
+				switch runtime.GOOS {
+				case "darwin":
+					keepRunning = "保持后台运行"
+				case "linux":
+					keepRunning = "隐藏到托盘"
+				}
+				if segmented(c.Key("close-action"), &i, keepRunning, "退出应用") {
+					s.QuitOnClose = i == 1
+					s.save()
+				}
+			})
+			// Only on macOS: elsewhere the icon is always in the notification
+			// area.
+			if runtime.GOOS == "darwin" {
+				row("应用图标", "显示在菜单栏时，关闭窗口后可从菜单栏图标打开", func() {
+					labels := make([]string, len(appIcons))
+					chosen := appIcons[0].label
+					for i, ic := range appIcons {
+						labels[i] = ic.label
+						if ic.id == s.AppIcon {
+							chosen = ic.label
+						}
+					}
+					if ui.Select(c.Key("app-icon"), &chosen, labels).Label("应用图标").Width(150).Changed() {
+						for _, ic := range appIcons {
+							if ic.label == chosen {
+								s.AppIcon = ic.id
+							}
+						}
+						a.changed()
+						a.changeAppIcon()
+					}
+				})
+			}
+		}
+
+		// Only on macOS, the one with a notch player.
+		if a.notch != nil {
+			row("显示刘海播放器", "在屏幕顶部的刘海处显示迷你播放器，鼠标悬停即可展开", func() {
+				if ui.Switch(c.Key("notch"), &s.Notch).Label("显示刘海播放器").Changed() {
 					a.changed()
 				}
 			})
-		})
-
-		group("关于与更新", func() {
-			row("当前版本 "+mygo.App.Version(), "", func() {
-				if a.updates {
-					if ui.Button(c.Key("check-updates"), "检查更新").Clicked() {
-						checkForUpdates()
-					}
+			row("播放时显示实时活动", "在刘海两侧显示封面与音频波形，可能遮挡刘海旁的菜单栏图标", func() {
+				if ui.Switch(c.Key("activity"), &s.NotchActivity).Label("播放时显示实时活动").Disabled(!s.Notch).Changed() {
+					a.changed()
 				}
 			})
+			row("在无刘海的屏幕上常驻显示", "关闭时，将鼠标移至屏幕顶部中央即可唤出，不会遮挡菜单栏", func() {
+				if ui.Switch(c.Key("virtual"), &s.NotchVirtual).Label("在无刘海的屏幕上常驻显示").Disabled(!s.Notch).Changed() {
+					a.changed()
+				}
+			})
+		}
+
+		row("音质", "按 QQ 音乐账号权限播放 MP3 或 FLAC，下一首生效", func() {
+			labels := make([]string, len(qualityLevels))
+			chosen := qualityLevels[1].label
+			for i, q := range qualityLevels {
+				labels[i] = q.label
+				if q.level == s.Quality {
+					chosen = q.label
+				}
+			}
+			if ui.Select(c.Key("quality"), &chosen, labels).Label("音质").Width(150).Changed() {
+				for _, q := range qualityLevels {
+					if q.label == chosen {
+						s.Quality = q.level
+					}
+				}
+				a.changed()
+			}
+		})
+		row("音量平衡", "", func() {
+			if ui.Switch(c.Key("volume-balance"), &s.Normalize).Label("切换音量平衡").Changed() {
+				a.pl.RefreshGain()
+				s.save()
+				a.redraw()
+			}
+		})
+		row("间奏时显示热评", "前奏、间奏与尾奏时，歌词处换成这首歌的热门评论", func() {
+			if ui.Switch(c.Key("hot-comments"), &s.HotComments).Label("间奏时显示热评").Changed() {
+				a.changed()
+			}
+		})
+
+		row("歌曲缓存", a.cacheUsage(), func() {
+			labels := make([]string, len(cacheLimits))
+			chosen := cacheLimits[2].label
+			for i, l := range cacheLimits {
+				labels[i] = l.label
+				if l.mb == s.CacheMB {
+					chosen = l.label
+				}
+			}
+			if ui.Select(c.Key("cache"), &chosen, labels).Label("歌曲缓存").Width(150).Disabled(a.cacheMoving).Changed() {
+				for _, l := range cacheLimits {
+					if l.label == chosen {
+						s.CacheMB = l.mb
+					}
+				}
+				a.changed()
+				a.applyCacheLimit()
+			}
+		})
+		a.cacheDirectoryRow(c)
+		row("清除缓存", "", func() {
+			if ui.Button(c.Key("clear-cache"), "清除").Disabled(a.cacheMoving || a.cacheUsed <= 0).Clicked() {
+				a.clearCache()
+			}
+		})
+	})
+
+	group("实验性功能", func() {
+		row("进度条特效", "", func() {
+			chosen := progressEffects[0].label
+			labels := make([]string, len(progressEffects))
+			for k, effect := range progressEffects {
+				labels[k] = effect.label
+				if effect.id == s.progressEffect() {
+					chosen = effect.label
+				}
+			}
+			if ui.Select(c.Key("progress-effect"), &chosen, labels).Label("选择进度条特效").Width(150).Changed() {
+				for _, effect := range progressEffects {
+					if effect.label == chosen {
+						s.setProgressEffect(effect.id)
+					}
+				}
+				s.save()
+				a.redraw()
+			}
+		})
+		row("烟雾背景", "播放页的背景化作封面色调的烟雾，缓缓升起，随低音起伏；仍在打磨，会多用一些电量", func() {
+			if ui.Switch(c.Key("fog"), &s.Fog).Label("烟雾背景").Changed() {
+				a.changed()
+			}
+		})
+	})
+
+	group("关于与更新", func() {
+		row("当前版本 "+mygo.App.Version(), "", func() {
 			if a.updates {
-				desc := ""
-				if t := lastUpdateCheck(); !t.IsZero() {
-					desc = "上次检查：" + commentTime(t, time.Now())
+				if ui.Button(c.Key("check-updates"), "检查更新").Clicked() {
+					checkForUpdates()
 				}
-				row("自动检查更新", desc, func() {
-					on := updateChecks()
-					if ui.Switch(c.Key("update-checks"), &on).Label("自动检查更新").Changed() {
-						setUpdateChecks(on)
-					}
-				})
-				row("自动下载并安装", "", func() {
-					on := updateDownloads()
-					if ui.Switch(c.Key("update-downloads"), &on).Label("自动下载并安装").Disabled(!updateChecks()).Changed() {
-						setUpdateDownloads(on)
-					}
-				})
 			}
 		})
+		if a.updates {
+			desc := ""
+			if t := lastUpdateCheck(); !t.IsZero() {
+				desc = "上次检查：" + commentTime(t, time.Now())
+			}
+			row("自动检查更新", desc, func() {
+				on := updateChecks()
+				if ui.Switch(c.Key("update-checks"), &on).Label("自动检查更新").Changed() {
+					setUpdateChecks(on)
+				}
+			})
+			row("自动下载并安装", "", func() {
+				on := updateDownloads()
+				if ui.Switch(c.Key("update-downloads"), &on).Label("自动下载并安装").Disabled(!updateChecks()).Changed() {
+					setUpdateDownloads(on)
+				}
+			})
+		}
 	})
 }

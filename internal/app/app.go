@@ -26,6 +26,7 @@ const (
 	pagePodcast
 	pagePodcasts
 	pagePurchased
+	pageSettings
 )
 
 type route struct {
@@ -124,7 +125,7 @@ type app struct {
 	npOpen      bool      // Now Playing as it last showed: open or not
 	npChangedAt time.Time // when it last opened or closed
 	npPane      int       // paneLyrics, paneQueue, paneStage, paneComments, paneProgram or paneCaptions
-	npPaneTop   float32   // how far the pane's content starts below its top
+	npPaneTop   float32   // how far the cover beside the pane starts below its top
 	lyricScroll ui.ScrollState
 	lyricGlide  lyricGlide
 	lyricAt     int
@@ -160,6 +161,7 @@ type app struct {
 
 	settings                      settings
 	settingsWin                   *mygo.Window
+	settingsPane                  ui.Handle
 	cacheUsed                     int64  // the bytes the song cache takes, -1 until measured
 	cacheDirError                 string // a directory selection that could not be applied
 	cacheMoving                   bool   // startup migration finishes before playback is restored

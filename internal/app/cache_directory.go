@@ -61,8 +61,12 @@ func (a *app) chooseCacheDirectory() {
 	if path == "" && a.pl.Cache != nil {
 		path = filepath.Dir(a.pl.Cache.Directory())
 	}
+	parent := a.win
+	if a.settingsWin != nil {
+		parent = a.settingsWin
+	}
 	paths, err := pickCacheDirectory(mygo.OpenDialogOptions{
-		Parent:            a.settingsWin,
+		Parent:            parent,
 		Title:             "选择缓存目录",
 		ButtonLabel:       "选择",
 		DefaultPath:       path,

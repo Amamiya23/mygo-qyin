@@ -28,10 +28,10 @@ func radioLabel(name string) string {
 	}
 	for _, m := range fmModes {
 		if name == fmRadio(m.mode) {
-			return "私人 FM · " + m.label
+			return "电台 · " + m.label
 		}
 	}
-	return "私人 FM"
+	return "电台"
 }
 
 func playable(tracks []qqmusic.Track) []qqmusic.Track {
@@ -114,7 +114,7 @@ func (a *app) playFM() {
 		}
 		a.radioStarting = ""
 		if len(tracks) == 0 {
-			a.toast = "私人 FM 暂时无法播放，请稍后再试"
+			a.toast = "电台 暂时无法播放，请稍后再试"
 			return
 		}
 		a.pl.PlayRadio(name, tracks, feed)
@@ -130,7 +130,7 @@ func (a *app) exitRadio() {
 	a.pl.EndRadio()
 	label := radioLabel(name)
 	if name != heartRadio {
-		label = "私人 FM"
+		label = "电台"
 	}
 	a.toast = "已退出" + label
 }
@@ -220,7 +220,7 @@ func (a *app) fmPage(c *ui.Context) {
 			}
 		}
 		ui.Row(c).AlignItems(ui.End).Children(func() {
-			ui.Box(c).Grow(1).Children(func() { a.heading(c, "私人 FM", "无尽推荐") })
+			ui.Box(c).Grow(1).Children(func() { a.heading(c, "电台", "无尽推荐") })
 			mode := a.fmMode
 			ui.Box(c).Margin(0, 0, 22, 0).Children(func() {
 				labels := make([]string, len(fmModes))
@@ -269,7 +269,7 @@ func (a *app) fmCard(c *ui.Context) {
 		ui.Row(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Padding(36, 40).Gap(40).AlignItems(ui.Center).Children(func() {
 			a.fmCovers(c, tr)
 			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
-				label := "私人 FM · " + fmModes[a.fmMode].label
+				label := "电台 · " + fmModes[a.fmMode].label
 				if onFM {
 					label = radioLabel(pl.Radio())
 				}

@@ -281,20 +281,21 @@ func (a *app) profileName() string {
 func (a *app) accountRow(c *ui.Context) {
 	p := a.pal
 	b := ui.ButtonBase(c.Key("account")).Height(40).PaddingX(8).Gap(10).Radius(10).AlignItems(ui.Center).Justify(ui.Start).FocusRing(false)
-	if b.Hovered() || a.accountOpen && a.profile != nil {
+	if b.Hovered() || a.accountOpen {
 		b.Background(a.sidebarSurface(c, p.hover, 0.035))
 	}
 	if a.profile == nil {
-		a.accountOpen = false
-		b.Label("登录").Children(func() {
+		b.Label("账户").Expanded(a.accountOpen).Children(func() {
 			ui.Box(c).Size(26, 26).Radius(13).Background(p.press).Center().Children(func() {
 				ui.Icon(c, iconUser).Size(14, 14).TextColor(p.muted)
 			})
-			ui.Text(c, "登录 QQ 音乐").FontSize(13).FontWeight(500).TextColor(p.muted)
+			ui.Text(c, "未登录").FontSize(13).FontWeight(500).TextColor(p.muted).Grow(1)
+			ui.Icon(c, iconUpDown).Size(13, 13).TextColor(p.faint)
 		})
 		if b.Clicked() {
-			a.openLogin()
+			a.accountOpen = !a.accountOpen
 		}
+		a.accountMenu(c, b)
 		return
 	}
 	prof := a.profile
@@ -326,18 +327,31 @@ func (a *app) accountMenu(c *ui.Context, row ui.Element) {
 		if runtime.GOOS == "darwin" {
 			shortcut = "⌘,"
 		}
-		if a.menuItem(c, iconUser, "我的主页", "").AutoFocus().Clicked() {
-			a.accountOpen = false
-			a.open(route{page: pageUser, id: a.profile.UserID})
+		if a.profile == nil {
+			if a.menuItem(c, iconUser, "登录 QQ 音乐", "").AutoFocus().Clicked() {
+				a.accountOpen = false
+				a.openLogin()
+			}
+		} else {
+			if a.menuItem(c, iconUser, "我的主页", "").AutoFocus().Clicked() {
+				a.accountOpen = false
+				a.open(route{page: pageUser, id: a.profile.UserID})
+			}
 		}
-		if a.menuItem(c, iconSettings, "设置…", shortcut).Clicked() {
+		settingsLabel := "设置"
+		if runtime.GOOS == "darwin" {
+			settingsLabel = "设置…"
+		}
+		if a.menuItem(c, iconSettings, settingsLabel, shortcut).Clicked() {
 			a.accountOpen = false
 			a.openSettings()
 		}
-		ui.Box(c).Height(0.5).Margin(4, 8).Background(pop.edge)
-		if a.menuItem(c, iconSignOut, "退出登录", "").Clicked() {
-			a.accountOpen = false
-			a.signOut()
+		if a.profile != nil {
+			ui.Box(c).Height(0.5).Margin(4, 8).Background(pop.edge)
+			if a.menuItem(c, iconSignOut, "退出登录", "").Clicked() {
+				a.accountOpen = false
+				a.signOut()
+			}
 		}
 	})
 }
