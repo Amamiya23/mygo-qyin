@@ -8,6 +8,8 @@ mygo_windows_*.syso
 /lilt.exe
 /design/
 
+debug.log
+
 # Local development configuration
 /AGENTS.md
 /.agents/
