@@ -60,7 +60,7 @@ func (a *app) scrubber(c *ui.Context, st *scrubState, track, fill ui.Color, heig
 	}
 	effect := a.settings.progressEffect()
 	wavy := effect == progressSquiggly
-	hot := s.Hovered() || pressed
+	hot := s.Hovered() || pressed || s.FocusVisible()
 	thick := float32(4)
 	if hot {
 		thick = 6
@@ -198,7 +198,11 @@ func (a *app) tickTimes(c *ui.Context) {
 // percent over it. The wheel over the speaker turns it up and down
 // without opening it.
 func (a *app) volumeButton(c *ui.Context, color ui.Color) {
-	b := iconButton(c.Key("volume-button"), volumeIcon(a.volume), 16, color, "音量")
+	surface := playerSurface
+	if a.volumeOpen {
+		surface = playerSelectedSurface
+	}
+	b := iconButton(c.Key("volume-button"), volumeIcon(a.volume), 16, color, "音量", surface)
 	if b.Clicked() {
 		a.volumeOpen = !a.volumeOpen
 	}
@@ -400,16 +404,17 @@ func (a *app) playerBar(c *ui.Context) {
 				return
 			}
 			info := ui.ButtonBase(c.Key("info")).Gap(12).AlignItems(ui.Center).FocusRing(false).Shrink(1).MinWidth(0).Label("打开正在播放")
-			hovered := info.Hovered()
+			hovered := info.Hovered() || info.FocusVisible()
+			motion := ui.Animation{Duration: 160 * time.Millisecond}
+			reveal := info.AnimateTo("reveal", b2f(hovered), motion)
 			info.Children(func() {
-				ui.Box(c).Size(48, 48).Shrink(0).Children(func() {
+				cover := ui.Box(c).Size(48, 48).Shrink(0)
+				cover.Translate(0, -reveal).Children(func() {
 					a.cover(c, tr.Album.PicURL, 120, 48, 8).Shadow(0, 2, 8, 0, p.cardShade)
-					if hovered {
-						ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(8).Center().
-							Background(radixInk.Alpha(0.35)).TextColor(radixPaper).Children(func() {
-							ui.Icon(c, iconDown).Size(18, 18).Rotate(180)
-						})
-					}
+					ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(8).Center().PassThrough().
+						Opacity(reveal).Background(radixBlack(5)).TextColor(radixPaper).Children(func() {
+						ui.Icon(c, iconDown).Size(18, 18).Rotate(180).Translate(0, 3*(1-reveal))
+					})
 				})
 				ui.Column(c).Shrink(1).MinWidth(0).Gap(3).Children(func() {
 					ui.Text(c, tr.Name).FontSize(13.5).FontWeight(600).SingleLine()
@@ -434,12 +439,12 @@ func (a *app) playerBar(c *ui.Context) {
 			if info.Clicked() {
 				a.nowPlaying = true
 			}
-			a.likeButton(c.Key("like"), tr, 16, p.muted).Margin(0, 0, 0, 4).Shrink(0)
+			a.likeButton(c.Key("like"), tr, 16, p.muted, playerSurface).Margin(0, 0, 0, 4).Shrink(0)
 		})
 
 		// Controls over the progress.
 		ui.Column(c).Width(440).Shrink(1).MinWidth(300).Gap(0).AlignItems(ui.Stretch).Children(func() {
-			a.transport(c, p.text, p.muted, p.accent, 18)
+			a.transport(c, p.text, p.muted, p.accent, 18, playerSurface)
 			ui.Row(c).Gap(10).AlignItems(ui.Center).Margin(-4, 0, 0, 0).Children(func() {
 				ui.Text(c, clock(pl.Position())).FontSize(10.5).FontFeatures("tnum").TextColor(p.faint).Width(34).TextAlign(ui.End)
 				a.scrubber(c.Key("bar-scrub"), &a.barScrub, p.press, p.text.Alpha(0.75), 14, p.accent).Grow(1)
@@ -457,10 +462,10 @@ func (a *app) playerBar(c *ui.Context) {
 			if tr != nil && tr.ProgramID != 0 {
 				label = "节目简介"
 			}
-			if iconButton(c.Key("lyrics"), iconLyrics, 16, lyr, label).Clicked() && tr != nil {
+			if iconButton(c.Key("lyrics"), iconLyrics, 16, lyr, label, playerSurface).Clicked() && tr != nil {
 				a.nowPlaying, a.npPane = true, a.lyricsPaneChosen()
 			}
-			if iconButton(c.Key("queue"), iconQueue, 16, p.muted, "播放队列").Clicked() && tr != nil {
+			if iconButton(c.Key("queue"), iconQueue, 16, p.muted, "播放队列", playerSurface).Clicked() && tr != nil {
 				a.nowPlaying, a.npPane = true, paneQueue
 			}
 			a.volumeButton(c, p.text.Alpha(0.75))

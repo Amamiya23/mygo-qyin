@@ -90,7 +90,11 @@ func playPause(c *ui.Context, b ui.Element, playing bool, size float32) {
 // of the appearance of the pages underneath them.
 type buttonSurface uint8
 
-const mediaSurface buttonSurface = 1
+const (
+	mediaSurface buttonSurface = iota + 1
+	playerSurface
+	playerSelectedSurface
+)
 
 // mediaFeedback gives controls a translucent hover and press over artwork.
 // Brightening alpha preserves the hue of liked hearts and active modes.
@@ -108,11 +112,46 @@ func mediaFeedback(b ui.Element, color ui.Color) ui.Element {
 		TextColor(b.AnimateColor("fg", fg, motion)).AnimatePose(pose, motion)
 }
 
+// playerFeedback layers neutral gray over the frosted bar so its underlying
+// tint stays visible. Playback state colors stay on their icons.
+func playerFeedback(c *ui.Context, b ui.Element, color ui.Color, surface buttonSurface) ui.Element {
+	dark := c.Theme().Dark
+	hoverFill, pressFill := radixInk.Alpha(0.07), radixInk.Alpha(0.11)
+	if dark {
+		hoverFill, pressFill = radixWhite(2), radixWhite(3)
+	}
+	strong := color.Alpha(1)
+	if strong == radixSage(dark, 11) {
+		strong = radixSage(dark, 12)
+	}
+	selected := surface == playerSelectedSurface
+	bg, fg := ui.Transparent, color
+	if selected {
+		bg, fg = hoverFill, strong
+	}
+	if b.Hovered() || b.FocusVisible() {
+		bg, fg = hoverFill, strong
+	}
+	pose := ui.Pose{}
+	if b.Pressed() {
+		bg, fg, pose.Scale = pressFill, strong, 0.97
+	}
+	motion := ui.Animation{Duration: 140 * time.Millisecond}
+	return b.Background(b.AnimateColor("bg", bg, motion)).
+		TextColor(b.AnimateColor("fg", fg, motion)).AnimatePose(pose, motion)
+}
+
 // roundButton is the button of iconButton, without its icon.
 func roundButton(c *ui.Context, size float32, color ui.Color, label string, surface ...buttonSurface) ui.Element {
 	b := ui.ButtonBase(c).Size(size+16, size+16).Center().Radius(999).Label(label).TextColor(color)
-	if len(surface) > 0 && surface[0] == mediaSurface {
-		return mediaFeedback(b, color)
+	if len(surface) > 0 {
+		switch surface[0] {
+		case mediaSurface:
+			return mediaFeedback(b, color)
+		case playerSurface, playerSelectedSurface:
+			b.Size(max(32, size+16), max(32, size+16)).Tooltip(label)
+			return playerFeedback(c, b, color, surface[0])
+		}
 	}
 	bg := ui.Transparent
 	if b.Hovered() {

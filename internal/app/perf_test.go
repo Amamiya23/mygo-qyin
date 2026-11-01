@@ -11,6 +11,31 @@ import (
 	"lilt/internal/qqmusic"
 )
 
+// Hovering a paused player control stops requesting frames once its feedback settles.
+func TestPlayerBarHoverFrameBudget(t *testing.T) {
+	for _, label := range []string{"打开正在播放", "上一首", "播放/暂停", "播放队列", "音量"} {
+		t.Run(label, func(t *testing.T) {
+			a := newTestApp()
+			a.settings = defaultSettings()
+			a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "春日影", Duration: 200000}})
+			a.pl.Seek(30 * time.Second)
+			tt := ui.NewTester(a.view, 1180, 700)
+			tt.Frame()
+			r, ok := tt.Find(label)
+			if !ok {
+				t.Fatalf("cannot hover %s", label)
+			}
+			tt.Move(r.X+r.W/2, r.Y+r.H/2)
+			tt.Advance(time.Second)
+			tt.Frame()
+			tt.Advance(time.Second)
+			if tt.FramePending() {
+				t.Fatal("settled player hover keeps requesting frames")
+			}
+		})
+	}
+}
+
 // Loaded recommendation shelves and their details do not animate while idle.
 func TestSongShelfFrameBudget(t *testing.T) {
 	for _, detail := range []bool{false, true} {
