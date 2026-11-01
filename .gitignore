@@ -9,6 +9,7 @@ mygo_windows_*.syso
 /design/
 
 debug.log
+RELEASING.md
 
 # Local development configuration
 /AGENTS.md
