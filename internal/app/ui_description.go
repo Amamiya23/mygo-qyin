@@ -70,13 +70,14 @@ func (a *app) collectionDescription(c *ui.Context, description string) {
 	panel := ui.PopoverBase(c.Key("description-card"), anchor, &s.open, func(panel ui.Element) {
 		w, h := c.Size()
 		cardWidth := min(float32(480), w-32)
+		const scrollbarGutter = 12
 		if s.popupWidth != cardWidth {
 			s.popupWidth = cardWidth
 			_, s.popupHeight = ui.ShapeText(description, ui.Font{Family: font.Family, Size: 13, LineHeight: 1.6, Lang: font.Lang}, cardWidth-32).Size()
 		}
-		panel.Width(cardWidth).Padding(16).Radius(12).Margin(8, 0, 0, 0).
+		panel.Width(cardWidth).Padding(16, 4, 16, 16).Radius(12).Margin(8, 0, 0, 0).
 			Background(radixSage(p.dark, 2)).Border(1, p.hairline).Shadow(0, 8, 28, -6, p.cardShade).Label("完整简介")
-		ui.Scroll(c.Key("description-scroll")).Height(min(s.popupHeight, min(float32(320), h*0.45)-32)).Focusable().Label("简介内容").Children(func() {
+		ui.Scroll(c.Key("description-scroll")).Height(min(s.popupHeight, min(float32(320), h*0.45)-32)).Padding(0, scrollbarGutter, 0, 0).Focusable().Label("简介内容").Children(func() {
 			ui.Text(c, description).FontSize(13).TextColor(p.text).LineHeight(1.6).Selectable()
 		})
 	})
