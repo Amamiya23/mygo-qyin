@@ -2,7 +2,7 @@
   "name": "Lilt",
   "identifier": "dev.amamiya.qqmusic",
   "slug": "lilt",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "out": "build",
   "resources": ["LICENSE", "THIRD_PARTY_NOTICES.md", "README.md"],
   "updates": {

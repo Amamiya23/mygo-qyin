@@ -1,12 +1,23 @@
 # 更新日志
 
-## 0.1.8
-- 封面缓存改为按 64 MiB 容量淘汰，减少返回旧页面时的重新加载；仍被播放页持有的封面可直接复用
+## 0.2.0
+
+- 首页新增更多样式歌曲推荐，对齐官方，并优化首页布局
+- Windows 和 Linux 的设置页改为在主窗口中打开，macOS依然对齐系统设计
 - 优化底部播放栏的悬停、按压和键盘聚焦反馈，音量面板展开时保持按钮高亮
-- 首页新增个性化歌曲货架，支持整组播放、喜欢、查看完整列表和换一批；刷新保留当前队列与已打开的推荐详情
-- 歌曲推荐自动加载并合并后续批次，修复首页只显示首批一组推荐的问题；续批失败时保留已取得的歌曲
-- 首页移除官方榜单，将第二组歌曲推荐放到原榜单位置
-- 首页歌曲货架支持左右切换、尾页回填与横向触控板操作，点击歌曲仍播放完整推荐队列
+- 合并上游，优化封面缓存，减少返回已浏览页面时的重复加载，复用播放页仍持有的封面
+
+### 下载指南
+
+| 处理器架构 | Windows | macOS | Linux |
+| :--- | :--- | :--- | :--- |
+| amd64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.0/lilt-setup-0.2.0-amd64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.0/lilt-0.2.0-amd64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.0/lilt_0.2.0_amd64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.0/lilt-0.2.0-linux-amd64.tar.gz) |
+| arm64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.0/lilt-setup-0.2.0-arm64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.0/lilt-0.2.0-arm64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.0/lilt_0.2.0_arm64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.0/lilt-0.2.0-linux-arm64.tar.gz) |
+
+> Linux：Ubuntu / Debian 等支持 deb 的发行版选 `.deb`，其他发行版选 `.tar.gz`。
+
+## 0.1.8
+
 - 打磨多处细节
 - 新增音量平衡，设置中默认开启，减小不同歌曲之间的音量差异
 - 进度条新增「波浪」特效，可在设置中切换标准、烟雾和波浪三种样式
