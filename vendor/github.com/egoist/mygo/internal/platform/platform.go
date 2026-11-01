@@ -425,6 +425,9 @@ type WindowOptions struct {
 	// WebKit hands us for window.open().
 	Native uintptr
 
+	// ScrollToContainer scrolls the native container around an embedded web
+	// view instead of its page. Ordinary pages keep their own wheel input.
+	ScrollToContainer bool
 	// Surface creates the window with a Surface, which content MyGo draws
 	// itself fills, instead of a webview: Window.Surface returns it, the
 	// webview methods do nothing and the webview options are ignored.
@@ -823,9 +826,10 @@ type WindowHandler interface {
 
 	// SurfaceEvent delivers input on the window's Surface, and changes of
 	// it. For FileDragOver and FileDrop it reports whether the content
-	// takes the files where they are, and for KeyPressed whether it took
+	// takes the files where they are, for KeyPressed whether it took
 	// the key itself, which the system then leaves alone (Windows opens no
-	// menu for Alt and the key); it returns false for other events.
+	// menu for Alt and the key), and for SurfaceCommandEnabled whether the
+	// command would act; it returns false for other events.
 	SurfaceEvent(ev SurfaceEvent) bool
 }
 
@@ -986,6 +990,7 @@ type MessageBoxOptions struct {
 	Buttons         []string
 	DefaultID       int
 	CancelID        int
+	DestructiveIDs  []int
 	CheckboxLabel   string
 	CheckboxChecked bool
 }

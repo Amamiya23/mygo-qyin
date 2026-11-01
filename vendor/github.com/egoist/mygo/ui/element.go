@@ -164,6 +164,7 @@ type textStyle struct {
 	align      Align
 	underline  bool
 	wavy       bool
+	dotted     bool
 	strike     bool
 	spacing    float32 // letter spacing
 	features   string
@@ -308,6 +309,10 @@ type node struct {
 	// it paints, takes input and reads to assistive technology as an
 	// invisible element does, while what is inside it keeps its state.
 	hidden bool
+	// ignoreInput lets the pointer and the keyboard pass it and the
+	// elements inside it by, which still show and read to assistive
+	// technology (IgnoreInput).
+	ignoreInput bool
 
 	// Painting.
 	bg          Color
@@ -324,8 +329,9 @@ type node struct {
 	// cache keeps the element's layer while what it paints is the same
 	// (Cache).
 	cache layerKeeper
-	// grads holds a conic fill and a border's gradient, which few elements
-	// have; blur is the standard deviation of the element's blur, in DIPs.
+	// grads holds a conic or radial fill and a border's gradient, which
+	// few elements have; blur is the standard deviation of the element's
+	// blur, in DIPs.
 	grads      *gradients
 	blur       float32
 	opacity    float32
@@ -362,9 +368,12 @@ type node struct {
 	runes     [2]int
 	frags     []Rect
 	ts        textStyle
-	image     *Bitmap
-	svg       *SVG // of an Icon, or an Image in its own colors
-	webView   NativeWebView
+	// themed is the theme the element's children build and paint with,
+	// in place of the window's (Themed).
+	themed  *Theme
+	image   *Bitmap
+	svg     *SVG // of an Icon, or an Image in its own colors
+	webView NativeWebView
 	// maximizeButton marks the window's maximize button (MaximizeButton).
 	maximizeButton bool
 	fit            Fit
@@ -415,11 +424,12 @@ type node struct {
 	// rowsOf is the list whose rows the element holds for assistive
 	// technology, and takes the keys for: the list, or its Table.
 	// popover is the anchor of the panel of a popover.
-	popover  *node
-	list     *listFrame
-	listRow  bool
-	rowIndex int
-	rowsOf   *listFrame
+	popover        *node
+	list           *listFrame
+	listRow        bool
+	hideScrollbars bool
+	rowIndex       int
+	rowsOf         *listFrame
 	// focusGroup makes the element a focus group (FocusGroup), whose
 	// arrows click the element they move to with groupSelects.
 	focusGroup   Orientation
@@ -574,11 +584,12 @@ type LinearGradient struct {
 	Stops []GradientStop
 }
 
-// GradientStop is a color of a gradient (LinearGradient, ConicGradient)
-// and its place along it, from 0 to 1, as CSS's color stops are. The
-// gradient shows its first color before its first stop, its last after
-// its last, and between two stops their colors blended; two stops at one
-// place make a sharp edge. A gradient takes 32 stops at most, in sRGB.
+// GradientStop is a color of a gradient (LinearGradient, ConicGradient,
+// RadialGradient) and its place along it, from 0 to 1, as CSS's color
+// stops are. The gradient shows its first color before its first stop,
+// its last after its last, and between two stops their colors blended;
+// two stops at one place make a sharp edge. A gradient takes 32 stops at
+// most, in sRGB.
 type GradientStop struct {
 	Color Color
 	At    float32
@@ -604,9 +615,33 @@ type ConicGradient struct {
 	Oklab bool
 }
 
-// gradients is a conic fill and a border's gradient, linear or conic.
+// RadialGradient blends colors outwards from a point, as CSS's
+// radial-gradient() does (SwiftUI's RadialGradient, Flutter's
+// RadialGradient): its stops at their places from its center, at 0, to a
+// circle of its radius, at 1.
+//
+//	e.RadialGradient(ui.RadialGradient{Stops: []ui.GradientStop{{white, 0}, {ui.Transparent, 1}}})
+type RadialGradient struct {
+	Stops []GradientStop
+	// Center is the point the colors spread from, in fractions of the
+	// box's width and height from its top left corner; the zero Point is
+	// its middle, as ConicGradient's is.
+	Center Point
+	// Radius is how far the gradient reaches from its center, in DIPs; 0
+	// reaches the corner of the box farthest from the center, as CSS's
+	// farthest-corner default does. The gradient shows its first color
+	// before the center and its last past the radius.
+	Radius float32
+	// Oklab mixes the colors in the Oklab color space, as LinearGradient's
+	// does.
+	Oklab bool
+}
+
+// gradients is a conic or radial fill and a border's gradient, linear or
+// conic.
 type gradients struct {
 	conic        ConicGradient
+	radial       RadialGradient
 	borderLinear LinearGradient
 	borderConic  ConicGradient
 	border       borderPaint
@@ -637,6 +672,7 @@ const (
 	fillStripes
 	fillMaterial
 	fillConic
+	fillRadial
 )
 
 type stripes struct {
@@ -650,7 +686,19 @@ func (e *node) Children(fn func()) *node {
 	c := e.c
 	saved := c.parent
 	c.parent = e
-	fn()
+	if t := e.themed; t != nil {
+		// As Toolbar flips c.buttons for its controls.
+		outer, window := c.theme, c.window
+		c.theme = t
+		fn()
+		if outer == window {
+			// SetTheme called inside themes what follows the scope.
+			outer = c.window
+		}
+		c.theme = outer
+	} else {
+		fn()
+	}
 	c.parent = saved
 	if e.kind == kindText && e.first != nil {
 		e.inlineText()
@@ -765,6 +813,13 @@ func (e *node) MarginY(v float32) *node { e.margin[0], e.margin[2] = v, v; retur
 //
 //	ui.Scroll(c).Fill().Padding(64, 16, 16).ScrollbarInsets(64, 0, 0)
 func (e *node) ScrollbarInsets(v ...float32) *node { e.barInset = edges(v); return e }
+
+// Scrollbars controls the overlay indicators and their pointer hit targets on
+// this scroll container. They show on hover by default. With false, scrolling
+// by wheel, TrackScroll, keyboard focus and accessibility remains available.
+// It applies to Scroll, ScrollHorizontal, ScrollBoth and List, not the internal
+// indicators of custom controls such as a code editor, and is not inherited.
+func (e *node) Scrollbars(visible bool) *node { e.hideScrollbars = !visible; return e }
 
 // Width sets the width in DIPs.
 func (e *node) Width(v float32) *node { e.width = px(v); return e }
@@ -988,6 +1043,38 @@ func (e *node) ClipY() *node { e.flags |= flagClipY; return e }
 // as CSS's visibility: hidden does. Hidden takes the room away too.
 func (e *node) Invisible() *node { e.flags |= flagInvisible; return e }
 
+// IgnoreInput makes the element and those inside it ignore the pointer
+// and the keyboard when ignore is true, while they still show and read to
+// assistive technology. The pointer goes through to what is under them,
+// as PassThrough lets it: hovering, pressing, scrolling, dragging and the
+// cursor are those of what is under them. Neither Tab nor a click gives
+// them the focus, and they lose it as they start ignoring input. Assistive
+// technology still finds them, with their roles and names, and presses
+// them, which Clicked reports; it can neither focus them nor move a
+// slider among them with its keys. A WebView inside them still takes the
+// pointer, which the system gives its view.
+//
+// A control a row shows while it is hovered, as a button deleting it, can
+// stay built and described at rest, without taking a press meant for the
+// row:
+//
+//	row := ui.Row(c).Padding(8)
+//	hovered := row.Hovered()
+//	row.Children(func() {
+//		ui.Text(c, item.Title).Grow(1)
+//		del := ui.Button(c, "Delete").IgnoreInput(!hovered)
+//		if !hovered {
+//			del.Opacity(0)
+//		}
+//		if del.Clicked() {
+//			removed = item.ID
+//		}
+//	})
+//
+// Unlike HTML's inert, it leaves them to assistive technology. Invisible
+// and Hidden hide them from it too, and Disabled takes their press away.
+func (e *node) IgnoreInput(ignore bool) *node { e.ignoreInput = ignore; return e }
+
 // Hidden hides the element and its children when hide is true, as CSS's
 // display: none does: unlike an Invisible element, it takes no room in
 // the layout, nor a gap between its siblings, and draws nothing, takes
@@ -1020,7 +1107,7 @@ func (e *node) Debug() *node { e.flags |= flagDebug; return e }
 // Background fills the element, in place of a gradient.
 func (e *node) Background(c Color) *node {
 	e.bg = c
-	if e.fill == fillGradient || e.fill == fillConic {
+	if e.fill == fillGradient || e.fill == fillConic || e.fill == fillRadial {
 		e.fill = fillColor
 	}
 	return e
@@ -1048,6 +1135,17 @@ func (e *node) LinearGradient(g LinearGradient) *node {
 //	})
 func (e *node) ConicGradient(g ConicGradient) *node {
 	e.gradients().conic, e.fill = g, fillConic
+	return e
+}
+
+// RadialGradient fills the element with a radial gradient, its colors
+// spreading out from a point (CSS's radial-gradient()), as a glow:
+//
+//	ui.Box(c).Size(160, 100).Radius(16).RadialGradient(ui.RadialGradient{
+//		Stops: []ui.GradientStop{{ui.RGBA(99, 102, 241, 0.6), 0}, {ui.Transparent, 1}},
+//	})
+func (e *node) RadialGradient(g RadialGradient) *node {
+	e.gradients().radial, e.fill = g, fillRadial
 	return e
 }
 
@@ -1233,14 +1331,22 @@ func (e *node) TextAlign(a Align) *node { e.ts.align = a; e.ts.set |= setAlign; 
 
 // Underline underlines text.
 func (e *node) Underline() *node {
-	e.ts.underline, e.ts.wavy = true, false
+	e.ts.underline, e.ts.wavy, e.ts.dotted = true, false, false
 	e.ts.set |= setUnderline
 	return e
 }
 
 // WavyUnderline underlines text with a wave, as spell checkers mark words.
 func (e *node) WavyUnderline() *node {
-	e.ts.underline, e.ts.wavy = true, true
+	e.ts.underline, e.ts.wavy, e.ts.dotted = true, true, false
+	e.ts.set |= setUnderline
+	return e
+}
+
+// DottedUnderline underlines text with a line of dots, as links mark
+// hover.
+func (e *node) DottedUnderline() *node {
+	e.ts.underline, e.ts.wavy, e.ts.dotted = true, false, true
 	e.ts.set |= setUnderline
 	return e
 }

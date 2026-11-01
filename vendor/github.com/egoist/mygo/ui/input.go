@@ -11,6 +11,10 @@ import (
 // event handles a surface event on the main thread. It reports whether
 // an element takes files dragged over or dropped at the event's position.
 func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
+	if ev.Kind == platform.SurfaceCommandEnabled {
+		// A menu asking about its item changes nothing.
+		return rt.commandEnabled(ev.Text)
+	}
 	if ev.Kind != platform.SurfaceFrame {
 		// Whatever the event changes, the next frame builds anew.
 		rt.redraw = false
@@ -226,7 +230,7 @@ func (rt *engine) rehover() {
 func (rt *engine) pointerMove(x, y float32) {
 	if d := &rt.scrollDrag; d.st != nil {
 		s := d.st
-		g := d.bars(rt.c.theme.scrollbarWidth())
+		g := d.bars(s.barWidth)
 		lx, ly := s.local(x, y)
 		lx += s.x
 		ly += s.y
@@ -1053,6 +1057,37 @@ func (rt *engine) commandKey(ev editEvent, ed *editor) bool {
 	return true
 }
 
+// commandEnabled reports whether the edit command name would act where
+// editEvent takes it, for the Edit menu to enable its item.
+func (rt *engine) commandEnabled(name string) bool {
+	s := rt.states[rt.focused]
+	// As focusHandler, without windowFocus, which would have the next
+	// change of the window's focus draw a frame.
+	if s != nil && s.input != nil && s.editor == nil && rt.windowFocused {
+		// Such an element tells what it does with a command only by
+		// doing it.
+		return true
+	}
+	if s == nil || s.editor == nil || s.flags&(flagEditable|flagSelectable) == 0 {
+		return rt.commandShortcut(name)
+	}
+	if k, ok := commandKeys[name]; ok && s.editor.readOnly && !s.editor.wants(k) {
+		return rt.commandShortcut(name)
+	}
+	return rt.editCommandOn(s, name)
+}
+
+// commandShortcut reports whether commandKey would have a shortcut take
+// the edit command name.
+func (rt *engine) commandShortcut(name string) bool {
+	k, ok := commandKeys[name]
+	if runtime.GOOS != "darwin" || !ok {
+		return false
+	}
+	_, found := routeKey(rt.regs, rt.focusChain(), k)
+	return found
+}
+
 // imeContext is how many runes around the selection input methods see.
 const imeContext = 512
 
@@ -1502,13 +1537,13 @@ func (e *node) Dismissed() bool { return e.dismissed }
 func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 	for _, id := range chain {
 		s := rt.states[id]
-		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 || !s.barsShown {
+		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 || !s.barsShown || s.hideScrollbars {
 			continue
 		}
 		lx, ly := s.local(x, y)
 		lx += s.x
 		ly += s.y
-		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, rt.c.theme.scrollbarWidth(), s.rtl)
+		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, s.barWidth, s.rtl)
 		d := &rt.scrollDrag
 		w, h := float64(s.w), float64(s.h)
 		s.wheel = nil

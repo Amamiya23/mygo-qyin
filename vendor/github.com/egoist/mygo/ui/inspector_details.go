@@ -244,6 +244,13 @@ func ownStyles(rt *engine, e *node) []inspDecl {
 		case e.fill == fillConic:
 			g := e.grads.conic
 			add("background", fmt.Sprintf("conic-gradient(from %sdeg, %d stops)", num(g.Angle), len(g.Stops)))
+		case e.fill == fillRadial:
+			g := e.grads.radial
+			size := "farthest-corner"
+			if g.Radius > 0 {
+				size = num(g.Radius) + "px"
+			}
+			add("background", fmt.Sprintf("radial-gradient(circle %s, %d stops)", size, len(g.Stops)))
 		case e.fill == fillStripes:
 			add("background", "stripes "+colorText(e.stripes.c))
 		case e.fill == fillMaterial:
@@ -273,7 +280,7 @@ func ownStyles(rt *engine, e *node) []inspDecl {
 	if e.hidden {
 		add("display", "none")
 	}
-	if e.flags&flagPassThrough != 0 {
+	if e.flags&flagPassThrough != 0 || e.ignoreInput {
 		add("pointer-events", "none")
 	}
 	if e.cursor != 0 {
@@ -359,9 +366,12 @@ func textStyles(ts *textStyle, set uint32) []inspDecl {
 	}
 	var deco []string
 	if set&setUnderline != 0 && ts.underline {
-		if ts.wavy {
+		switch {
+		case ts.wavy:
 			deco = append(deco, "underline wavy")
-		} else {
+		case ts.dotted:
+			deco = append(deco, "underline dotted")
+		default:
 			deco = append(deco, "underline")
 		}
 	}
@@ -482,7 +492,7 @@ func properties(rt *engine, e *node) []inspSection {
 	acc := inspSection{title: "Accessibility", rows: []inspDecl{
 		{name: "role", value: role},
 		{name: "name", value: strconv.Quote(name)},
-		{name: "keyboard-focusable", value: yes(e.flags&flagFocusable != 0 && !e.IsDisabled())},
+		{name: "keyboard-focusable", value: yes(e.flags&flagFocusable != 0 && !e.IsDisabled() && !e.st.ignoreInput)},
 		{name: "ignored", value: yes(!seen || e.flags&(flagInvisible|flagInert) != 0 || e.inHidden())},
 	}}
 	if e.description != "" {

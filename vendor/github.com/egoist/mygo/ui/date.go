@@ -50,7 +50,7 @@ func coreDateInput(c *context, date *time.Time) *node {
 	// whose panel is as wide as the field at least.
 	corePopoverBase(c, b, open, func(panel *node) {
 		stylePanel(c, panel)
-		calendarGrid(c, date, cursor, false, choose).AutoFocus()
+		calendarGrid(c, calendarBox(c), date, cursor, false, choose).AutoFocus()
 	})
 	return b
 }
@@ -62,16 +62,54 @@ func coreDateInput(c *context, date *time.Time) *node {
 // months, and Home and End go to the first and the last day of the month.
 // Changed reports a new date, which keeps the time of day and location of
 // *date. Assistive technology reads the day chosen as the arrows move.
+// Browse makes the keys and the buttons move without choosing.
 func coreCalendar(c *context, date *time.Time) *node {
-	var g *node
-	g = calendarGrid(c, date, date, true, func(d time.Time) {
+	g := calendarBox(c)
+	g.widget = "Calendar"
+	// Input reaches the calendar as its constructor returns, before this
+	// build's Browse: it follows the build before, which the user saw.
+	set := coreLocal(g, calendarKey{}, func() calendarSettings { return calendarSettings{} })
+	set.shown, set.now = set.now, false
+	// The cursor follows the date the app sets.
+	if !set.shown || !sameDay(set.date, *date) {
+		set.cursor = *date
+	}
+	set.date = *date
+	cursor := date
+	if set.shown {
+		cursor = &set.cursor
+	}
+	calendarGrid(c, g, date, cursor, !set.shown, func(d time.Time) {
 		if setDay(date, d) {
 			g.st.markChanged()
 			c.rt.consumed = true
 		}
 	})
-	g.widget = "Calendar"
 	return g
+}
+
+type calendarKey struct{}
+
+// calendarSettings are a Calendar's: whether it browses, in this build
+// and in the one before, its cursor while it does, and the date the
+// cursor followed last.
+type calendarSettings struct {
+	now, shown   bool
+	cursor, date time.Time
+}
+
+// Browse lets the user move about a Calendar without choosing a day: its
+// buttons and Page Up and Page Down only show other months, and the
+// arrows, Home and End only move among the days, until a click, Enter or
+// Space chooses one, as in a date input's calendar. Changed then reports
+// only a day chosen, as a calendar in a popover that closes when the
+// user picks a day needs. The calendar goes back to *date as the app
+// sets another.
+func (e *node) Browse() *node {
+	if e.widget == "Calendar" {
+		coreLocal(e, calendarKey{}, func() calendarSettings { return calendarSettings{} }).now = true
+	}
+	return e
 }
 
 // monthChevron draws the arrow of a calendar's button to the month before,
@@ -111,10 +149,18 @@ func sameDay(a, b time.Time) bool {
 	return ay == by && am == bm && ad == bd
 }
 
-// calendarGrid creates the month around *cursor, the day the keys move,
-// with *date chosen; choose chooses a day, as a click and Enter do, and
-// every move does with moveChooses.
-func calendarGrid(c *context, date, cursor *time.Time, moveChooses bool, choose func(time.Time)) *node {
+// calendarBox creates the element of a month's grid, which calendarGrid
+// fills.
+func calendarBox(c *context) *node {
+	grid := coreColumn(c).Gap(c.theme.Space(0.5)).Focusable().Shrink(0).Role(RoleTable)
+	grid.flags |= flagOwnRing
+	return grid
+}
+
+// calendarGrid fills grid, from calendarBox, with the month around
+// *cursor, the day the keys move, with *date chosen; choose chooses a
+// day, as a click and Enter do, and every move does with moveChooses.
+func calendarGrid(c *context, grid *node, date, cursor *time.Time, moveChooses bool, choose func(time.Time)) *node {
 	t := c.theme
 	region, locale := c.formats()
 	cur := *cursor
@@ -122,8 +168,7 @@ func calendarGrid(c *context, date, cursor *time.Time, moveChooses bool, choose 
 	title := c.formatted(fmtKey{locale, fmtMonthYear, int64(month.Year())*12 + int64(month.Month())}, func() string {
 		return i18n.FormatDate(locale, month, i18n.DateOptions{Skeleton: "yMMMM"})
 	})
-	grid := coreColumn(c).Gap(t.Space(0.5)).Focusable().Shrink(0).Role(RoleTable).Label(title)
-	grid.flags |= flagOwnRing
+	grid.Label(title)
 	move := func(d time.Time) {
 		// Choosing it moves the cursor where it is the date chosen.
 		if moveChooses {

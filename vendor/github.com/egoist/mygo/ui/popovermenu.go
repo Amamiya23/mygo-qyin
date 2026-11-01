@@ -124,8 +124,11 @@ func (rt *engine) openDrawnMenu(e *node) {
 	if !e.hasState() {
 		return
 	}
-	s := e.st
-	d := &drawnMenu{id: e.id, below: mr.below, text: mr.text, opened: rt.frame, dx: mr.x - s.vx, dy: mr.y - s.vy, focus: 0}
+	// From the element's whole box, which the menu attaches to, not its
+	// visible part: one scrolled partly out of view would put it off the
+	// point by as much (#894).
+	b := e.Bounds()
+	d := &drawnMenu{id: e.id, below: mr.below, text: mr.text, opened: rt.frame, dx: mr.x - b.X, dy: mr.y - b.Y, focus: 0}
 	d.pointer = [2]float32{rt.pointerX, rt.pointerY}
 	first := 0
 	if mr.key {

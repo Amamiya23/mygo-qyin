@@ -325,6 +325,17 @@ func (_handle *Context) DisableAnimations() {
 	_ctx.DisableAnimations()
 }
 
+// Instant reports whether this frame shows animated values at once
+// (DisableAnimations). Views read it to render a change settled in the same
+// frames where its animations are disabled.
+func (_handle *Context) Instant() bool {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return false
+	}
+	return _ctx.Instant()
+}
+
 // Locale returns the language the app shows (mygo.App.Locale), a BCP 47
 // tag such as "en" or "zh-Hans", for what the view says in it. Text is in
 // it unless an element says otherwise (Element.Lang). A frame follows its
@@ -451,7 +462,8 @@ func (_handle *Context) Router() *Router {
 }
 
 // SetTheme makes the frame use t, for the window's root and the widgets
-// created after the call.
+// created after the call. Inside the children of a Themed, which keep its
+// theme, t is for the root and the widgets after the Themed.
 func (_handle *Context) SetTheme(t *Theme) {
 	_ctx := _handle.build()
 	if _ctx == nil {
@@ -506,7 +518,8 @@ func (_handle *Context) Size() (float32, float32) {
 }
 
 // Theme returns the theme of the frame: the light or dark theme following
-// the system's appearance, unless SetTheme replaced it.
+// the system's appearance, unless SetTheme replaced it. While the children
+// of a Themed build, it is the Themed's theme.
 func (_handle *Context) Theme() *Theme {
 	_ctx := _handle.build()
 	if _ctx == nil {
@@ -805,6 +818,7 @@ func ButtonBase(c *Context) Element {
 // months, and Home and End go to the first and the last day of the month.
 // Changed reports a new date, which keeps the time of day and location of
 // *date. Assistive technology reads the day chosen as the arrows move.
+// Browse makes the keys and the buttons move without choosing.
 func Calendar(c *Context, date *time.Time) Element {
 	_ctx := c.build()
 	if _ctx == nil {
@@ -1026,6 +1040,31 @@ func DateInput(c *Context, date *time.Time) Element {
 	}
 	_ctx.rt.beginBuild()
 	_e := coreDateInput(_ctx, date)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
+}
+
+// DecimalInput creates a text input editing *value as an exact decimal
+// between lo and hi, which the arrows Up and Down, and the buttons beside
+// it, step by step: a NumberInput for amounts of money, which it never
+// rounds. *value is written with exactly the decimals of step, as
+// "1234.50"; lo and hi are written the same way, "" for no limit. What is
+// typed applies as soon as it is a number in range, with '.' before its
+// decimals and ',' between groups of three digits: "1,234.5" sets
+// "1234.50", and shows so once the input loses the focus. Text with more
+// decimals than step's (other than zeros), out of range or not a number
+// leaves *value as it was and marks the input with Error, whose message
+// an enclosing Field shows, until it is corrected. A value the app sets
+// replaces what was typed. Changed reports a new value.
+//
+//	ui.DecimalInput(c, &app.amount, "0", "", "0.01")
+func DecimalInput(c *Context, value *string, lo string, hi string, step string) Element {
+	_ctx := c.build()
+	if _ctx == nil {
+		return Element{}
+	}
+	_ctx.rt.beginBuild()
+	_e := coreDecimalInput(_ctx, value, lo, hi, step)
 	_ctx.rt.endBuild()
 	return wrapElement(_e)
 }
@@ -1475,7 +1514,8 @@ func OutlineTable[K comparable](c *Context, s *OutlineState[K], columns []TableC
 // Overlay builds fn's elements above the rest of the window. Place them
 // with Absolute, Left and Top, in DIPs relative to the window, or beside
 // another element with AttachTo. Each, as it goes with the focus in it,
-// gives the focus back to the element that had it as it came.
+// gives the focus back to the element that had it as it came. Built inside
+// the children of a Themed, they take its theme.
 func Overlay(c *Context, fn func()) {
 	_ctx := c.build()
 	if _ctx == nil {
@@ -2314,6 +2354,38 @@ func Textf(c *Context, format string, args ...any) Element {
 	return wrapElement(_e)
 }
 
+// Themed creates a column whose children build with t, as SetTheme has
+// the whole window build: the widgets inside take their colors and metrics
+// (Spacing, Radius, FontSize) from t, Context.Theme returns t while they
+// build and Painter.Theme while they paint, and the popovers, menus,
+// tooltips and dialogs they open take t too. The column paints t's
+// Background, and the text inside takes t's Text color, FontSize and Font,
+// as the root has the window's theme's; Background(ui.Transparent) keeps
+// what is behind it instead. The root, and what is built after the column,
+// keep the window's theme. Light beside dark, as a theme picker previews
+// them:
+//
+//	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
+//		for _, t := range []*ui.Theme{ui.LightTheme(), ui.DarkTheme()} {
+//			ui.Themed(c, t).Grow(1).Padding(16).Gap(8).Children(func() {
+//				ui.Text(c, "Preview")
+//				ui.Button(c, "OK")
+//			})
+//		}
+//	})
+//
+// A nil t makes it a Column.
+func Themed(c *Context, t *Theme) Element {
+	_ctx := c.build()
+	if _ctx == nil {
+		return Element{}
+	}
+	_ctx.rt.beginBuild()
+	_e := coreThemed(_ctx, t)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
+}
+
 // TimeInput creates a field of the time of day of *tm, in the hour cycle
 // of the user's regional formats (Context.Region): 15:04, or 3:04 PM with
 // the window's language's names of the halves of the day, before the
@@ -3090,6 +3162,23 @@ func (_handle Element) Bounds() Rect {
 	return _node.Bounds()
 }
 
+// Browse lets the user move about a Calendar without choosing a day: its
+// buttons and Page Up and Page Down only show other months, and the
+// arrows, Home and End only move among the days, until a click, Enter or
+// Space chooses one, as in a date input's calendar. Changed then reports
+// only a day chosen, as a calendar in a popover that closes when the
+// user picks a day needs. The calendar goes back to *date as the app
+// sets another.
+func (_handle Element) Browse() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Browse())
+}
+
 // Cache keeps what the element paints, with its children, in a bitmap of
 // the GPU that frames draw as one image, as Flutter's RepaintBoundary and
 // SwiftUI's drawingGroup do: for a still subtree that costs much to draw,
@@ -3124,6 +3213,21 @@ func (_handle Element) Cache() Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Cache())
+}
+
+// CaretWidth sets this input's painted caret width in DIPs for this build.
+// It defaults to one DIP. Positive widths are rounded to device pixels,
+// at least one pixel wide; zero and negative widths hide the caret. It does
+// not change text layout, input-method candidate bounds or caret blinking.
+// Other elements are unaffected.
+func (_handle Element) CaretWidth(width float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.CaretWidth(width))
 }
 
 // Center centers the children along and across the main axis.
@@ -3522,6 +3626,18 @@ func (_handle Element) Dividers(width float32, c Color) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Dividers(width, c))
+}
+
+// DottedUnderline underlines text with a line of dots, as links mark
+// hover.
+func (_handle Element) DottedUnderline() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.DottedUnderline())
 }
 
 // DoubleClicked reports a double click on the element.
@@ -4246,6 +4362,46 @@ func (_handle Element) ID() uint64 {
 	_ctx := _node.c
 	_ = _ctx
 	return _node.ID()
+}
+
+// IgnoreInput makes the element and those inside it ignore the pointer
+// and the keyboard when ignore is true, while they still show and read to
+// assistive technology. The pointer goes through to what is under them,
+// as PassThrough lets it: hovering, pressing, scrolling, dragging and the
+// cursor are those of what is under them. Neither Tab nor a click gives
+// them the focus, and they lose it as they start ignoring input. Assistive
+// technology still finds them, with their roles and names, and presses
+// them, which Clicked reports; it can neither focus them nor move a
+// slider among them with its keys. A WebView inside them still takes the
+// pointer, which the system gives its view.
+//
+// A control a row shows while it is hovered, as a button deleting it, can
+// stay built and described at rest, without taking a press meant for the
+// row:
+//
+//	row := ui.Row(c).Padding(8)
+//	hovered := row.Hovered()
+//	row.Children(func() {
+//		ui.Text(c, item.Title).Grow(1)
+//		del := ui.Button(c, "Delete").IgnoreInput(!hovered)
+//		if !hovered {
+//			del.Opacity(0)
+//		}
+//		if del.Clicked() {
+//			removed = item.ID
+//		}
+//	})
+//
+// Unlike HTML's inert, it leaves them to assistive technology. Invisible
+// and Hidden hide them from it too, and Disabled takes their press away.
+func (_handle Element) IgnoreInput(ignore bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.IgnoreInput(ignore))
 }
 
 // InView reports whether some of the element showed in the window in the
@@ -4995,6 +5151,19 @@ func (_handle Element) Placeholder(s string) Element {
 	return wrapElement(_node.Placeholder(s))
 }
 
+// PlaceholderColor sets the color of this input's placeholder for this build.
+// When unset it uses the theme's TextMuted. It does not change entered text,
+// other inputs or the theme. A transparent color hides the placeholder.
+func (_handle Element) PlaceholderColor(color Color) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PlaceholderColor(color))
+}
+
 // PointerPosition returns the pointer's position relative to the
 // element's box and whether it is over the element. Elements asking for it
 // get a frame whenever the pointer moves over them.
@@ -5115,6 +5284,22 @@ func (_handle Element) PressedOutside() bool {
 	_ctx := _node.c
 	_ = _ctx
 	return _node.PressedOutside()
+}
+
+// RadialGradient fills the element with a radial gradient, its colors
+// spreading out from a point (CSS's radial-gradient()), as a glow:
+//
+//	ui.Box(c).Size(160, 100).Radius(16).RadialGradient(ui.RadialGradient{
+//		Stops: []ui.GradientStop{{ui.RGBA(99, 102, 241, 0.6), 0}, {ui.Transparent, 1}},
+//	})
+func (_handle Element) RadialGradient(g RadialGradient) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.RadialGradient(g))
 }
 
 // Radius rounds the corners: one radius for all, or top-left, top-right,
@@ -5415,6 +5600,21 @@ func (_handle Element) ScrollbarInsets(v ...float32) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.ScrollbarInsets(v...))
+}
+
+// Scrollbars controls the overlay indicators and their pointer hit targets on
+// this scroll container. They show on hover by default. With false, scrolling
+// by wheel, TrackScroll, keyboard focus and accessibility remains available.
+// It applies to Scroll, ScrollHorizontal, ScrollBoth and List, not the internal
+// indicators of custom controls such as a code editor, and is not inherited.
+func (_handle Element) Scrollbars(visible bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Scrollbars(visible))
 }
 
 // Selectable lets the user select and copy text by dragging, double-clicking

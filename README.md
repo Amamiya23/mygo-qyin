@@ -20,7 +20,7 @@ Lilt 是基于 MyGo 云音乐改造的第三方 QQ 音乐客户端，使用 Go �
 
 需要 Go 1.27.3+，无需 C 工具链。
 
-依赖已固定在 `vendor/`，包含 Windows 右键菜单文字裁切修复；重新生成依赖时请参照 [补丁说明](patches/README.md)。
+依赖已固定在 `vendor/`；更新依赖后运行 `go mod vendor`。
 
 ```bash
 go tool mygo dev     # 开发模式运行

@@ -59,8 +59,16 @@ var (
 
 	// caPass counts the passes of the main run loop, past Core Animation's
 	// commit of each: frames drawn in the same pass go into the same
-	// transaction.
+	// transaction. Only the passes after a frame are counted (armPass):
+	// a frame's pass is all updateLayer compares.
 	caPass uint64 = 1
+	// caPassArmed tells that an observer will count the end of this pass.
+	caPassArmed bool
+	// caPassCallout is the observer's callback, made once (purego callbacks
+	// are never freed), and observerCreate and addObserver what arms it.
+	caPassCallout  uintptr
+	observerCreate func(alloc uintptr, activities uint, repeats bool, order int, callout, ctx uintptr) uintptr
+	addObserver    func(rl, observer, mode uintptr)
 )
 
 const (
@@ -92,16 +100,39 @@ func loadSurface() {
 		name := **(**uintptr)(unsafe.Pointer(&p))
 		cgColorSpaceSRGB, _, _ = purego.SyscallN(mustDlsym(libCG, "CGColorSpaceCreateWithName"), name)
 		// An observer after Core Animation's counts the transactions it
-		// committed.
-		var observerCreate func(alloc uintptr, activities uint, repeats bool, order int, callout, ctx uintptr) uintptr
-		var addObserver func(rl, observer, mode uintptr)
+		// committed (armPass).
 		purego.RegisterLibFunc(&observerCreate, libCF, "CFRunLoopObserverCreate")
 		purego.RegisterLibFunc(&addObserver, libCF, "CFRunLoopAddObserver")
-		passed := purego.NewCallback(func(observer, activity, info uintptr) { caPass++ })
-		if o := observerCreate(0, cfRunLoopBeforeWaiting|cfRunLoopExit, true, caCommitOrder+1, passed, 0); o != 0 {
-			addObserver(cfRunLoopGetMain(), o, kCFRunLoopCommonModes)
-		}
+		caPassCallout = purego.NewCallback(func(observer, activity, info uintptr) {
+			caPass++
+			caPassArmed = false
+		})
 	})
+}
+
+// armPass has the end of this pass of the main run loop counted (caPass),
+// once: a frame drawn in it calls it.
+//
+// 🔴 The observer is not left on the run loop, and that is what keeps an idle
+// window idle. Its callout is Go, so every pass it sees enters Go from the
+// run loop: the main thread takes a P and wakes another thread, and sysmon
+// stays awake polling. AppKit's launch measurement wakes the main run loop
+// some 70 times a second for as long as an app runs, so a repeating
+// observer turned an idle window into 2,000 context switches a second, four
+// times a web view's, where a one-shot one armed by frames costs nothing
+// once they stop.
+func armPass() {
+	if caPassArmed || caPassCallout == 0 {
+		return
+	}
+	o := observerCreate(0, cfRunLoopBeforeWaiting|cfRunLoopExit, false, caCommitOrder+1, caPassCallout, 0)
+	if o == 0 {
+		return
+	}
+	addObserver(cfRunLoopGetMain(), o, kCFRunLoopCommonModes)
+	// The run loop holds it until it fires, and lets it go then.
+	cfRelease(o)
+	caPassArmed = true
 }
 
 type surface struct {
@@ -119,10 +150,12 @@ type surface struct {
 	due         bool
 	// deferred tells that the content left the last paced frame to draw
 	// later (FrameNow): the link keeps running meanwhile. soon tells that
-	// a frame waits for the backend's queue (drawSoon).
+	// a frame waits for the backend's queue (drawSoon), and drawn that the
+	// content's first frame reached the surface (FirstFrame).
 	deferred  bool
 	timing    bool
 	soon      bool
+	drawn     bool
 	resized   bool
 	lastFrame time.Time
 	framePass uint64
@@ -226,11 +259,13 @@ func (s *surface) RequestFrame() {
 		switch {
 		case s.linkRunning:
 			s.due = true
-		case time.Since(s.lastFrame) > 2*s.refresh() && s.visible():
+		case time.Since(s.lastFrame) > 2*s.refresh() && (s.visible() || !s.drawn):
 			// After a pause, the frame draws at once, in this pass of the
 			// run loop (drawSoon). A window out of sight waits for the
 			// link, which ticks once it shows: AppKit draws the views of
-			// hidden windows too.
+			// hidden windows too. The first frame draws at once all the
+			// same: the link does not tick for a window made hidden, which
+			// that frame makes ready to show (OnReadyToShow).
 			s.drawSoon()
 		default:
 			// Frames that follow each other draw at the display's
@@ -257,6 +292,12 @@ func (s *surface) RequestFrame() {
 		send(send(class("NSRunLoop"), "mainRunLoop"), "addTimer:forMode:", uintptr(t), kCFRunLoopCommonModes)
 	})
 }
+
+// FirstFrame tells that the content's first frame reached the surface
+// (platform.FirstFrameSurface).
+func (s *surface) FirstFrame() { s.drawn = true }
+
+var _ platform.FirstFrameSurface = (*surface)(nil)
 
 // drawSoon draws a frame in this pass of the run loop, from the backend's
 // queue, before Core Animation commits the pass's transaction, rather than
@@ -324,6 +365,7 @@ func (s *surface) FrameNow() {
 func (s *surface) frameNow(paced bool) {
 	s.resized = false
 	s.framePass = caPass
+	armPass()
 	s.lastFrame = time.Now()
 	s.deferred = s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame, Paced: paced}) && paced
 }
@@ -547,6 +589,18 @@ func (s *surface) send(ev platform.SurfaceEvent) bool {
 		return false
 	}
 	return s.w.h.SurfaceEvent(ev)
+}
+
+func scrollWheel(s *surface, ev id) {
+	x, y := s.location(ev)
+	dx, dy := msgFloat(ev, sel("scrollingDeltaX")), msgFloat(ev, sel("scrollingDeltaY"))
+	precise := sendBool(ev, "hasPreciseScrollingDeltas")
+	momentum := sendInt(ev, "momentumPhase") != 0
+	if !precise {
+		// A mouse wheel scrolls by lines: 40 DIPs, as in browsers.
+		dx, dy = dx*40, dy*40
+	}
+	s.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: -dx, DY: -dy, Precise: precise, Momentum: momentum, Mods: eventMods(ev)})
 }
 
 func eventMods(ev id) platform.Modifiers {
@@ -933,15 +987,8 @@ func registerSurfaceClass() {
 			if s == nil {
 				return
 			}
-			x, y := s.location(ev)
-			dx, dy := msgFloat(ev, sel("scrollingDeltaX")), msgFloat(ev, sel("scrollingDeltaY"))
-			precise := sendBool(ev, "hasPreciseScrollingDeltas")
-			momentum := sendInt(ev, "momentumPhase") != 0
-			if !precise {
-				// A mouse wheel scrolls by lines: 40 DIPs, as in browsers.
-				dx, dy = dx*40, dy*40
-			}
-			s.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: -dx, DY: -dy, Precise: precise, Momentum: momentum, Mods: eventMods(ev)})
+			scrollWheel(s, ev)
+
 		}),
 		method("magnifyWithEvent:", func(self id, _ objc.SEL, ev id) {
 			s := b().surfaceOf(self)
@@ -1013,7 +1060,16 @@ func registerSurfaceClass() {
 				s.send(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "pasteAndMatchStyle"})
 			}
 		}),
-		method("validateMenuItem:", func(self id, _ objc.SEL, item id) bool { return true }),
+		method("validateMenuItem:", func(self id, _ objc.SEL, item id) bool {
+			s := b().surfaceOf(self)
+			action := objc.SEL(send(item, "action"))
+			for selector, name := range contextSelectors {
+				if action == sel(selector) {
+					return s != nil && s.send(platform.SurfaceEvent{Kind: platform.SurfaceCommandEnabled, Text: name})
+				}
+			}
+			return true
+		}),
 
 		// NSTextInputClient
 		method("hasMarkedText", func(self id, _ objc.SEL) bool {
