@@ -34,7 +34,9 @@ func (a *app) section(c *ui.Context, title string) ui.Element {
 }
 
 func (a *app) homePage(c *ui.Context) {
-	loading := len(a.featured) == 0 && len(a.charts) == 0
+	hasShelves := a.songShelves != nil && len(a.songShelves.shelves) > 0
+	// Keep the daily card's first-load space until the rest of Home answers.
+	loading := len(a.featured) == 0 && len(a.charts) == 0 && (a.homeLoading || !hasShelves)
 	if loading && !a.homeLoading {
 		a.centered(c, a.homeErr, a.loadHome)
 		return
@@ -48,12 +50,26 @@ func (a *app) homePage(c *ui.Context) {
 		if a.profile != nil {
 			hello += "，" + a.profile.Nickname
 		}
-		a.heading(c, hello, fmt.Sprintf("%d月%d日 %s", now.Month(), now.Day(), weekday(now)))
+		ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Grow(1).MinWidth(0).Children(func() {
+				a.heading(c, hello, fmt.Sprintf("%d月%d日 %s", now.Month(), now.Day(), weekday(now)))
+			})
+			if a.profile != nil {
+				busy := a.songShelves != nil && a.songShelves.loading
+				label := "换一批"
+				if busy {
+					label = "更新中…"
+				}
+				a.shelfAction(c.Key("refresh-songs"), iconReload, label).Label("更换歌曲推荐").Disabled(busy).
+					Margin(0, 0, 18, 0).OnClick(a.loadSongShelves)
+			}
+		})
 		if loading {
 			a.homeSkeleton(c, a.pageShimmer(c))
 			return
 		}
 		a.dailyCard(c, now)
+		a.songShelfSection(c.Key("song-shelves"), 0, 1)
 
 		if len(a.recPlaylists) > 0 {
 			a.section(c, "今日为你推荐")
@@ -64,14 +80,7 @@ func (a *app) homePage(c *ui.Context) {
 			})
 		}
 
-		a.section(c, "官方榜单")
-		official := a.charts[:min(4, len(a.charts))]
-		cols := min(4, max(2, a.columns(c, 260)))
-		ui.Grid(c).Columns(cols).Gap(20).Children(func() {
-			for i := range official {
-				a.chartCard(c.Key(official[i].ID), &official[i])
-			}
-		})
+		a.songShelfSection(c.Key("more-song-shelves"), 1, 3)
 
 		a.section(c, "精选歌单")
 		ui.Grid(c).Columns(a.columns(c, 168)).GapX(20).GapY(28).Children(func() {

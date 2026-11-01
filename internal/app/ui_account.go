@@ -55,6 +55,7 @@ func (a *app) signedIn(prof *qqmusic.Profile) {
 	// the listener play their songs is back.
 	a.restoreSession()
 	a.mine, a.saved, a.recPlaylists, a.liked = nil, nil, nil, nil
+	a.clearSongShelves()
 	a.likedPrograms, a.askedPrograms = nil, nil
 	a.likedAlbums = nil
 	a.likedScroll = likedScrollState{}

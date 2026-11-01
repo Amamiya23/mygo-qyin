@@ -98,11 +98,13 @@ func (a *app) homeSkeleton(c *ui.Context, s shimmer) {
 	s.bone(c.Key("daily"), dailyRadius).Height(dailyHeight)
 	cards := a.columns(c, 168)
 	if a.profile != nil {
+		a.songShelfSkeleton(c.Key("song-shelves"), s)
 		a.section(c, "今日为你推荐")
 		a.playlistCardsSkeleton(c.Key("rec"), s, cards, 168, false)
 	}
-	a.section(c, "官方榜单")
-	a.chartCardsSkeleton(c, s)
+	if a.profile != nil {
+		a.songShelfSkeleton(c.Key("more-song-shelves"), s)
+	}
 	a.section(c, "精选歌单")
 	a.playlistCardsSkeleton(c.Key("featured"), s, cards*2, 168, false)
 }

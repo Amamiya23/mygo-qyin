@@ -11,6 +11,29 @@ import (
 	"lilt/internal/qqmusic"
 )
 
+// Loaded recommendation shelves and their details do not animate while idle.
+func TestSongShelfFrameBudget(t *testing.T) {
+	for _, detail := range []bool{false, true} {
+		a := songShelfApp()
+		if detail {
+			a.open(route{page: pageSongShelf, shelf: &a.songShelves.shelves[0]})
+		}
+		tt := ui.NewTester(a.view, 1200, 800)
+		tt.Frame()
+		if !detail {
+			if err := tt.Click("下一组歌曲：" + a.songShelves.shelves[0].Title); err != nil {
+				t.Fatal(err)
+			}
+		}
+		tt.Advance(time.Second)
+		tt.Frame()
+		tt.Advance(time.Second)
+		if tt.FramePending() {
+			t.Errorf("recommendation detail=%t keeps requesting idle frames", detail)
+		}
+	}
+}
+
 // Loaded purchases ask for no frames while their songs and albums are idle.
 func TestPurchasedFrameBudget(t *testing.T) {
 	for _, tab := range []int{purchasedSongs, purchasedAlbums} {

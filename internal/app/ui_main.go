@@ -418,6 +418,8 @@ func (a *app) content(c *ui.Context) {
 		a.purchasedPage(c)
 	case pageSettings:
 		a.settingsPage(c)
+	case pageSongShelf:
+		a.songShelfPage(c)
 	}
 }
 
@@ -437,6 +439,7 @@ func (a *app) centered(c *ui.Context, err string, retry func()) {
 
 func (a *app) loadHome() {
 	a.homeLoading, a.homeErr = true, ""
+	a.loadSongShelves()
 	signedIn := a.profile != nil
 	at := time.Now()
 	go func() {

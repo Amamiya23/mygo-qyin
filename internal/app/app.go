@@ -27,6 +27,7 @@ const (
 	pagePodcasts
 	pagePurchased
 	pageSettings
+	pageSongShelf
 )
 
 type route struct {
@@ -38,6 +39,8 @@ type route struct {
 	kind  qqmusic.SearchType
 	// tab selects singles or albums on the purchased music page.
 	tab int
+	// A recommendation detail keeps the snapshot it opened, even after a refresh.
+	shelf *qqmusic.SongShelf
 }
 
 // pageScrollState belongs to one route; MyGo's list and scroll state keep stable identities.
@@ -75,6 +78,8 @@ type app struct {
 	profile      *qqmusic.Profile
 	mine, saved  []qqmusic.Playlist // the listener's playlists: made, and saved
 	recPlaylists []qqmusic.Playlist // playlists picked for the listener by the home feed
+	songShelves  *songShelfData
+	shelfPagers  map[*qqmusic.SongShelf]*songShelfPager
 	login        loginState
 	accountOpen  bool           // the dropdown of the account row shows
 	naming       nameDialog     // the name of a playlist asked for

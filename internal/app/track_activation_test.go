@@ -18,7 +18,7 @@ import (
 // Clicking the current entry pauses and resumes without reloading its audio or
 // replacing the queue: song and episode rows used to start it over from zero.
 func TestCurrentEntryTogglesPlayback(t *testing.T) {
-	for _, page := range []string{"playlist", "daily picks", "queue", "podcast"} {
+	for _, page := range []string{"playlist", "daily picks", "song shelf", "queue", "podcast"} {
 		t.Run(page, func(t *testing.T) {
 			a := newTestApp()
 			a.settings = defaultSettings()
@@ -56,6 +56,8 @@ func TestCurrentEntryTogglesPlayback(t *testing.T) {
 						a.trackRows(c, listed, true, func(c *ui.Context) {})
 					case "daily picks":
 						a.dailyPicks(c, listed)
+					case "song shelf":
+						a.songShelf(c, &qqmusic.SongShelf{Title: "歌曲推荐", Tracks: listed})
 					case "queue":
 						a.queuePane(c)
 					case "podcast":
