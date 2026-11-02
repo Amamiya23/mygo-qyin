@@ -36,7 +36,7 @@ go tool mygo vet .
 - [qq-music-api](https://github.com/Rain120/qq-music-api)：提供登陆、个人内容获取、歌曲播放等
 - [Linux DO](https://linux.do/) 社区
 
-本项目与 QQ 音乐官方无关，音乐版权归各权利人所有。
+**本项目与 QQ 音乐官方无关，音乐版权归各权利人所有。**
 
 ## 许可证
 
