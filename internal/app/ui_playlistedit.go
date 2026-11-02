@@ -139,20 +139,25 @@ func (a *app) submitName() {
 				return
 			}
 			a.naming.open = false
-			// Under the liked songs, as NetEase lists the newest.
-			at := 0
-			if len(a.mine) > 0 && a.mine[0].SpecialType == 5 {
-				at = 1
-			}
-			a.mine = slices.Insert(a.mine, at, *pl)
-			pl.Tracks = nil
-			a.playlists[pl.ID] = pl
+			a.addMine(pl)
 			a.open(route{page: pagePlaylist, id: pl.ID})
 			if add != nil {
 				a.addTo(pl.ID, add)
 			}
 		})
 	}()
+}
+
+// addMine lists pl, just made, under the liked songs, as QQ Music lists
+// the newest.
+func (a *app) addMine(pl *qqmusic.Playlist) {
+	at := 0
+	if len(a.mine) > 0 && a.mine[0].SpecialType == 5 {
+		at = 1
+	}
+	a.mine = slices.Insert(a.mine, at, *pl)
+	pl.Tracks = nil
+	a.playlists[pl.ID] = pl
 }
 
 // confirmDelete asks whether to delete the listener's playlist pl.
@@ -170,13 +175,30 @@ func (a *app) deleteChosen() {
 	id := a.deleting.id
 	saved := a.deleting.saved
 	a.deleting.open = false
-	lists, remove := &a.mine, deletePlaylist
+	remove := deletePlaylist
 	if saved {
-		lists, remove = &a.saved, unfavoritePlaylist
+		remove = unfavoritePlaylist
+	}
+	pl, i, ok := a.takePlaylist(id, saved)
+	if !ok {
+		return
+	}
+	go func() {
+		err := remove(id)
+		a.post(func() { a.finishPlaylistRemoval(pl, saved, i, err) })
+	}()
+}
+
+// takePlaylist takes playlist id out of the library, made or saved, and
+// leaves its page. The liked songs stay.
+func (a *app) takePlaylist(id int64, saved bool) (qqmusic.Playlist, int, bool) {
+	lists := &a.mine
+	if saved {
+		lists = &a.saved
 	}
 	i := slices.IndexFunc(*lists, func(pl qqmusic.Playlist) bool { return pl.ID == id })
 	if i < 0 || !saved && (*lists)[i].SpecialType == 5 {
-		return
+		return qqmusic.Playlist{}, 0, false
 	}
 	pl := (*lists)[i]
 	*lists = slices.Delete(slices.Clone(*lists), i, i+1)
@@ -191,10 +213,7 @@ func (a *app) deleteChosen() {
 		}
 		a.show(r)
 	}
-	go func() {
-		err := remove(id)
-		a.post(func() { a.finishPlaylistRemoval(pl, saved, i, err) })
-	}()
+	return pl, i, true
 }
 
 // finishPlaylistRemoval commits the server result or restores the removed library entry.

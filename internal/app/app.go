@@ -297,6 +297,8 @@ func Run() error {
 		// Shown or switched to the morning after, it shows the new day's.
 		a.win.OnFocus(a.freshenHome)
 		a.applyTray()
+		stopControl := a.serveControl()
+		mygo.App.OnWillQuit(func(*mygo.QuitEvent) { stopControl() })
 		if shotHook != nil {
 			shotHook(a)
 		}

@@ -213,6 +213,32 @@ func authenticatedPlaylist(id int64) (*Playlist, error) {
 	return p, nil
 }
 
+// TracksByID looks songs up by numeric ID alone, in batches, in the order
+// asked; IDs QQ Music has no song for are left out. SongDetails needs the
+// MID a listing remembered.
+func TracksByID(ids []int64) ([]Track, error) {
+	byID := make(map[int64]Track, len(ids))
+	for start := 0; start < len(ids); start += 100 {
+		batch := ids[start:min(start+100, len(ids))]
+		var data struct {
+			Tracks []object `json:"tracks"`
+		}
+		if err := rpc("music.trackInfo.UniformRuleCtrl", "CgiGetTrackInfo", map[string]any{"ids": batch, "types": make([]int, len(batch))}, &data); err != nil {
+			return nil, err
+		}
+		for _, t := range convertTracks(data.Tracks) {
+			byID[t.ID] = t
+		}
+	}
+	out := make([]Track, 0, len(ids))
+	for _, id := range ids {
+		if t, ok := byID[id]; ok {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
 func SongDetails(ids []int64) ([]Track, error) {
 	out := make([]Track, 0, len(ids))
 	for _, id := range ids {

@@ -357,3 +357,43 @@ func TestSizedArtwork(t *testing.T) {
 		}
 	}
 }
+
+// Songs are looked up by numeric ID without a remembered MID, in the order
+// asked, leaving out IDs of no song.
+func TestTracksByID(t *testing.T) {
+	calls := 0
+	withQQServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Req struct {
+				Module, Method string
+				Param          struct {
+					IDs   []int64 `json:"ids"`
+					Types []int   `json:"types"`
+				}
+			} `json:"req_0"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		if request.Req.Module+"/"+request.Req.Method != "music.trackInfo.UniformRuleCtrl/CgiGetTrackInfo" || len(request.Req.Param.Types) != len(request.Req.Param.IDs) {
+			t.Errorf("unexpected request %+v", request.Req)
+		}
+		calls++
+		var tracks []any
+		for _, id := range request.Req.Param.IDs {
+			if id != 404 {
+				tracks = append([]any{recommendedTrackFixture(id)}, tracks...)
+			}
+		}
+		rpcReply(w, map[string]any{"tracks": tracks})
+	})
+	ids := []int64{3, 404, 1}
+	for i := int64(1000); i < 1100; i++ {
+		ids = append(ids, i)
+	}
+	got, err := TracksByID(ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || len(got) != 102 || got[0].ID != 3 || got[1].ID != 1 || got[2].ID != 1000 || got[0].MID != "song-mid-3" {
+		t.Fatalf("calls=%d len=%d first=%v", calls, len(got), got[:3])
+	}
+}

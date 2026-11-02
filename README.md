@@ -16,6 +16,28 @@ Lilt 是基于 MyGo 云音乐改造的第三方 QQ 音乐客户端，使用 Go �
 
 > 未登录可浏览和播放 QQ 允许匿名收听的歌曲。左下角「登录 QQ 音乐」可选择使用手机 QQ 或微信扫码。会员与版权权限由 QQ 音乐服务决定。
 
+## 命令行与 MCP
+
+运行中的 Lilt 在用户数据目录下监听本地 socket（仅当前用户可访问），其他程序和 AI agent 可通过它搜索、播放、管理歌单。
+
+```bash
+ln -s /Applications/Lilt.app/Contents/MacOS/Lilt ~/.local/bin/lilt   # 放进 PATH
+
+lilt ctl                                  # 列出命令
+lilt ctl search "晴天" --limit 5          # 输出 JSON
+lilt ctl play --song-ids 97773
+lilt ctl playlist_create "通勤" --song-ids 97773,449205
+```
+
+`lilt mcp` 以 stdio 方式提供同样的 MCP 工具：
+
+```bash
+claude mcp add lilt -- /Applications/Lilt.app/Contents/MacOS/Lilt mcp
+codex mcp add lilt -- /Applications/Lilt.app/Contents/MacOS/Lilt mcp
+```
+
+命令接收数字 ID：先用 `search`、`playlists` 查到 ID 再操作；只有自己创建的歌单可以改名和增删歌曲。
+
 ## 构建
 
 需要 Go 1.27.3+，无需 C 工具链。

@@ -311,17 +311,21 @@ func (a *app) toggleLike(tr *qqmusic.Track) {
 				a.toast = "操作失败，请稍后再试"
 				return
 			}
-			// The liked songs' playlist changed: load it anew when shown.
-			for _, pl := range a.mine {
-				if pl.SpecialType == 5 {
-					delete(a.playlists, pl.ID)
-					if a.route.page == pagePlaylist && a.route.id == pl.ID {
-						a.loadPlaylist(pl.ID, false)
-					}
-				}
-			}
+			a.likedSongsChanged()
 		})
 	}()
+}
+
+// likedSongsChanged loads the liked songs' playlist anew when shown.
+func (a *app) likedSongsChanged() {
+	for _, pl := range a.mine {
+		if pl.SpecialType == 5 {
+			delete(a.playlists, pl.ID)
+			if a.route.page == pagePlaylist && a.route.id == pl.ID {
+				a.loadPlaylist(pl.ID, false)
+			}
+		}
+	}
 }
 
 func (a *app) toggleProgramLike(id int64) {
