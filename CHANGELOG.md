@@ -1,5 +1,20 @@
 # 更新日志
 
+## 0.2.1
+
+- 以补丁形式修复MyGo Windows 层在多个缩放比例不同的显示器之间恢复窗口时，窗口位置和尺寸可能逐次漂移的问题
+- 优化歌单与专辑完整简介浮层的滚动条间距，避免内容与滚动条过于贴近
+- 升级上游 MyGo 0.7.4，改善窗口首次显示时的白屏闪烁、原生菜单交互及 macOS 闲置功耗
+
+### 下载指南
+
+| 处理器架构 | Windows | macOS | Linux |
+| :--- | :--- | :--- | :--- |
+| amd64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.1/lilt-setup-0.2.1-amd64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.1/lilt-0.2.1-amd64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.1/lilt_0.2.1_amd64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.1/lilt-0.2.1-linux-amd64.tar.gz) |
+| arm64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.1/lilt-setup-0.2.1-arm64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.1/lilt-0.2.1-arm64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.1/lilt_0.2.1_arm64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.1/lilt-0.2.1-linux-arm64.tar.gz) |
+
+> Linux：Ubuntu / Debian 等支持 deb 的发行版选 `.deb`，其他发行版选 `.tar.gz`。
+
 ## 0.2.0
 
 - 首页新增更多样式歌曲推荐，对齐官方，并优化首页布局
