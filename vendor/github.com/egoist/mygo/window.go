@@ -215,6 +215,10 @@ type WindowState struct {
 	Height     int  `json:"height"`
 	Maximized  bool `json:"maximized,omitempty"`
 	FullScreen bool `json:"fullScreen,omitempty"`
+	// WindowsBounds is the normal window's rectangle in physical screen
+	// pixels on Windows. X/Y alone, in per-window DIPs, cannot identify a
+	// display when connected displays have different scale factors.
+	WindowsBounds *Rectangle `json:"windowsBounds,omitempty"`
 }
 
 // WindowStateStore keeps the states of the windows with a

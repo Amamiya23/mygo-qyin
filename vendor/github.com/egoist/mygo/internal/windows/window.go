@@ -176,7 +176,14 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 			class = flyoutShadowClass
 		}
 	}
-	w.hwnd = createWindow(ex, class, o.Title, style, 0, 0, 0, 0, owner)
+	var initial platform.Rect
+	if o.Flyout == nil && o.StateBounds != nil {
+		// Create on the restored display so the HWND starts at its DPI.
+		// Moving it there from (0,0) would make WM_DPICHANGED scale the
+		// already converted physical size a second time.
+		initial = *o.StateBounds
+	}
+	w.hwnd = createWindow(ex, class, o.Title, style, int32(initial.X), int32(initial.Y), int32(initial.Width), int32(initial.Height), owner)
 	if w.hwnd == 0 {
 		return nil, errors.New("mygo: cannot create a window")
 	}
@@ -283,6 +290,10 @@ func (w *window) styles() (style, ex uint32) {
 // monitor it appears on.
 func (w *window) placeInitially() {
 	o := w.opts
+	if r := o.StateBounds; r != nil {
+		procSetWindowPos.Call(w.hwnd, 0, uintptr(r.X), uintptr(r.Y), uintptr(r.Width), uintptr(r.Height), swpNoZOrder|swpNoActivate)
+		return
+	}
 	var mon uintptr
 	if o.Center {
 		mon, _, _ = procMonitorFromPoint.Call(0, monitorDefaultToPrimary)

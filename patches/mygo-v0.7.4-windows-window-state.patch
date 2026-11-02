@@ -1,0 +1,516 @@
+diff --git a/internal/platform/platform.go b/internal/platform/platform.go
+index 1670f9d..e2dc920 100644
+--- a/internal/platform/platform.go
++++ b/internal/platform/platform.go
+@@ -132,6 +132,19 @@ type Backend interface {
+ 	WebViewAvailable() bool
+ }
+ 
++// WindowStateWindow optionally preserves native geometry that cannot be
++// represented unambiguously by a window's DIP bounds (Windows).
++type WindowStateWindow interface {
++	WindowStateBounds() Rect
++}
++
++// WindowStateBackend optionally restores that geometry. A false result,
++// including for a nil legacy rectangle, asks the core to center the window
++// with its saved DIP size instead of interpreting old coordinates.
++type WindowStateBackend interface {
++	RestoreWindowState(opts *WindowOptions, bounds *Rect) bool
++}
++
+ // AppOptions configures Backend.Init.
+ type AppOptions struct {
+ 	Name string
+@@ -332,6 +345,10 @@ type WindowOptions struct {
+ 	UseContentSize bool
+ 	MinSize        Size
+ 	MaxSize        Size
++	// StateBounds is the restored normal rectangle in physical screen
++	// pixels, set by WindowStateBackend on Windows. It overrides X/Y and
++	// Width/Height when the backend places the window.
++	StateBounds *Rect
+ 
+ 	Resizable      bool
+ 	Movable        bool
+diff --git a/internal/windows/window.go b/internal/windows/window.go
+index 108ef24..ae3d23f 100644
+--- a/internal/windows/window.go
++++ b/internal/windows/window.go
+@@ -176,7 +176,14 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
+ 			class = flyoutShadowClass
+ 		}
+ 	}
+-	w.hwnd = createWindow(ex, class, o.Title, style, 0, 0, 0, 0, owner)
++	var initial platform.Rect
++	if o.Flyout == nil && o.StateBounds != nil {
++		// Create on the restored display so the HWND starts at its DPI.
++		// Moving it there from (0,0) would make WM_DPICHANGED scale the
++		// already converted physical size a second time.
++		initial = *o.StateBounds
++	}
++	w.hwnd = createWindow(ex, class, o.Title, style, int32(initial.X), int32(initial.Y), int32(initial.Width), int32(initial.Height), owner)
+ 	if w.hwnd == 0 {
+ 		return nil, errors.New("mygo: cannot create a window")
+ 	}
+@@ -283,6 +290,10 @@ func (w *window) styles() (style, ex uint32) {
+ // monitor it appears on.
+ func (w *window) placeInitially() {
+ 	o := w.opts
++	if r := o.StateBounds; r != nil {
++		procSetWindowPos.Call(w.hwnd, 0, uintptr(r.X), uintptr(r.Y), uintptr(r.Width), uintptr(r.Height), swpNoZOrder|swpNoActivate)
++		return
++	}
+ 	var mon uintptr
+ 	if o.Center {
+ 		mon, _, _ = procMonitorFromPoint.Call(0, monitorDefaultToPrimary)
+diff --git a/internal/windows/window_state.go b/internal/windows/window_state.go
+new file mode 100644
+index 0000000..8cbd84c
+--- /dev/null
++++ b/internal/windows/window_state.go
+@@ -0,0 +1,80 @@
++//go:build windows && (amd64 || arm64)
++
++package windows
++
++import (
++	"unsafe"
++
++	"github.com/egoist/mygo/internal/platform"
++)
++
++// stateDisplay keeps every rectangle in physical pixels. Per-display DIP
++// rectangles can overlap, so they cannot select a saved window's display.
++type stateDisplay struct {
++	bounds, work platform.Rect
++	dpi          int
++}
++
++// WindowStateBounds captures the actual normal rectangle without rounding
++// its screen position through the window's current DPI.
++func (w *window) WindowStateBounds() platform.Rect {
++	var r rect
++	procGetWindowRect.Call(w.hwnd, uintptr(unsafe.Pointer(&r)))
++	return platform.Rect{X: int(r.Left), Y: int(r.Top), Width: int(r.Right - r.Left), Height: int(r.Bottom - r.Top)}
++}
++
++// RestoreWindowState resolves the monitor in physical coordinates before
++// converting the saved DIP size. Legacy states have no unambiguous physical
++// rectangle and fall back to the core's centered placement once.
++func (b *Backend) RestoreWindowState(o *platform.WindowOptions, saved *platform.Rect) bool {
++	if saved == nil {
++		return false
++	}
++	var displays []stateDisplay
++	enumMonitors(func(m uintptr) {
++		info := monitorInfo(m)
++		convert := func(r rect) platform.Rect {
++			return platform.Rect{X: int(r.Left), Y: int(r.Top), Width: int(r.Right - r.Left), Height: int(r.Bottom - r.Top)}
++		}
++		displays = append(displays, stateDisplay{bounds: convert(info.Monitor), work: convert(info.Work), dpi: monitorDPI(m)})
++	})
++	r, ok := restoreStateBounds(*saved, platform.Size{Width: o.Width, Height: o.Height}, displays)
++	if !ok {
++		return false
++	}
++	o.StateBounds, o.Center = &r, false
++	return true
++}
++
++// restoreStateBounds uses the display containing most of the saved window,
++// as Windows does for a window spanning displays. Position stays in pixels;
++// size follows the target display's current DPI.
++func restoreStateBounds(saved platform.Rect, size platform.Size, displays []stateDisplay) (platform.Rect, bool) {
++	if saved.Width <= 0 || saved.Height <= 0 || size.Width <= 0 || size.Height <= 0 {
++		return platform.Rect{}, false
++	}
++	target, largest := -1, int64(0)
++	for i, d := range displays {
++		w, h := stateOverlap(saved, d.bounds)
++		if area := int64(w) * int64(h); area > largest {
++			target, largest = i, area
++		}
++	}
++	if target < 0 {
++		return platform.Rect{}, false
++	}
++	dpi := displays[target].dpi
++	r := platform.Rect{X: saved.X, Y: saved.Y, Width: int(toPx(size.Width, dpi)), Height: int(toPx(size.Height, dpi))}
++	for _, d := range displays {
++		w, h := stateOverlap(r, d.work)
++		if w >= int(toPx(min(100, size.Width), d.dpi)) && h >= int(toPx(min(50, size.Height), d.dpi)) {
++			return r, true
++		}
++	}
++	return platform.Rect{}, false
++}
++
++func stateOverlap(a, b platform.Rect) (int, int) {
++	return max(0, min(a.X+a.Width, b.X+b.Width)-max(a.X, b.X)),
++		max(0, min(a.Y+a.Height, b.Y+b.Height)-max(a.Y, b.Y))
++}
+diff --git a/internal/windows/window_state_test.go b/internal/windows/window_state_test.go
+new file mode 100644
+index 0000000..2b2e26f
+--- /dev/null
++++ b/internal/windows/window_state_test.go
+@@ -0,0 +1,172 @@
++//go:build windows && (amd64 || arm64)
++
++package windows
++
++import (
++	"testing"
++
++	"github.com/egoist/mygo/internal/platform"
++)
++
++// TestRestoreStateBounds preserves physical placement; the regression selected a monitor by treating saved DIPs as pixels.
++func TestRestoreStateBounds(t *testing.T) {
++	primary := stateDisplay{
++		bounds: platform.Rect{Width: 3072, Height: 1920},
++		work:   platform.Rect{Width: 3072, Height: 1880},
++		dpi:    192,
++	}
++	right := func(dpi int) []stateDisplay {
++		return []stateDisplay{primary, {
++			bounds: platform.Rect{X: 3072, Width: 2560, Height: 1600},
++			work:   platform.Rect{X: 3072, Width: 2560, Height: 1560},
++			dpi:    dpi,
++		}}
++	}
++	size := platform.Size{Width: 900, Height: 600}
++	tests := []struct {
++		name     string
++		saved    platform.Rect
++		size     platform.Size
++		displays []stateDisplay
++		want     platform.Rect
++		ok       bool
++	}{
++		{
++			name:  "200 and 125 percent",
++			saved: platform.Rect{X: 3200, Y: 100, Width: 1125, Height: 750},
++			size:  size, displays: right(120),
++			want: platform.Rect{X: 3200, Y: 100, Width: 1125, Height: 750}, ok: true,
++		},
++		{
++			name:  "200 and 175 percent",
++			saved: platform.Rect{X: 3200, Y: 100, Width: 1575, Height: 1050},
++			size:  size, displays: right(168),
++			want: platform.Rect{X: 3200, Y: 100, Width: 1575, Height: 1050}, ok: true,
++		},
++		{
++			name:  "reported 4K primary and vertically offset secondary",
++			saved: platform.Rect{X: 3940, Y: 747, Width: 1575, Height: 1050},
++			size:  size,
++			displays: []stateDisplay{
++				{bounds: platform.Rect{Width: 3840, Height: 2160}, work: platform.Rect{Width: 3840, Height: 2120}, dpi: 192},
++				{bounds: platform.Rect{X: 3840, Y: 647, Width: 2560, Height: 1600}, work: platform.Rect{X: 3840, Y: 647, Width: 2560, Height: 1560}, dpi: 168},
++			},
++			want: platform.Rect{X: 3940, Y: 747, Width: 1575, Height: 1050}, ok: true,
++		},
++		{
++			name:  "equal DPI displays",
++			saved: platform.Rect{X: 3200, Y: 100, Width: 1800, Height: 1200},
++			size:  size, displays: right(192),
++			want: platform.Rect{X: 3200, Y: 100, Width: 1800, Height: 1200}, ok: true,
++		},
++		{
++			name:  "negative horizontal position",
++			saved: platform.Rect{X: -2413, Y: 137, Width: 1125, Height: 750},
++			size:  size,
++			displays: []stateDisplay{primary, {
++				bounds: platform.Rect{X: -2560, Width: 2560, Height: 1600},
++				work:   platform.Rect{X: -2560, Width: 2560, Height: 1560}, dpi: 120,
++			}},
++			want: platform.Rect{X: -2413, Y: 137, Width: 1125, Height: 750}, ok: true,
++		},
++		{
++			name:  "negative vertical position",
++			saved: platform.Rect{X: 100, Y: -1501, Width: 1125, Height: 750},
++			size:  size,
++			displays: []stateDisplay{primary, {
++				bounds: platform.Rect{Y: -1600, Width: 2560, Height: 1600},
++				work:   platform.Rect{Y: -1600, Width: 2560, Height: 1560}, dpi: 120,
++			}},
++			want: platform.Rect{X: 100, Y: -1501, Width: 1125, Height: 750}, ok: true,
++		},
++		{
++			name:  "majority overlap chooses secondary DPI",
++			saved: platform.Rect{X: 2800, Y: 100, Width: 1125, Height: 750},
++			size:  size, displays: right(120),
++			want: platform.Rect{X: 2800, Y: 100, Width: 1125, Height: 750}, ok: true,
++		},
++		{
++			name:  "zero origin is a saved position",
++			saved: platform.Rect{Width: 1800, Height: 1200},
++			size:  size, displays: right(120),
++			want: platform.Rect{Width: 1800, Height: 1200}, ok: true,
++		},
++		{
++			name:  "changed display DPI keeps logical size",
++			saved: platform.Rect{X: 3200, Y: 100, Width: 1125, Height: 750},
++			size:  size, displays: right(168),
++			want: platform.Rect{X: 3200, Y: 100, Width: 1575, Height: 1050}, ok: true,
++		},
++		{
++			name:  "disconnected display is offscreen",
++			saved: platform.Rect{X: 3200, Y: 100, Width: 1125, Height: 750},
++			size:  size, displays: []stateDisplay{primary},
++		},
++		{
++			name:  "no connected displays",
++			saved: platform.Rect{X: 3200, Y: 100, Width: 1125, Height: 750}, size: size,
++		},
++		{
++			name:  "minimum horizontal reachability",
++			saved: platform.Rect{X: 5507, Y: 100, Width: 1125, Height: 750},
++			size:  size, displays: right(120),
++			want: platform.Rect{X: 5507, Y: 100, Width: 1125, Height: 750}, ok: true,
++		},
++		{
++			name:  "insufficient horizontal reachability",
++			saved: platform.Rect{X: 5508, Y: 100, Width: 1125, Height: 750},
++			size:  size, displays: right(120),
++		},
++		{
++			name:  "minimum vertical reachability",
++			saved: platform.Rect{X: 3200, Y: 1497, Width: 1125, Height: 750},
++			size:  size, displays: right(120),
++			want: platform.Rect{X: 3200, Y: 1497, Width: 1125, Height: 750}, ok: true,
++		},
++		{
++			name:  "insufficient vertical reachability",
++			saved: platform.Rect{X: 3200, Y: 1498, Width: 1125, Height: 750},
++			size:  size, displays: right(120),
++		},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			got, ok := restoreStateBounds(tt.saved, tt.size, tt.displays)
++			if ok != tt.ok {
++				t.Fatalf("restoreStateBounds() accepted = %v, want %v (bounds %+v)", ok, tt.ok, got)
++			}
++			if ok && got != tt.want {
++				t.Fatalf("restoreStateBounds() = %+v, want %+v", got, tt.want)
++			}
++		})
++	}
++}
++
++// TestRestoreStateBoundsRepeated prevents the mixed-DPI restart regression from accumulating position or size drift.
++func TestRestoreStateBoundsRepeated(t *testing.T) {
++	for _, tt := range []struct {
++		name          string
++		dpi           int
++		width, height int
++	}{
++		{name: "125 percent secondary", dpi: 120, width: 1125, height: 750},
++		{name: "175 percent secondary", dpi: 168, width: 1575, height: 1050},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			displays := []stateDisplay{
++				{bounds: platform.Rect{Width: 3072, Height: 1920}, work: platform.Rect{Width: 3072, Height: 1880}, dpi: 192},
++				{bounds: platform.Rect{X: 3072, Width: 2560, Height: 1600}, work: platform.Rect{X: 3072, Width: 2560, Height: 1560}, dpi: tt.dpi},
++			}
++			want := platform.Rect{X: 3203, Y: 137, Width: tt.width, Height: tt.height}
++			saved, size := want, (platform.Size{Width: 900, Height: 600})
++			for launch := 1; launch <= 20; launch++ {
++				got, ok := restoreStateBounds(saved, size, displays)
++				if !ok || got != want {
++					t.Fatalf("launch %d: got %+v, accepted %v; want %+v", launch, got, ok, want)
++				}
++				saved = got
++				size = platform.Size{Width: toDIP(int32(got.Width), tt.dpi), Height: toDIP(int32(got.Height), tt.dpi)}
++			}
++		})
++	}
++}
+diff --git a/window.go b/window.go
+index b685259..77bb631 100644
+--- a/window.go
++++ b/window.go
+@@ -215,6 +215,10 @@ type WindowState struct {
+ 	Height     int  `json:"height"`
+ 	Maximized  bool `json:"maximized,omitempty"`
+ 	FullScreen bool `json:"fullScreen,omitempty"`
++	// WindowsBounds is the normal window's rectangle in physical screen
++	// pixels on Windows. X/Y alone, in per-window DIPs, cannot identify a
++	// display when connected displays have different scale factors.
++	WindowsBounds *Rectangle `json:"windowsBounds,omitempty"`
+ }
+ 
+ // WindowStateStore keeps the states of the windows with a
+diff --git a/window_state.go b/window_state.go
+index cd63c19..7f62b81 100644
+--- a/window_state.go
++++ b/window_state.go
+@@ -123,7 +123,16 @@ func restoreWindowState(key string, p *platform.WindowOptions) {
+ 	displays := backend().Screen().Displays()
+ 	p.UseContentSize = false
+ 	p.Maximized, p.FullScreen = st.Maximized, st.FullScreen
+-	if onDisplay(r, displays) {
++	p.Width, p.Height = r.Width, r.Height
++	if native, ok := backend().(platform.WindowStateBackend); ok {
++		var bounds *platform.Rect
++		if b := st.WindowsBounds; b != nil {
++			bounds = &platform.Rect{X: b.X, Y: b.Y, Width: b.Width, Height: b.Height}
++		}
++		if native.RestoreWindowState(p, bounds) {
++			return
++		}
++	} else if onDisplay(r, displays) {
+ 		p.X, p.Y, p.Width, p.Height = r.X, r.Y, r.Width, r.Height
+ 		p.Center = false
+ 		return
+@@ -196,6 +205,14 @@ func (w *Window) captureState() {
+ 		if b := n.Bounds(); b.Width > 0 && b.Height > 0 {
+ 			st.X, st.Y, st.Width, st.Height = b.X, b.Y, b.Width, b.Height
+ 		}
++		if native, ok := n.(platform.WindowStateWindow); ok {
++			if b := native.WindowStateBounds(); b.Width > 0 && b.Height > 0 {
++				r := Rectangle{X: b.X, Y: b.Y, Width: b.Width, Height: b.Height}
++				if st.WindowsBounds == nil || *st.WindowsBounds != r {
++					st.WindowsBounds = &r
++				}
++			}
++		}
+ 	}
+ 	if st.Width <= 0 || st.Height <= 0 {
+ 		return
+diff --git a/window_state_native_test.go b/window_state_native_test.go
+new file mode 100644
+index 0000000..483e5e7
+--- /dev/null
++++ b/window_state_native_test.go
+@@ -0,0 +1,128 @@
++//go:build !js
++
++package mygo
++
++import (
++	"encoding/json"
++	"testing"
++
++	"github.com/egoist/mygo/internal/platform"
++)
++
++type nativeStateTestScreen struct{ platform.Screen }
++
++func (nativeStateTestScreen) Displays() []platform.Display {
++	return []platform.Display{{Primary: true, WorkArea: platform.Rect{Width: 1920, Height: 1040}}}
++}
++
++type nativeStateTestBackend struct {
++	platform.Backend
++	restored *platform.Rect
++	accept   bool
++}
++
++func (b *nativeStateTestBackend) Screen() platform.Screen { return nativeStateTestScreen{} }
++func (b *nativeStateTestBackend) RestoreWindowState(o *platform.WindowOptions, r *platform.Rect) bool {
++	b.restored = r
++	if !b.accept || r == nil {
++		return false
++	}
++	o.StateBounds, o.Center = r, false
++	return true
++}
++
++type nativeStateTestWindow struct {
++	platform.Window
++	bounds, pixels                   platform.Rect
++	maximized, fullscreen, minimized bool
++}
++
++func (w *nativeStateTestWindow) Bounds() platform.Rect            { return w.bounds }
++func (w *nativeStateTestWindow) WindowStateBounds() platform.Rect { return w.pixels }
++func (w *nativeStateTestWindow) IsMaximized() bool                { return w.maximized }
++func (w *nativeStateTestWindow) IsFullScreen() bool               { return w.fullscreen }
++func (w *nativeStateTestWindow) IsMinimized() bool                { return w.minimized }
++
++func nativeStateTestSetup(t *testing.T, states map[string]WindowState) *nativeStateTestBackend {
++	t.Helper()
++	previousBackend, previousStates := backend(), windowStates
++	b := &nativeStateTestBackend{Backend: previousBackend, accept: true}
++	theBackend = b
++	windowStates.loaded, windowStates.byKey, windowStates.dirty = true, states, false
++	t.Cleanup(func() { theBackend, windowStates = previousBackend, previousStates })
++	return b
++}
++
++// Restoring native pixel bounds bypasses ambiguous DIP screen checks and survives a JSON round trip.
++func TestNativeWindowStateRestore(t *testing.T) {
++	want := Rectangle{X: 4000, Y: 100, Width: 1575, Height: 1050}
++	original := WindowState{X: 2286, Y: 57, Width: 900, Height: 600, Maximized: true, WindowsBounds: &want}
++	data, err := json.Marshal(original)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var saved WindowState
++	if err := json.Unmarshal(data, &saved); err != nil {
++		t.Fatal(err)
++	}
++	b := nativeStateTestSetup(t, map[string]WindowState{"main": saved})
++	opts := &platform.WindowOptions{Width: 1180, Height: 780, Center: true, UseContentSize: true}
++	restoreWindowState("main", opts)
++	if b.restored == nil || *b.restored != (platform.Rect{X: 4000, Y: 100, Width: 1575, Height: 1050}) {
++		t.Fatalf("native bounds not restored: %+v", b.restored)
++	}
++	if opts.StateBounds == nil || opts.Center || opts.UseContentSize || !opts.Maximized || opts.Width != 900 || opts.Height != 600 {
++		t.Fatalf("restored options = %+v", opts)
++	}
++}
++
++// Legacy or disconnected Windows placements center once without reusing ambiguous DIP coordinates.
++func TestNativeWindowStateFallback(t *testing.T) {
++	for _, legacy := range []bool{true, false} {
++		t.Run(map[bool]string{true: "legacy", false: "disconnected"}[legacy], func(t *testing.T) {
++			st := WindowState{X: 100, Y: 100, Width: 2200, Height: 1200, FullScreen: true}
++			if !legacy {
++				st.WindowsBounds = &Rectangle{X: 8000, Y: 100, Width: 2200, Height: 1200}
++			}
++			b := nativeStateTestSetup(t, map[string]WindowState{"main": st})
++			b.accept = false
++			opts := &platform.WindowOptions{}
++			restoreWindowState("main", opts)
++			if !opts.Center || opts.StateBounds != nil || opts.Width != 1920 || opts.Height != 1040 || !opts.FullScreen {
++				t.Fatalf("fallback options = %+v", opts)
++			}
++		})
++	}
++}
++
++// Pixel placement is captured without DIP rounding and normal bounds survive maximized, fullscreen and minimized states.
++func TestNativeWindowStateCapture(t *testing.T) {
++	nativeStateTestSetup(t, map[string]WindowState{})
++	n := &nativeStateTestWindow{
++		bounds: platform.Rect{X: 2286, Y: 57, Width: 900, Height: 600},
++		pixels: platform.Rect{X: 4001, Y: 101, Width: 1575, Height: 1050},
++	}
++	w := &Window{native: n, stateKey: "main"}
++	w.captureState()
++	saved := windowStates.byKey["main"]
++	if saved.WindowsBounds == nil || *saved.WindowsBounds != (Rectangle{X: 4001, Y: 101, Width: 1575, Height: 1050}) {
++		t.Fatalf("captured bounds = %+v", saved.WindowsBounds)
++	}
++	windowStates.dirty = false
++	w.captureState()
++	if windowStates.dirty {
++		t.Fatal("unchanged bounds dirtied the store")
++	}
++	n.bounds, n.pixels = platform.Rect{Width: 1920, Height: 1040}, platform.Rect{Width: 3840, Height: 2080}
++	for _, state := range []string{"maximized", "fullscreen", "minimized"} {
++		n.maximized, n.fullscreen, n.minimized = state == "maximized", state == "fullscreen", state == "minimized"
++		w.captureState()
++		st := windowStates.byKey["main"]
++		if st.WindowsBounds != saved.WindowsBounds || st.X != saved.X || st.Y != saved.Y || st.Width != saved.Width || st.Height != saved.Height {
++			t.Fatalf("%s overwrote normal geometry: %+v", state, st)
++		}
++		if st.Maximized != n.maximized || st.FullScreen != n.fullscreen {
++			t.Fatalf("%s flags = %+v", state, st)
++		}
++	}
++}

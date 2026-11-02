@@ -1,0 +1,2 @@
+# Patch context requires leading spaces and blank context lines.
+*.patch text eol=lf whitespace=-blank-at-eol,-space-before-tab

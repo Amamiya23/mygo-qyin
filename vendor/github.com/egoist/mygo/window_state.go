@@ -123,7 +123,16 @@ func restoreWindowState(key string, p *platform.WindowOptions) {
 	displays := backend().Screen().Displays()
 	p.UseContentSize = false
 	p.Maximized, p.FullScreen = st.Maximized, st.FullScreen
-	if onDisplay(r, displays) {
+	p.Width, p.Height = r.Width, r.Height
+	if native, ok := backend().(platform.WindowStateBackend); ok {
+		var bounds *platform.Rect
+		if b := st.WindowsBounds; b != nil {
+			bounds = &platform.Rect{X: b.X, Y: b.Y, Width: b.Width, Height: b.Height}
+		}
+		if native.RestoreWindowState(p, bounds) {
+			return
+		}
+	} else if onDisplay(r, displays) {
 		p.X, p.Y, p.Width, p.Height = r.X, r.Y, r.Width, r.Height
 		p.Center = false
 		return
@@ -195,6 +204,14 @@ func (w *Window) captureState() {
 	if !st.Maximized && !st.FullScreen && !n.IsMinimized() {
 		if b := n.Bounds(); b.Width > 0 && b.Height > 0 {
 			st.X, st.Y, st.Width, st.Height = b.X, b.Y, b.Width, b.Height
+		}
+		if native, ok := n.(platform.WindowStateWindow); ok {
+			if b := native.WindowStateBounds(); b.Width > 0 && b.Height > 0 {
+				r := Rectangle{X: b.X, Y: b.Y, Width: b.Width, Height: b.Height}
+				if st.WindowsBounds == nil || *st.WindowsBounds != r {
+					st.WindowsBounds = &r
+				}
+			}
 		}
 	}
 	if st.Width <= 0 || st.Height <= 0 {

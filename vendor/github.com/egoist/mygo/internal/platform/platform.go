@@ -132,6 +132,19 @@ type Backend interface {
 	WebViewAvailable() bool
 }
 
+// WindowStateWindow optionally preserves native geometry that cannot be
+// represented unambiguously by a window's DIP bounds (Windows).
+type WindowStateWindow interface {
+	WindowStateBounds() Rect
+}
+
+// WindowStateBackend optionally restores that geometry. A false result,
+// including for a nil legacy rectangle, asks the core to center the window
+// with its saved DIP size instead of interpreting old coordinates.
+type WindowStateBackend interface {
+	RestoreWindowState(opts *WindowOptions, bounds *Rect) bool
+}
+
 // AppOptions configures Backend.Init.
 type AppOptions struct {
 	Name string
@@ -332,6 +345,10 @@ type WindowOptions struct {
 	UseContentSize bool
 	MinSize        Size
 	MaxSize        Size
+	// StateBounds is the restored normal rectangle in physical screen
+	// pixels, set by WindowStateBackend on Windows. It overrides X/Y and
+	// Width/Height when the backend places the window.
+	StateBounds *Rect
 
 	Resizable      bool
 	Movable        bool
