@@ -396,8 +396,12 @@ func (a *app) trackRowsWithKey(c *ui.Context, key any, state *listScrollState, t
 			i--
 			tr := &tracks[i]
 			playing := cur != nil && cur.ID == tr.ID
+			menu := a.songItems(tr, pid)
+			if a.route.page == pageDaily {
+				menu = a.dailySongItems(tr)
+			}
 			row := ui.ButtonBase(c.Key(tr.ID)).Height(trackRowHeight).PaddingX(12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
-				ContextMenu(a.songItems(tr, pid))
+				ContextMenu(menu)
 			if r := row.Bounds(); current >= 0 && !measured && r.H > 0 {
 				currentTop, measured = r.Y+float32(current-i)*trackRowHeight, true
 			}
@@ -467,6 +471,10 @@ func (a *app) trackRowsWithKey(c *ui.Context, key any, state *listScrollState, t
 						a.likeButton(c.Key("like"), tr, 15, p.muted)
 					}
 				})
+				if a.route.page == pageDaily {
+					b := iconButton(c.Key("daily-more"), iconMore, 15, p.muted, "更多操作："+tr.Name)
+					b.Menu(menu)
+				}
 				ui.Text(c, clock(tr.Length())).FontSize(12.5).FontFeatures("tnum").TextColor(p.faint).Width(44).TextAlign(ui.End)
 			})
 			if row.Clicked() && tr.Playable() {
