@@ -21,15 +21,21 @@ const (
 	RepeatOne
 )
 
+const (
+	NormalizeOff      = "off"
+	NormalizeQuiet    = "quiet"
+	NormalizeStandard = "standard"
+	NormalizeHigh     = "high"
+)
+
 // Player plays a queue of tracks. Its methods run on the main thread;
 // loading happens on goroutines, whose results post brings back there.
 type Player struct {
 	post func(func())
 	// Quality returns the stream level to load, as the settings say.
 	Quality func() string
-	// Normalize reports whether to even out the loudness of tracks, as
-	// the settings say.
-	Normalize func() bool
+	// Normalize returns the volume-balance mode, as the settings say.
+	Normalize func() string
 	// Cache keeps the songs played, if set.
 	Cache *Cache
 	// Changed, if set, hears that what plays, where it is or whether it
@@ -505,7 +511,7 @@ func (p *Player) SetVolume(v float64) {
 // RefreshGain applies a changed normalization setting to the current song.
 func (p *Player) RefreshGain() {
 	p.applyGain()
-	if p.Normalize == nil || !p.Normalize() || p.info == nil || p.track == nil {
+	if p.Normalize == nil || p.Normalize() == NormalizeOff || p.info == nil || p.track == nil {
 		return
 	}
 	// A song loaded with balancing off never waited for measurements. When
@@ -529,21 +535,34 @@ func (p *Player) RefreshGain() {
 // hears in powers, and the track's gain, if normalizing.
 func (p *Player) applyGain() {
 	g := p.volume * p.volume
-	if p.Normalize != nil && p.Normalize() {
-		g *= normGain(p.info)
+	if p.Normalize != nil {
+		if mode := p.Normalize(); mode != NormalizeOff {
+			g *= normGain(p.info, mode)
+		}
 	}
 	p.fade.setGain(g)
 }
 
-// normPreamp lifts balanced playback by 4 dB before peak protection.
-const normPreamp = 4
+// normPreamp lifts balanced playback before peak protection.
+func normPreamp(mode string) float64 {
+	switch mode {
+	case NormalizeQuiet:
+		return 1
+	case NormalizeStandard:
+		return 4
+	case NormalizeHigh:
+		return 7
+	}
+	return 0
+}
 
-// normGain adds our preamp to QQ's measured gain, limiting it so peaks cannot clip.
-func normGain(st *qqmusic.Stream) float64 {
+// normGain adds the mode's preamp to QQ's measured gain, limiting it so peaks
+// cannot clip.
+func normGain(st *qqmusic.Stream, mode string) float64 {
 	if st == nil || st.Gain == 0 && st.Peak == 0 {
 		return 1
 	}
-	g := math.Pow(10, (st.Gain+normPreamp)/20)
+	g := math.Pow(10, (st.Gain+normPreamp(mode))/20)
 	if st.Peak > 0 {
 		g = min(g, 1/st.Peak)
 	}
@@ -638,7 +657,7 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 	if p.Quality != nil {
 		level = p.Quality()
 	}
-	normalize := p.Normalize != nil && p.Normalize()
+	normalize := p.Normalize != nil && p.Normalize() != NormalizeOff
 	go func() {
 		info, s, err := p.open(t, level, normalize)
 		p.post(func() {

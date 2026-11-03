@@ -79,9 +79,9 @@ func TestEnableNormalizationDuringPlayback(t *testing.T) {
 	for _, state := range []string{"current", "disabled", "next song"} {
 		t.Run(state, func(t *testing.T) {
 			ch := make(chan func(), 4)
-			enabled := true
+			mode := NormalizeStandard
 			st := &qqmusic.Stream{}
-			p := &Player{post: func(fn func()) { ch <- fn }, volume: 0.5, info: st, track: &qqmusic.Track{MID: "playing"}, Normalize: func() bool { return enabled }}
+			p := &Player{post: func(fn func()) { ch <- fn }, volume: 0.5, info: st, track: &qqmusic.Track{MID: "playing"}, Normalize: func() string { return mode }}
 			out := audio.NewPlayer(silence{})
 			defer out.Close()
 			p.fade.attach(out, 1)
@@ -89,7 +89,7 @@ func TestEnableNormalizationDuringPlayback(t *testing.T) {
 			want := 0.25 * math.Pow(10, -2.6/20)
 			switch state {
 			case "disabled":
-				enabled = false
+				mode = NormalizeOff
 				p.RefreshGain()
 				want = 0.25
 			case "next song":

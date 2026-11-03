@@ -52,9 +52,11 @@ type settings struct {
 	StageSparks bool `json:"stageSparks,omitempty"`
 	// Volume is where the volume was left, from 0 to 1.
 	Volume float64 `json:"volume"`
-	// Normalize uses QQ's measured loudness to balance songs. The new key
-	// leaves the unused NetEase normalize setting behind on existing installs.
+	// Normalize is the old volume-balance switch, kept so installs saved
+	// before the mode selector can still be read.
 	Normalize bool `json:"volumeBalance"`
+	// VolumeBalance selects how far QQ's measured loudness is lifted.
+	VolumeBalance string `json:"volumeBalanceMode,omitempty"`
 	// HotComments shows a song's hot comments in its quiet parts, in
 	// place of the lyrics (quietComment): the listener turns it on.
 	HotComments bool `json:"hotComments"`
@@ -85,6 +87,36 @@ type settings struct {
 
 func defaultSettings() settings {
 	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", SidebarMaterial: "acrylic", Volume: 0.8, Normalize: true, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true}
+}
+
+const (
+	volumeBalanceOff      = "off"
+	volumeBalanceQuiet    = "quiet"
+	volumeBalanceStandard = "standard"
+	volumeBalanceHigh     = "high"
+)
+
+var volumeBalances = []struct{ id, label string }{
+	{volumeBalanceOff, "关闭"},
+	{volumeBalanceQuiet, "安静"},
+	{volumeBalanceStandard, "标准"},
+	{volumeBalanceHigh, "高音量"},
+}
+
+func (s settings) volumeBalance() string {
+	switch s.VolumeBalance {
+	case volumeBalanceOff, volumeBalanceQuiet, volumeBalanceStandard, volumeBalanceHigh:
+		return s.VolumeBalance
+	}
+	if s.Normalize {
+		return volumeBalanceStandard
+	}
+	return volumeBalanceOff
+}
+
+func (s *settings) setVolumeBalance(mode string) {
+	s.VolumeBalance = mode
+	s.Normalize = mode != volumeBalanceOff
 }
 
 const (

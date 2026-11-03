@@ -150,14 +150,14 @@ func TestSettingsPageSpaceTogglesControl(t *testing.T) {
 	a.pl.Attach(out)
 	defer out.Close()
 	tt := ui.NewTester(a.view, 1180, 780)
-	if err := tt.Click("切换音量平衡"); err != nil {
+	if err := tt.Click("切换热评"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	before := a.settings.Normalize
+	before := a.settings.HotComments
 	tt.Key(0, ui.KeySpace)
 	tt.Frame()
-	if a.settings.Normalize == before || !a.pl.Playing() {
+	if a.settings.HotComments == before || !a.pl.Playing() {
 		t.Fatal("Space was taken from the focused setting by the playback shortcut")
 	}
 	b, err := os.ReadFile(a.settings.path)
@@ -165,7 +165,7 @@ func TestSettingsPageSpaceTogglesControl(t *testing.T) {
 		t.Fatal(err)
 	}
 	var saved settings
-	if err := json.Unmarshal(b, &saved); err != nil || saved.Normalize != a.settings.Normalize {
+	if err := json.Unmarshal(b, &saved); err != nil || saved.HotComments != a.settings.HotComments {
 		t.Fatalf("keyboard change was not saved: %v", err)
 	}
 }

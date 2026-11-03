@@ -59,41 +59,71 @@ func TestQuitOnCloseSettings(t *testing.T) {
 	}
 }
 
-// Toggling volume balance applies it to the current player and persists both on and off across launches.
+// Choosing a volume-balance mode applies it to the current player and persists across launches.
 func TestVolumeBalanceSettings(t *testing.T) {
 	a := newTestApp()
 	a.settings = defaultSettings()
+	a.settings.setProgressEffect(progressSquiggly)
 	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
-	var applied []bool
-	a.pl.Normalize = func() bool {
-		applied = append(applied, a.settings.Normalize)
-		return a.settings.Normalize
+	var applied []string
+	a.pl.Normalize = func() string {
+		mode := a.settings.volumeBalance()
+		applied = append(applied, mode)
+		return mode
 	}
 	tt := ui.NewTester(a.settingsView, 560, 2000)
 	tt.Frame()
-	for _, enabled := range []bool{false, true, false} {
+	for _, choice := range []struct{ label, mode string }{
+		{"关闭", volumeBalanceOff},
+		{"高音量", volumeBalanceHigh},
+		{"标准", volumeBalanceStandard},
+		{"安静", volumeBalanceQuiet},
+	} {
 		before := len(applied)
-		if err := tt.Click("切换音量平衡"); err != nil {
+		if err := tt.Click("选择音量平衡"); err != nil {
+			t.Fatal(err)
+		}
+		if err := tt.Click(choice.label); err != nil {
 			t.Fatal(err)
 		}
 		tt.Frame()
-		if a.settings.Normalize != enabled {
-			t.Fatalf("volume balance = %t, want %t", a.settings.Normalize, enabled)
+		if got := a.settings.volumeBalance(); got != choice.mode {
+			t.Fatalf("volume balance = %q, want %q", got, choice.mode)
 		}
-		if len(applied) <= before || applied[len(applied)-1] != enabled {
-			t.Fatalf("current player did not apply volume balance %t: %v", enabled, applied)
+		if len(applied) <= before || applied[len(applied)-1] != choice.mode {
+			t.Fatalf("current player did not apply volume balance %q: %v", choice.mode, applied)
 		}
 		b, err := os.ReadFile(a.settings.path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		restored := defaultSettings()
-		restored.Normalize = !enabled
+		restored.Normalize = choice.mode != volumeBalanceOff
 		if err := json.Unmarshal(b, &restored); err != nil {
 			t.Fatal(err)
 		}
-		if restored.Normalize != enabled {
-			t.Fatalf("restored volume balance = %t, want %t", restored.Normalize, enabled)
+		if got := restored.volumeBalance(); got != choice.mode {
+			t.Fatalf("restored volume balance = %q, want %q", got, choice.mode)
+		}
+	}
+}
+
+// The old volume-balance switch becomes the standard mode when it was on.
+func TestVolumeBalanceMigration(t *testing.T) {
+	for _, tc := range []struct {
+		legacy bool
+		want   string
+	}{
+		{true, volumeBalanceStandard},
+		{false, volumeBalanceOff},
+	} {
+		s := defaultSettings()
+		s.VolumeBalance = ""
+		if err := json.Unmarshal([]byte(fmt.Sprintf(`{"volumeBalance":%t}`, tc.legacy)), &s); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.volumeBalance(); got != tc.want {
+			t.Fatalf("legacy switch %t selects %q, want %q", tc.legacy, got, tc.want)
 		}
 	}
 }
@@ -199,6 +229,7 @@ func TestSidebarMaterialSettings(t *testing.T) {
 func TestProgressEffectSettings(t *testing.T) {
 	a := newTestApp()
 	a.settings = defaultSettings()
+	a.settings.setVolumeBalance(volumeBalanceHigh)
 	if err := json.Unmarshal([]byte("{\"smoke\":true}"), &a.settings); err != nil {
 		t.Fatal(err)
 	}

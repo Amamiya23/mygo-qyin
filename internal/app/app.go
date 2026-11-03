@@ -255,7 +255,7 @@ func Run() error {
 		a.art = newArtCache(a.post)
 		a.pl = player.New(a.post)
 		a.pl.Quality = func() string { return a.settings.Quality }
-		a.pl.Normalize = func() bool { return a.settings.Normalize }
+		a.pl.Normalize = func() string { return a.settings.volumeBalance() }
 		a.pl.Cache = newSongCache(a.settings)
 		a.cacheMoving = a.settings.PendingCacheDir != nil
 		a.pl.Changed = a.playerChanged

@@ -142,26 +142,28 @@ func TestRadioRefills(t *testing.T) {
 	}
 }
 
-// QQ's gain receives +4 dB compensation before peak protection, leaving unmeasured songs unchanged.
+// Each balance mode adds its preamp to QQ's gain before peak protection, leaving unmeasured songs unchanged.
 func TestNormGain(t *testing.T) {
-	for _, c := range []struct {
-		st   *qqmusic.Stream
-		want float64
-	}{
-		{nil, 1},
-		{&qqmusic.Stream{}, 1},
-		{&qqmusic.Stream{Gain: -7.603, Peak: 0.946}, math.Pow(10, -3.603/20)},
-		{&qqmusic.Stream{Gain: -6.6, Peak: 1}, math.Pow(10, -2.6/20)},
-		{&qqmusic.Stream{Gain: -2, Peak: 1}, 1},
-		// Quiet, it is lifted, but not past its peak.
-		{&qqmusic.Stream{Gain: 3, Peak: 0.8}, 1.25},
-		{&qqmusic.Stream{Gain: -4, Peak: 0}, 1},
-		{&qqmusic.Stream{Gain: 3, Peak: 0}, math.Pow(10, 7.0/20)},
-		{&qqmusic.Stream{Gain: 0, Peak: 0.8}, 1.25},
-		{&qqmusic.Stream{Gain: 0, Peak: 0.1}, math.Pow(10, 4.0/20)},
-	} {
-		if g := normGain(c.st); math.Abs(g-c.want) > 1e-9 {
-			t.Errorf("%+v: %v, want %v", c.st, g, c.want)
+	for _, mode := range []string{NormalizeQuiet, NormalizeStandard, NormalizeHigh} {
+		for _, c := range []struct {
+			st   *qqmusic.Stream
+			want float64
+		}{
+			{nil, 1},
+			{&qqmusic.Stream{}, 1},
+			{&qqmusic.Stream{Gain: -7.603, Peak: 0.946}, math.Pow(10, (-7.603+normPreamp(mode))/20)},
+			{&qqmusic.Stream{Gain: -6.6, Peak: 1}, min(math.Pow(10, (-6.6+normPreamp(mode))/20), 1)},
+			{&qqmusic.Stream{Gain: -2, Peak: 1}, min(math.Pow(10, (-2+normPreamp(mode))/20), 1)},
+			// A quiet track is lifted, but not past its peak.
+			{&qqmusic.Stream{Gain: 3, Peak: 0.8}, 1.25},
+			{&qqmusic.Stream{Gain: -4, Peak: 0}, math.Pow(10, (-4+normPreamp(mode))/20)},
+			{&qqmusic.Stream{Gain: 3, Peak: 0}, math.Pow(10, (3+normPreamp(mode))/20)},
+			{&qqmusic.Stream{Gain: 0, Peak: 0.8}, min(math.Pow(10, normPreamp(mode)/20), 1.25)},
+			{&qqmusic.Stream{Gain: 0, Peak: 0.1}, math.Pow(10, normPreamp(mode)/20)},
+		} {
+			if g := normGain(c.st, mode); math.Abs(g-c.want) > 1e-9 {
+				t.Errorf("%s %+v: %v, want %v", mode, c.st, g, c.want)
+			}
 		}
 	}
 }
@@ -170,20 +172,21 @@ func TestNormGain(t *testing.T) {
 func TestRefreshNormalization(t *testing.T) {
 	out := audio.NewPlayer(silence{})
 	defer out.Close()
-	enabled := true
-	p := &Player{volume: 0.5, info: &qqmusic.Stream{Gain: -6.6, Peak: 1}, Normalize: func() bool { return enabled }}
+	mode := NormalizeStandard
+	p := &Player{volume: 0.5, info: &qqmusic.Stream{Gain: -6.6, Peak: 1}, Normalize: func() string { return mode }}
 	p.fade.attach(out, 1)
-	for _, on := range []bool{true, false, true, true} {
-		enabled = on
+	for _, balance := range []string{NormalizeStandard, NormalizeOff, NormalizeStandard, NormalizeHigh} {
+		mode = balance
 		p.RefreshGain()
 		want := 0.25
-		if on {
-			want *= math.Pow(10, -2.6/20)
+		if balance != NormalizeOff {
+			want *= min(math.Pow(10, (-6.6+normPreamp(balance))/20), 1)
 		}
 		if got := out.Volume(); math.Abs(got-want) > 1e-9 {
-			t.Fatalf("normalization %t: output gain %v, want %v", on, got, want)
+			t.Fatalf("normalization %s: output gain %v, want %v", balance, got, want)
 		}
 	}
+	mode = NormalizeStandard
 	p.SetVolume(0.8)
 	if got, want := out.Volume(), 0.64*math.Pow(10, -2.6/20); math.Abs(got-want) > 1e-9 {
 		t.Fatalf("volume change: output gain %v, want %v", got, want)
