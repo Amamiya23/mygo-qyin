@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/draw"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -103,6 +104,63 @@ func TestPlayerVolumeSliderInput(t *testing.T) {
 	}
 	if a.pl.Playing() || a.pl.Position() != 24*time.Second {
 		t.Fatal("adjusting volume changed playback or the current position")
+	}
+}
+
+// Wheel input changes volume by 5% instead of the former 25% jump, while touchpad input stays continuous and volume stays within its limits.
+func TestPlayerVolumeScroll(t *testing.T) {
+	for _, control := range []string{"speaker", "slider"} {
+		t.Run(control, func(t *testing.T) {
+			a := playerHoverApp()
+			a.volume = 0.5
+			a.pl.SetVolume(a.volume)
+			tt := ui.NewTester(func(c *ui.Context) {
+				a.pal = paletteFor(c.Theme())
+				ui.Column(c).Fill().Center().Children(func() {
+					if control == "speaker" {
+						a.volumeButton(c, a.pal.muted)
+					} else {
+						a.nativeVolumeSlider(c, popoverColors(a.pal.dark))
+					}
+				})
+			}, 100, 180)
+			tt.Frame()
+			r, ok := tt.Find("音量")
+			if !ok {
+				t.Fatal("cannot target the volume control")
+			}
+			x, y := r.X+r.W/2, r.Y+r.H/2
+			for _, step := range []struct {
+				dx, dy  float32
+				precise bool
+				want    float64
+			}{
+				{dy: 99, want: 0.45}, // Windows' default wheel distance is 3 lines of 33 DIPs.
+				{dy: -99, want: 0.5},
+				{dy: -50, want: 0.55}, // Other platforms and system scroll settings use different distances.
+				{dy: 40, want: 0.5},
+				{dy: -165, want: 0.55},
+				{dx: 99, want: 0.55},
+				{dy: -4, precise: true, want: 0.56},
+				{dy: 4, precise: true, want: 0.55},
+				{dy: -400, precise: true, want: 1},
+				{dy: -99, want: 1},
+				{dy: 400, precise: true, want: 0},
+				{dy: 99, want: 0},
+			} {
+				if step.precise {
+					tt.Scroll(x, y, step.dx, step.dy)
+				} else {
+					tt.Wheel(x, y, step.dx, step.dy)
+				}
+				if math.Abs(a.volume-step.want) > 1e-9 {
+					t.Fatalf("scroll (%v, %v), precise=%t: volume=%v, want %v", step.dx, step.dy, step.precise, a.volume, step.want)
+				}
+			}
+			if a.volumeOpen || a.pl.Playing() || a.pl.Position() != 24*time.Second {
+				t.Fatal("scrolling volume opened the popover or changed playback")
+			}
+		})
 	}
 }
 

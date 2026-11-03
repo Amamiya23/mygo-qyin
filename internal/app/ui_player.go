@@ -271,10 +271,16 @@ func (a *app) nativeVolumeSlider(c *ui.Context, pop popover) {
 
 // scrollVolume turns the volume up as the wheel or the fingers scroll up.
 func (a *app) scrollVolume(ev ui.InputEvent) bool {
-	if ev.Kind != ui.InputScroll {
+	if ev.Kind != ui.InputScroll || ev.DY == 0 {
 		return false
 	}
-	a.volume = min(1, max(0, a.volume-float64(ev.DY)/400))
+	delta := -float64(ev.DY) / 400
+	if !ev.Precise {
+		// Wheel distances reflect the platform and system scroll settings;
+		// use a small volume step rather than a fraction of that distance.
+		delta = math.Copysign(0.05, delta)
+	}
+	a.volume = min(1, max(0, a.volume+delta))
 	a.pl.SetVolume(a.volume)
 	return true
 }
