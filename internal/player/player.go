@@ -622,10 +622,10 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 	}()
 
 	go func() {
-		lrc, trans, yrc, err := qqmusic.Lyrics(t.ID)
+		lrc, trans, timed, err := qqmusic.Lyrics(t.ID)
 		var lines []lyrics.Line
 		if err == nil {
-			lines = lyrics.Build(lrc, trans, yrc)
+			lines = lyrics.Build(lrc, trans, timed)
 		}
 		p.post(func() {
 			if gen == p.gen {

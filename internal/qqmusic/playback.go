@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"lilt/internal/lyrics"
 )
 
 func trackForPlayback(id int64) (Track, error) {
@@ -154,16 +156,61 @@ func selectStreamDomain(guid, purl string) string {
 	return "http://dl.stream.qqmusic.qq.com/"
 }
 
-func Lyrics(id int64) (lrc, translation, yrc string, err error) {
+// Lyrics prefers QQ's real word timings, with the old LRC service as a fallback.
+func Lyrics(id int64) (lrc, translation, timed string, err error) {
 	t, err := trackForPlayback(id)
 	if err != nil {
 		return "", "", "", err
 	}
+	if lrc, translation, timed, err = playLyrics(t.MID); err == nil {
+		return lrc, translation, timed, nil
+	}
+	return legacyLyrics(t)
+}
+
+func playLyrics(mid string) (lrc, translation, qrc string, err error) {
+	comm := map[string]any{"ct": 24, "cv": 0, "uin": "0", "format": "json"}
+	headers := map[string]string{"Cookie": "", "User-Agent": "Mozilla/5.0"}
+	if sessionSnapshot().valid() {
+		// A signed-in listener uses the account identity, as the rest of the
+		// player does; the endpoint still works anonymously when signed out.
+		comm, headers = nil, nil
+	}
+	param := map[string]any{"songMID": mid, "crypt": 1, "ct": 24, "cv": 0, "lver": 0, "qrc": 1, "trans": 1, "roma": 0}
 	var data struct {
 		Lyric       string `json:"lyric"`
 		Translation string `json:"trans"`
 	}
-	err = cgi("/lyric/fcgi-bin/fcg_query_lyric_new.fcg", url.Values{"songmid": {t.MID}, "pcachetime": {strconv.FormatInt(int64(id), 10)}}, &data)
+	if err = rpcWithComm("music.musichallSong.PlayLyricInfo", "GetPlayLyricInfo", param, &data, comm, headers); err != nil {
+		return "", "", "", err
+	}
+	original, err := decodeQRC(data.Lyric)
+	if err != nil {
+		return "", "", "", err
+	}
+	// Verify the payload itself: version fields alone do not prove word timing.
+	switch {
+	case len(lyrics.ParseQRC(original)) > 0:
+		qrc = original
+	case lyricTimeTag.MatchString(original):
+		lrc = original
+	default:
+		return "", "", "", fmt.Errorf("qqmusic: missing readable lyrics")
+	}
+	translation, err = decodeQRC(data.Translation)
+	if err != nil || translation != "" && !lyricTimeTag.MatchString(translation) {
+		// A bad translation must not discard the original's real word timings.
+		translation = lyricTranslation(mid)
+	}
+	return lrc, translation, qrc, nil
+}
+
+func legacyLyrics(t Track) (lrc, translation, timed string, err error) {
+	var data struct {
+		Lyric       string `json:"lyric"`
+		Translation string `json:"trans"`
+	}
+	err = cgi("/lyric/fcgi-bin/fcg_query_lyric_new.fcg", url.Values{"songmid": {t.MID}, "pcachetime": {strconv.FormatInt(t.ID, 10)}}, &data)
 	if err != nil {
 		return "", "", "", err
 	}

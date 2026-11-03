@@ -18,8 +18,8 @@ type Line struct {
 	Text        string
 	Translation string
 	Words       []Word
-	// Timed says the words carry their own times, as NetEase's word-timed
-	// lyrics give them; else they share the line's time evenly.
+	// Timed says the words carry their own times, as QQ's QRC and NetEase's
+	// YRC give them; else their times are estimated from the line.
 	Timed bool
 }
 
@@ -28,6 +28,22 @@ type Line struct {
 type Word struct {
 	Text       string
 	Start, End time.Duration
+}
+
+// Progress is how much of the word has been sung at pos. It follows the
+// playback position directly, including after a pause or a seek backwards.
+func (w Word) Progress(pos time.Duration) float32 {
+	if pos < w.Start {
+		return 0
+	}
+	if pos >= w.End {
+		return 1
+	}
+	return float32(float64(pos-w.Start) / float64(w.End-w.Start))
+}
+
+func sortLines(lines []Line) {
+	sort.SliceStable(lines, func(i, j int) bool { return lines[i].At < lines[j].At })
 }
 
 var lrcTime = regexp.MustCompile(`\[(\d+):(\d+)(?:[.:](\d+))?\]`)
@@ -58,7 +74,7 @@ func parseLRC(lrc string) []Line {
 			out = append(out, Line{At: at, Text: text})
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].At < out[j].At })
+	sortLines(out)
 	return out
 }
 
@@ -103,21 +119,24 @@ func parseYRC(yrc string) []Line {
 			out = append(out, l)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].At < out[j].At })
+	sortLines(out)
 	return out
 }
 
-// Build makes the lines to show from what NetEase serves: the
-// word-timed lyrics where there are some, else the timed lines, with the
-// translation of each.
-func Build(lrc, translation, yrc string) []Line {
+// Build prefers real QRC or YRC word times, falling back to LRC line times,
+// and pairs each line with its translation. LRC word times remain estimates
+// for the stage's layout; Timed keeps them out of precise highlighting.
+func Build(lrc, translation, wordTimed string) []Line {
 	var lines []Line
-	if yrc != "" {
-		lines = parseYRC(yrc)
+	if wordTimed != "" {
+		lines = ParseQRC(wordTimed)
+		if len(lines) == 0 {
+			lines = parseYRC(wordTimed)
+		}
 	}
 	if len(lines) == 0 {
 		for _, l := range parseLRC(lrc) {
-			if l.Text != "" {
+			if l.Text != "" && !isInstrumental(l.Text) {
 				lines = append(lines, l)
 			}
 		}
@@ -151,6 +170,11 @@ func Build(lrc, translation, yrc string) []Line {
 		}
 	}
 	return lines
+}
+
+// QQ returns this LRC placeholder for instrumentals, rather than no lines.
+func isInstrumental(text string) bool {
+	return strings.Contains(text, "此歌曲为没有填词的纯音乐")
 }
 
 // mergeLyrics pairs timed lines with their translations, without words'

@@ -146,6 +146,37 @@ func TestNowPlayingFrameBudget(t *testing.T) {
 	}
 }
 
+// Only real word timing needs periodic highlight builds; the old estimated
+// LRC highlighting kept repainting even though its timing was invented.
+func TestLyricsWordFrameBudget(t *testing.T) {
+	for _, timed := range []bool{false, true} {
+		a := newTestApp()
+		a.pl.Cue([]qqmusic.Track{{ID: 7, Duration: 20000}})
+		qrc := ""
+		if timed {
+			qrc = "[1000,6000]慢(1000,3000)唱(5000,2000)"
+		}
+		a.pl.SetLyrics(lyrics.Build("[00:01.00]慢唱", "", qrc))
+		a.pl.Hold(2 * time.Second)
+		builds := 0
+		tt := ui.NewTester(func(c *ui.Context) {
+			builds++
+			ui.Column(c).Size(600, 400).Children(func() { a.lyricsPane(c, a.pl.Current(), 400) })
+		}, 600, 400)
+		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+		tt.Advance(time.Second)
+		before := builds
+		tt.Advance(500 * time.Millisecond)
+		n := builds - before
+		if timed && (n < 10 || n > 15) {
+			t.Errorf("real words rebuilt %d times over 500ms, want about 12", n)
+		}
+		if !timed && n != 0 {
+			t.Errorf("estimated words rebuilt %d times while the line was unchanged", n)
+		}
+	}
+}
+
 // Another song's backdrop fades in over the last one's, which is then let
 // go, so that the backdrop stops asking for frames.
 func TestBackdropFadeEnds(t *testing.T) {
