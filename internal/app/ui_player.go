@@ -485,17 +485,24 @@ func (a *app) playerBar(c *ui.Context) {
 	})
 }
 
-var iconDesktopLyrics = strokeIcon(`<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4M7 9h10M7 12h6"/>`)
+// Centered lyric lines identify the floating caption window. Open corners
+// leave it free to move; closing the same frame marks its fixed position.
+const desktopLyricsGlyph = `<path d="M7 10h10M9 14h6"/>`
+
+var (
+	iconDesktopLyrics       = strokeIcon(desktopLyricsGlyph + `<path d="M8 4H6a3 3 0 0 0-3 3v2M16 4h2a3 3 0 0 1 3 3v2M21 15v2a3 3 0 0 1-3 3h-2M8 20H6a3 3 0 0 1-3-3v-2"/>`)
+	iconDesktopLyricsLocked = strokeIcon(desktopLyricsGlyph + `<rect x="3" y="4" width="18" height="16" rx="3"/>`)
+)
 
 func (a *app) desktopLyricsPlayerButton(c *ui.Context, p palette) {
 	color, hint, icon := p.muted, "开启桌面歌词", iconDesktopLyrics
 	if a.settings.DesktopLyrics {
 		color, hint = p.accent, "关闭桌面歌词 · 右键锁定"
 		if a.settings.DesktopLyricsLocked {
-			hint, icon = "关闭桌面歌词 · 右键解锁", desktopLyricsLockIcon
+			hint, icon = "关闭桌面歌词 · 右键解锁", iconDesktopLyricsLocked
 		}
 	}
-	button := iconButton(c.Key("desktop-lyrics"), icon, 16, color, "桌面歌词", playerSurface).Tooltip(hint)
+	button := iconButton(c.Key("desktop-lyrics"), icon, 18, color, "桌面歌词", playerSurface).Size(32, 32).Tooltip(hint)
 	button.OnClick(func() { a.setDesktopLyricsEnabled(!a.settings.DesktopLyrics) })
 	if button.RightClicked() && a.settings.DesktopLyrics {
 		a.setDesktopLyricsLocked(!a.settings.DesktopLyricsLocked)
