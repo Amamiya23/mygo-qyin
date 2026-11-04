@@ -1,54 +1,13 @@
 package app
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/audio"
-	"github.com/egoist/mygo/ui"
 	"lilt/internal/qqmusic"
 )
-
-// A listener can enable, lock, externally unlock, and disable lyrics, with those actions surviving a settings reload.
-func TestDesktopLyricsSettingsActions(t *testing.T) {
-	if !supportsDesktopLyrics() {
-		t.Skip("desktop lyrics is exposed on Windows and macOS")
-	}
-	a := newTestApp()
-	a.settings = defaultSettings()
-	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
-	tt := ui.NewTester(a.settingsView, 600, 2400)
-	tt.Frame()
-	for _, action := range []struct {
-		label           string
-		enabled, locked bool
-	}{
-		{"切换桌面歌词", true, false},
-		{"锁定桌面歌词", true, true},
-		{"锁定桌面歌词", true, false},
-		{"切换桌面歌词", false, false},
-	} {
-		if err := tt.Click(action.label); err != nil {
-			t.Fatal(err)
-		}
-		tt.Frame()
-		var restored settings
-		b, err := os.ReadFile(a.settings.path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := json.Unmarshal(b, &restored); err != nil {
-			t.Fatal(err)
-		}
-		if restored.DesktopLyrics != action.enabled || restored.DesktopLyricsLocked != action.locked {
-			t.Fatalf("after %s: enabled=%t locked=%t", action.label, restored.DesktopLyrics, restored.DesktopLyricsLocked)
-		}
-	}
-}
 
 // Locking never removes the external tray action that restores pointer input.
 func TestDesktopLyricsTrayUnlock(t *testing.T) {

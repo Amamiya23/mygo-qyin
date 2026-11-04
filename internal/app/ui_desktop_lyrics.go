@@ -12,18 +12,21 @@ import (
 )
 
 const desktopLyricsToolbarHeight float32 = 44
-const desktopLyricsFade = 160 * time.Millisecond
+const desktopLyricsFade = 240 * time.Millisecond
+const desktopLyricsRestAlpha float32 = 0.528
+const desktopLyricsSungAlpha float32 = 0.95
 
 // desktopLyricContent is a snapshot of the player's timeline, never a second clock.
 type desktopLyricContent struct {
 	line              lyrics.Line
+	preview           string
 	index             int
 	text, translation string
 	next              time.Duration
 }
 
-// desktopLyricAt stops the old line at its real end, including gaps and the end of a song.
-func desktopLyricAt(lines []lyrics.Line, loaded bool, position time.Duration) desktopLyricContent {
+// desktopLyricAt keeps the current line through instrumental gaps until its successor starts.
+func desktopLyricAt(lines []lyrics.Line, loaded bool, position time.Duration, doubleLine bool) desktopLyricContent {
 	out := desktopLyricContent{index: -1}
 	if !loaded {
 		out.text = "歌词加载中…"
@@ -41,18 +44,14 @@ func desktopLyricAt(lines []lyrics.Line, loaded bool, position time.Duration) de
 		return out
 	}
 	line := lines[index]
-	if line.End > line.At && position >= line.End {
-		return out
-	}
 	out.line, out.index, out.text = line, index, line.Text
 	if desktopLyricsTranslation(lines) {
 		out.translation = line.Translation
+	} else if doubleLine && index+1 < len(lines) {
+		out.preview = lines[index+1].Text
 	}
 	if desktopLyricComparable(out.translation) == desktopLyricComparable(out.text) {
 		out.translation = ""
-	}
-	if line.End > position && (out.next == 0 || line.End-position < out.next) {
-		out.next = line.End - position
 	}
 	return out
 }
@@ -115,6 +114,35 @@ type desktopLyricViewState struct {
 	initialized       bool
 }
 
+type desktopLyricBlend struct {
+	currentAlpha, previousAlpha float32
+	currentY, previousY         float32
+}
+
+// Clear the outgoing sentence before revealing the new one, avoiding the
+// illegible double image of two outlined sentences crossfading in place.
+func (s *desktopLyricViewState) blend(c *ui.Context) desktopLyricBlend {
+	if s.changed.IsZero() {
+		return desktopLyricBlend{currentAlpha: 1}
+	}
+	elapsed := max(0, c.Now().Sub(s.changed))
+	if elapsed >= desktopLyricsFade {
+		return desktopLyricBlend{currentAlpha: 1}
+	}
+	c.After(min(time.Second/60, desktopLyricsFade-elapsed))
+	exit := time.Duration(0)
+	out := float32(0)
+	if s.previous.text != "" {
+		exit = 60 * time.Millisecond
+		p := min(1, float32(elapsed)/float32(exit))
+		out = 1 - p*p
+	}
+	p := max(0, float32(elapsed-exit)/float32(desktopLyricsFade-exit))
+	in := 1 - (1-p)*(1-p)*(1-p)
+	return desktopLyricBlend{currentAlpha: in, previousAlpha: out,
+		currentY: 4 * (1 - in), previousY: -2 * (1 - out)}
+}
+
 func (s *desktopLyricViewState) step(track int64, mid string, revision uint64, content desktopLyricContent, position time.Duration, now time.Time, playing, reduced bool) {
 	changed := !s.initialized || s.track != track || s.mid != mid || s.revision != revision
 	jump := position < s.position
@@ -124,7 +152,7 @@ func (s *desktopLyricViewState) step(track int64, mid string, revision uint64, c
 	} else if s.initialized && position != s.position {
 		jump = true
 	}
-	different := content.index != s.current.index || content.text != s.current.text || content.translation != s.current.translation
+	different := content.index != s.current.index || content.text != s.current.text || content.translation != s.current.translation || content.preview != s.current.preview
 	if changed || jump || reduced {
 		s.previous, s.changed = desktopLyricContent{}, time.Time{}
 	} else if different {
@@ -152,7 +180,7 @@ func (d *desktopLyrics) view(c *ui.Context) {
 	if hovered {
 		root.Background(radixBlack(4)).Radius(16).Border(1, radixWhite(2))
 	}
-	width, _ := c.Size()
+	width, windowHeight := c.Size()
 	textWidth := max(width-48, 1)
 	size := d.fontSize()
 	content := desktopLyricContent{index: -1}
@@ -161,35 +189,31 @@ func (d *desktopLyrics) view(c *ui.Context) {
 	if tr := d.a.pl.Current(); tr != nil {
 		track, mid = tr.ID, tr.MID
 		lines, loaded := d.a.pl.Lyrics()
-		content = desktopLyricAt(lines, loaded, d.a.pl.Position())
+		content = desktopLyricAt(lines, loaded, d.a.pl.Position(), d.a.settings.DesktopLyricsDoubleLine)
 	}
 	position := d.a.pl.Position()
 	playing := d.a.pl.Playing()
 	state.step(track, mid, d.revision, content, position, c.Now(), playing, c.Preferences().ReduceMotion)
-	alpha := float32(1)
-	if !state.changed.IsZero() {
-		alpha = min(1, float32(c.Now().Sub(state.changed))/float32(desktopLyricsFade))
-		c.After(min(16*time.Millisecond, desktopLyricsFade-c.Now().Sub(state.changed)))
-	}
+	blend := state.blend(c)
 	current := desktopLyricsLayouts(c, content, position, size, textWidth)
 	previous := desktopLyricsLayouts(c, state.previous, position, size, textWidth)
 	height := max(current.height, previous.height)
 	d.fitHeight(float64(desktopLyricsToolbarHeight + height + 28))
+	// Use the committed viewport until the deferred native resize completes.
+	// A layout-height change must not move a line for that intervening frame.
+	bodyHeight := max(0, windowHeight-desktopLyricsToolbarHeight-28)
 	root.Children(func() {
 		ui.Box(c.Key("toolbar-space")).Absolute().Top(4).Left(16).Right(16).Height(36).Children(func() {
 			if hovered {
 				d.toolbar(c)
 			}
 		})
-		body := ui.Box(c.Key("lyric-body")).Absolute().Top(desktopLyricsToolbarHeight).Left(24).Right(24).Height(height).Label(content.text)
+		body := ui.Box(c.Key("lyric-body")).Absolute().Top(desktopLyricsToolbarHeight).Left(24).Right(24).Height(bodyHeight).Label(content.text)
 		if unlocked {
 			body.Cursor(ui.CursorGrab)
 		}
 		body.Children(func() {
-			if alpha < 1 {
-				ui.Box(c.Key("previous")).Absolute().Top(0).Left(0).Right(0).Height(height).Opacity(1 - alpha).Draw(func(p *ui.Painter, r ui.Rect) { previous.draw(p, r, 1) })
-			}
-			ui.Box(c.Key("current")).Absolute().Top(0).Left(0).Right(0).Height(height).Opacity(alpha).Draw(func(p *ui.Painter, r ui.Rect) { current.draw(p, r, 1) })
+			drawDesktopLyricLayers(c, current, previous, bodyHeight, blend)
 		})
 		if unlocked {
 			d.widthGrips(c, hovered)
@@ -200,6 +224,24 @@ func (d *desktopLyrics) view(c *ui.Context) {
 			c.After(next)
 		}
 	}
+}
+
+func drawDesktopLyricLayers(c *ui.Context, current, previous desktopLyricLayouts, height float32, blend desktopLyricBlend) {
+	layer := func(key string, layout desktopLyricLayouts, alpha, offset float32) {
+		if layout.text == nil || alpha <= 0 {
+			return
+		}
+		ui.Box(c.Key(key)).Absolute().Top(0).Left(0).Right(0).Height(height).Opacity(alpha).
+			Draw(func(p *ui.Painter, r ui.Rect) {
+				// The window keeps its bottom edge when it fits a shorter line.
+				// Bottom-align both blocks so removing the old height cannot
+				// make the new sentence jump after the transition completes.
+				r.Y += r.H - layout.height + offset
+				layout.draw(p, r, 1)
+			})
+	}
+	layer("previous", previous, blend.previousAlpha, blend.previousY)
+	layer("current", current, blend.currentAlpha, blend.currentY)
 }
 
 var desktopLyricsLockIcon = strokeIcon(`<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>`)
@@ -249,6 +291,7 @@ func (d *desktopLyrics) widthGrips(c *ui.Context, shown bool) {
 
 type desktopLyricLayouts struct {
 	outline, text, translationOutline, translation *ui.TextLayout
+	previewOutline, preview                        *ui.TextLayout
 	originalHeight, height                         float32
 }
 
@@ -263,7 +306,8 @@ func desktopLyricsLayouts(c *ui.Context, content desktopLyricContent, position t
 	if content.line.Timed && len(content.line.Words) > 0 {
 		spans = make([]ui.Span, 0, len(content.line.Words))
 		for _, word := range content.line.Words {
-			spans = append(spans, ui.Span{Text: word.Text, Color: radixPaper.Alpha(0.38 + 0.57*word.Progress(position))})
+			brightness := desktopLyricsRestAlpha + (desktopLyricsSungAlpha-desktopLyricsRestAlpha)*word.Progress(position)
+			spans = append(spans, ui.Span{Text: word.Text, Color: radixPaper.Alpha(brightness)})
 		}
 	}
 	layout := desktopLyricLayouts{outline: ui.ShapeRichTextWith([]ui.Span{{Text: text}}, font, shape), text: ui.ShapeRichTextWith(spans, font, shape)}
@@ -274,6 +318,11 @@ func desktopLyricsLayouts(c *ui.Context, content desktopLyricContent, position t
 		layout.translationOutline = ui.ShapeRichTextWith([]ui.Span{{Text: content.translation}}, font, shape)
 		layout.translation = layout.translationOutline
 		_, h := layout.translation.Size()
+		layout.height += h + 6
+	} else if content.preview != "" {
+		layout.previewOutline = ui.ShapeRichTextWith([]ui.Span{{Text: content.preview}}, font, shape)
+		layout.preview = ui.ShapeRichTextWith([]ui.Span{{Text: content.preview, Color: radixPaper.Alpha(desktopLyricsRestAlpha)}}, font, shape)
+		_, h := layout.preview.Size()
 		layout.height += h + 6
 	}
 	return layout
@@ -295,5 +344,6 @@ func (layout desktopLyricLayouts) draw(p *ui.Painter, r ui.Rect, alpha float32) 
 		p.TextLayout(text, r.X, y, color)
 	}
 	draw(layout.outline, layout.text, r.Y, radixWhite(12))
-	draw(layout.translationOutline, layout.translation, r.Y+layout.originalHeight+6, radixWhite(10))
+	draw(layout.translationOutline, layout.translation, r.Y+layout.originalHeight+6, radixGray(true, 12))
+	draw(layout.previewOutline, layout.preview, r.Y+layout.originalHeight+6, radixWhite(12))
 }

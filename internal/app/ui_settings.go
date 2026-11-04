@@ -272,14 +272,15 @@ func (a *app) settingsContent(c *ui.Context) {
 
 	if supportsDesktopLyrics() {
 		group("桌面歌词", func() {
-			row("显示桌面歌词", "", func() {
-				if ui.Switch(c.Key("desktop-lyrics"), &s.DesktopLyrics).Label("切换桌面歌词").Changed() {
-					a.setDesktopLyricsEnabled(s.DesktopLyrics)
+			row("显示行数", "双行仅针对中文歌", func() {
+				i := 0
+				if s.DesktopLyricsDoubleLine {
+					i = 1
 				}
-			})
-			row("锁定", "", func() {
-				if ui.Switch(c.Key("desktop-lyrics-lock"), &s.DesktopLyricsLocked).Label("锁定桌面歌词").Disabled(!s.DesktopLyrics).Changed() && a.desktopLyrics != nil {
-					a.desktopLyrics.setLocked(s.DesktopLyricsLocked)
+				if segmented(c.Key("desktop-lyrics-lines"), &i, "单行", "双行") {
+					s.DesktopLyricsDoubleLine = i == 1
+					s.save()
+					a.redraw()
 				}
 			})
 		})

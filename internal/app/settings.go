@@ -23,6 +23,8 @@ type settings struct {
 	DesktopLyrics         bool    `json:"desktopLyrics"`
 	DesktopLyricsLocked   bool    `json:"desktopLyricsLocked"`
 	DesktopLyricsFontSize float32 `json:"desktopLyricsFontSize,omitempty"`
+	// DesktopLyricsDoubleLine previews the next sentence for Chinese lyrics.
+	DesktopLyricsDoubleLine bool `json:"desktopLyricsDoubleLine,omitempty"`
 	// NotchActivity shows the cover and the music's levels beside the
 	// notch while music plays, which hides the menu bar there.
 	NotchActivity bool `json:"notchActivity"`

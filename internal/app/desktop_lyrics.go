@@ -36,6 +36,18 @@ func (a *app) setDesktopLyricsEnabled(enabled bool) {
 	a.redraw()
 }
 
+func (a *app) setDesktopLyricsLocked(locked bool) {
+	if !supportsDesktopLyrics() || !a.settings.DesktopLyrics {
+		return
+	}
+	if a.desktopLyrics == nil {
+		a.syncDesktopLyrics()
+	}
+	if a.desktopLyrics != nil {
+		a.desktopLyrics.setLocked(locked)
+	}
+}
+
 func (a *app) syncDesktopLyrics() {
 	if !supportsDesktopLyrics() {
 		return

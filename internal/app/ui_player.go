@@ -396,7 +396,10 @@ func (a *app) playerBar(c *ui.Context) {
 	// The controls keep the middle, between sides that share what is left:
 	// narrower, the middle gives up to 140 DIPs, and what plays keeps room
 	// for its cover, some of its title and its heart.
-	const controls = 3*32 + 2*4 // lyrics, queue and the speaker
+	controls := float32(3*32 + 2*4) // lyrics, queue and the speaker
+	if supportsDesktopLyrics() {
+		controls += 32 + 4
+	}
 	ui.Row(c).Absolute().Left(0).Right(0).Bottom(0).Height(playerBarHeight).PaddingX(20).Gap(20).AlignItems(ui.Center).Children(func() {
 		// What plays.
 		ui.Row(c).Grow(1).Basis(0).MinWidth(150).Children(func() {
@@ -458,7 +461,7 @@ func (a *app) playerBar(c *ui.Context) {
 			})
 		})
 
-		// Lyrics and volume.
+		// Lyrics, volume and the independent desktop-lyrics switch.
 		ui.Row(c).Grow(1).Basis(0).MinWidth(controls).Justify(ui.End).AlignItems(ui.Center).Gap(4).Children(func() {
 			lyr := p.muted
 			if a.nowPlaying {
@@ -475,6 +478,26 @@ func (a *app) playerBar(c *ui.Context) {
 				a.nowPlaying, a.npPane = true, paneQueue
 			}
 			a.volumeButton(c, p.text.Alpha(0.75))
+			if supportsDesktopLyrics() {
+				a.desktopLyricsPlayerButton(c, p)
+			}
 		})
 	})
+}
+
+var iconDesktopLyrics = strokeIcon(`<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4M7 9h10M7 12h6"/>`)
+
+func (a *app) desktopLyricsPlayerButton(c *ui.Context, p palette) {
+	color, hint, icon := p.muted, "开启桌面歌词", iconDesktopLyrics
+	if a.settings.DesktopLyrics {
+		color, hint = p.accent, "关闭桌面歌词 · 右键锁定"
+		if a.settings.DesktopLyricsLocked {
+			hint, icon = "关闭桌面歌词 · 右键解锁", desktopLyricsLockIcon
+		}
+	}
+	button := iconButton(c.Key("desktop-lyrics"), icon, 16, color, "桌面歌词", playerSurface).Tooltip(hint)
+	button.OnClick(func() { a.setDesktopLyricsEnabled(!a.settings.DesktopLyrics) })
+	if button.RightClicked() && a.settings.DesktopLyrics {
+		a.setDesktopLyricsLocked(!a.settings.DesktopLyricsLocked)
+	}
 }

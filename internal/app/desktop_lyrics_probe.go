@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -21,6 +22,9 @@ func RunDesktopLyricsProbe(dir string, duration time.Duration, check bool) error
 		return err
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0700); err != nil {
 		return err
 	}
 	mygo.App.SetName("Lilt Lyrics Probe")
@@ -97,11 +101,47 @@ func runDesktopLyricsNativeChecks(a *app, dir string) {
 		action func()
 	}{
 		{"shown", func() {}},
+		{"resized", func() { a.desktopLyrics.resizeWidth(40) }},
+		{"long-line", func() {
+			a.pl.SetLyrics(lyrics.Build("[00:01]让每个平凡瞬间化作旋律，陪伴我们走过漫长的夜晚，一起听见那些熟悉的声音", "", ""))
+			a.redraw()
+		}},
+		{"short-line", func() {
+			a.pl.SetLyrics(lyrics.Build("[00:01]我们一起听音乐", "", ""))
+			a.redraw()
+		}},
+		{"double-line", func() {
+			a.settings.DesktopLyricsDoubleLine = true
+			a.pl.SetLyrics(lyrics.Build("[00:01]我们一起听音乐\n[00:12]让声音陪伴远方", "", ""))
+			a.redraw()
+		}},
+		{"single-line", func() {
+			a.settings.DesktopLyricsDoubleLine = false
+			a.redraw()
+		}},
+		{"translated-double-line", func() {
+			a.settings.DesktopLyricsDoubleLine = true
+			a.pl.SetLyrics(lyrics.Build("[00:01]Let the music carry us home\n[00:12]Stay with me", "[00:01]让音乐陪伴我们回家\n[00:12]留在我身边", ""))
+			a.redraw()
+		}},
+		{"translated-single-line", func() {
+			a.settings.DesktopLyricsDoubleLine = false
+			a.redraw()
+		}},
 		{"main-hidden", func() { a.win.Hide() }},
 		{"locked", func() { a.desktopLyrics.setLocked(true) }},
+		{"locked-moved", func() {
+			r := a.desktopLyrics.win.Bounds()
+			r.X += 32
+			r.Y -= 32
+			a.desktopLyrics.win.SetBounds(r)
+		}},
 		{"unlocked", func() { a.desktopLyrics.setLocked(false) }},
 		{"closed", func() { a.setDesktopLyricsEnabled(false) }},
 		{"reopened", func() { a.setDesktopLyricsEnabled(true); a.win.ShowInactive() }},
+		{"locked-again", func() { a.setDesktopLyricsLocked(true) }},
+		{"closed-while-locked", func() { a.setDesktopLyricsEnabled(false) }},
+		{"restored-locked", func() { a.setDesktopLyricsEnabled(true) }},
 	}
 	for i, stage := range stages {
 		time.AfterFunc(time.Duration(i+1)*time.Second, func() {
@@ -111,6 +151,11 @@ func runDesktopLyricsNativeChecks(a *app, dir string) {
 				time.AfterFunc(300*time.Millisecond, func() {
 					mygo.RunOnMain(func() {
 						results[stage.name] = desktopLyricsNativeSnapshot(a)
+						if strings.HasSuffix(stage.name, "-line") && a.desktopLyrics.win != nil {
+							if data, err := a.desktopLyrics.win.CapturePage(); err == nil {
+								os.WriteFile(filepath.Join(dir, stage.name+".png"), data, 0600)
+							}
+						}
 						if b, err := json.MarshalIndent(results, "", "  "); err == nil {
 							os.WriteFile(filepath.Join(dir, "native-report.json"), b, 0600)
 						}
