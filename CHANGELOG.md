@@ -1,5 +1,21 @@
 # 更新日志
 
+## 0.2.2
+
+- 逐字歌词完全适配 QQ 音乐官方 QRC 逐字时间轴，暂停或回跳后高亮仍紧跟播放位置
+- 音量平衡从单一开关扩展为关闭、安静、标准、高音量四档，旧设置的开启对应「标准」挡位
+- 修复主窗口关闭到托盘后，再次点击应用快捷方式会新开一个应用的问题
+- 音量控件上鼠标滚轮改为每次滚动 5%，触控板滑动保持连续变化
+
+### 下载指南
+
+| 处理器架构 | Windows | macOS | Linux |
+| :--- | :--- | :--- | :--- |
+| amd64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.2/lilt-setup-0.2.2-amd64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.2/lilt-0.2.2-amd64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.2/lilt_0.2.2_amd64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.2/lilt-0.2.2-linux-amd64.tar.gz) |
+| arm64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.2/lilt-setup-0.2.2-arm64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.2/lilt-0.2.2-arm64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.2/lilt_0.2.2_arm64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.2.2/lilt-0.2.2-linux-arm64.tar.gz) |
+
+> Linux：Ubuntu / Debian 等支持 deb 的发行版选 `.deb`，其他发行版选 `.tar.gz`。
+
 ## 0.2.1
 
 - 以补丁形式修复MyGo Windows 层在多个缩放比例不同的显示器之间恢复窗口时，窗口位置和尺寸可能逐次漂移的问题
