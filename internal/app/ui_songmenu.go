@@ -19,8 +19,8 @@ func (a *app) songMenu(c *ui.Context, tr *qqmusic.Track, size float32, color ui.
 }
 
 // songItems builds the menu of what can be done with tr, behind its dots
-// or a right click on its row: copying its title, its title with its
-// artists, or the link to its page, opening its artists' or album's, and,
+// or a right click on its row: playing it next, copying its title, its title
+// with its artists, or the link to its page, opening its artists' or album's, and,
 // signed in, adding it to a playlist or taking it out of pid, the playlist
 // it is listed in, if set.
 func (a *app) songItems(tr *qqmusic.Track, pid int64) func(m *ui.Menu) {
@@ -29,6 +29,11 @@ func (a *app) songItems(tr *qqmusic.Track, pid int64) func(m *ui.Menu) {
 			a.programItems(m, tr)
 			return
 		}
+		if m.Item("下一首播放").Disabled(!tr.Playable()).Chosen() {
+			a.pl.PlayNext(*tr)
+			a.toast = "已设为下一首播放"
+		}
+		m.Separator()
 		if m.Item("复制歌名").Chosen() {
 			copyText(tr.Name)
 		}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -173,6 +174,17 @@ func (p *Player) PlayQueue(tracks []qqmusic.Track, start int) {
 		return
 	}
 	p.load(start)
+}
+
+// PlayNext inserts t after the current track in play order without changing
+// playback. With nothing playing, it queues t for when playback starts.
+func (p *Player) PlayNext(t qqmusic.Track) {
+	i := len(p.queue)
+	p.queue = append(p.queue, t)
+	// A menu can insert while the queue view is being built. Keep its copy
+	// of the old order intact until the next build.
+	p.order = slices.Insert(slices.Clone(p.order), p.at+1, i)
+	p.sync()
 }
 
 // PlayRadio plays tracks in their order, then goes on with those feed
