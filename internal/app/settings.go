@@ -19,6 +19,10 @@ type settings struct {
 	// Notch shows the quick player around the notch: the listener turns
 	// it on.
 	Notch bool `json:"notch"`
+	// DesktopLyrics enables the independent floating lyrics panel.
+	DesktopLyrics         bool    `json:"desktopLyrics"`
+	DesktopLyricsLocked   bool    `json:"desktopLyricsLocked"`
+	DesktopLyricsFontSize float32 `json:"desktopLyricsFontSize,omitempty"`
 	// NotchActivity shows the cover and the music's levels beside the
 	// notch while music plays, which hides the menu bar there.
 	NotchActivity bool `json:"notchActivity"`

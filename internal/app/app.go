@@ -64,12 +64,13 @@ func (a *app) pageState() *pageScrollState {
 // app is the state both windows show. Everything in it is read and changed
 // on the main thread: by the views, and by goroutines through post.
 type app struct {
-	win   *mygo.Window
-	notch *notch
-	tray  *mygo.Tray // the icon in the menu bar or notification area, while it shows
-	art   *artCache
-	pl    *player.Player
-	pal   palette
+	win           *mygo.Window
+	notch         *notch
+	desktopLyrics *desktopLyrics
+	tray          *mygo.Tray // the icon in the menu bar or notification area, while it shows
+	art           *artCache
+	pl            *player.Player
+	pal           palette
 
 	route   route
 	history []route
@@ -194,8 +195,14 @@ func (a *app) redraw() {
 	if a.win != nil {
 		invalidateWindow(a.win)
 	}
+	if a.settingsWin != nil {
+		invalidateWindow(a.settingsWin)
+	}
 	if a.notch != nil && a.notch.win != nil {
 		invalidateWindow(a.notch.win)
+	}
+	if d := a.desktopLyrics; d != nil && d.win != nil && a.settings.DesktopLyrics {
+		invalidateWindow(d.win)
 	}
 }
 
@@ -203,6 +210,9 @@ var invalidateWindow = (*mygo.Window).Invalidate
 
 // playerChanged keeps every window in sync, including seeks while paused.
 func (a *app) playerChanged() {
+	if a.desktopLyrics != nil {
+		a.desktopLyrics.revision++
+	}
 	a.keepSession()
 	a.syncCaptions()
 	a.redraw()
@@ -303,6 +313,7 @@ func Run() error {
 		// Shown or switched to the morning after, it shows the new day's.
 		a.win.OnFocus(a.freshenHome)
 		a.applyTray()
+		a.syncDesktopLyrics()
 		if shotHook != nil {
 			shotHook(a)
 		}
@@ -322,6 +333,9 @@ func Run() error {
 	})
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
 		a.quitting = true
+		if a.desktopLyrics != nil {
+			a.desktopLyrics.destroy()
+		}
 		a.settings.Volume = a.volume
 		a.settings.save()
 		a.saveSession()

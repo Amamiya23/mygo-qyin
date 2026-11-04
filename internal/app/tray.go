@@ -113,7 +113,7 @@ func (a *app) trayMenu() *mygo.Menu {
 		}
 	}
 	name := mygo.App.Name()
-	return mygo.NewMenu([]*mygo.MenuItem{
+	items := []*mygo.MenuItem{
 		{Label: "打开" + name, Click: run(a.showMain)},
 		mygo.Separator(),
 		{Label: "播放/暂停", Click: run(func() { a.pl.TogglePlay() })},
@@ -121,9 +121,26 @@ func (a *app) trayMenu() *mygo.Menu {
 		{Label: "上一首", Click: run(func() { a.pl.Prev() })},
 		{Label: "喜欢/取消喜欢", Click: run(a.likeCurrent)},
 		mygo.Separator(),
-		{Label: "设置…", Click: run(front(a.openSettings))},
-		{Label: "检查更新…", Click: run(front(checkForUpdates))},
+	}
+	if supportsDesktopLyrics() {
+		lyrics := []*mygo.MenuItem{
+			{Label: "桌面歌词", Type: mygo.MenuItemCheckbox, Checked: a.settings.DesktopLyrics,
+				Click: run(func() { a.setDesktopLyricsEnabled(!a.settings.DesktopLyrics) })},
+			{Label: "解锁桌面歌词", Disabled: !a.settings.DesktopLyrics || !a.settings.DesktopLyricsLocked,
+				Click: run(func() {
+					if a.desktopLyrics != nil {
+						a.desktopLyrics.setLocked(false)
+					}
+				})},
+			mygo.Separator(),
+		}
+		items = append(items, lyrics...)
+	}
+	items = append(items,
+		&mygo.MenuItem{Label: "设置…", Click: run(front(a.openSettings))},
+		&mygo.MenuItem{Label: "检查更新…", Click: run(front(checkForUpdates))},
 		mygo.Separator(),
-		{Label: "退出" + name, Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
-	})
+		&mygo.MenuItem{Label: "退出" + name, Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
+	)
+	return mygo.NewMenu(items)
 }
