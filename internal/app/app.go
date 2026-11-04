@@ -230,6 +230,12 @@ func (a *app) canHideOnClose() bool {
 
 // Run runs the app until it quits.
 func Run() error {
+	// Starting the app again, as from its shortcut while it plays from the
+	// tray, hands the launch over to the instance already running, which
+	// opens its window again, instead of running a second app beside it.
+	if !mygo.App.RequestSingleInstanceLock() {
+		return nil
+	}
 	moveOldData()
 	a := &app{
 		playlists:  map[int64]*qqmusic.Playlist{},
@@ -331,6 +337,9 @@ func Run() error {
 		}
 	})
 	mygo.App.OnWindowAllClosed(func() {})
+	// The Dock icon's click, and the launch another instance handed over
+	// above, as the shortcut's while the window hides in the tray.
 	mygo.App.OnActivate(func(bool) { a.showMain() })
+	mygo.App.OnSecondInstance(func([]string, string) { a.showMain() })
 	return mygo.App.Run()
 }
