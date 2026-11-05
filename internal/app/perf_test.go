@@ -13,7 +13,7 @@ import (
 
 // Hovering a paused player control stops requesting frames once its feedback settles.
 func TestPlayerBarHoverFrameBudget(t *testing.T) {
-	for _, label := range []string{"打开正在播放", "上一首", "播放/暂停", "播放队列", "音量"} {
+	for _, label := range []string{"打开正在播放", "上一首", "播放/暂停", "待播清单", "音量"} {
 		t.Run(label, func(t *testing.T) {
 			a := newTestApp()
 			a.settings = defaultSettings()
@@ -33,6 +33,26 @@ func TestPlayerBarHoverFrameBudget(t *testing.T) {
 				t.Fatal("settled player hover keeps requesting frames")
 			}
 		})
+	}
+}
+
+// The paused floating queue stops requesting frames after opening and hovering.
+func TestPlayerQueuePopoverFrameBudget(t *testing.T) {
+	a := queuePopupApp(30)
+	tt := ui.NewTester(a.view, 1180, 700)
+	if err := tt.Click("待播清单"); err != nil {
+		t.Fatal(err)
+	}
+	r, ok := tt.Find(a.pl.Queue()[2].Name)
+	if !ok {
+		t.Fatal("cannot hover a queue entry")
+	}
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	tt.Advance(time.Second)
+	if tt.FramePending() {
+		t.Fatal("the idle floating queue keeps requesting frames")
 	}
 }
 

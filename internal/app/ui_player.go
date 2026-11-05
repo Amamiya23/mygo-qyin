@@ -474,9 +474,7 @@ func (a *app) playerBar(c *ui.Context) {
 			if iconButton(c.Key("lyrics"), iconLyrics, 16, lyr, label, playerSurface).Clicked() && tr != nil {
 				a.nowPlaying, a.npPane = true, a.lyricsPaneChosen()
 			}
-			if iconButton(c.Key("queue"), iconQueue, 16, p.muted, "播放队列", playerSurface).Clicked() && tr != nil {
-				a.nowPlaying, a.npPane = true, paneQueue
-			}
+			a.queueButton(c)
 			a.volumeButton(c, p.text.Alpha(0.75))
 			if supportsDesktopLyrics() {
 				a.externalLyricsPlayerButton(c, p)

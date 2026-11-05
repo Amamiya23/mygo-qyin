@@ -142,6 +142,10 @@ type app struct {
 	comments    commentState
 	tabCount    rollState // the count on the comments' tab, as it rolls
 
+	queueOpen    bool // the player bar's floating queue shows
+	queuePopup   ui.ListState
+	queuePopupAt int // the floating queue's last followed row, reset when opened
+
 	fmMode        int    // the FM mode chosen, in fmModes
 	radioStarting string // the radio asked for its first songs, or ""
 

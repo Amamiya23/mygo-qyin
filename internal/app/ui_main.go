@@ -44,6 +44,9 @@ func (a *app) view(c *ui.Context) {
 		c.OnShortcut(0, ui.KeySpace, a.pl.TogglePlay)
 	}
 	npOpen, npSettled := a.npState(c)
+	if npOpen || a.pl.Current() == nil {
+		a.queueOpen = false
+	}
 	root.Children(func() {
 		page := ui.Row(c).Fill().AlignItems(ui.Stretch)
 		page.Children(func() {
@@ -111,6 +114,7 @@ func (a *app) shortcuts(c *ui.Context) {
 // closes Now Playing over it, though it is the page open.
 func (a *app) open(r route) {
 	a.nowPlaying = false
+	a.queueOpen = false
 	if r == a.route {
 		return
 	}
@@ -120,6 +124,7 @@ func (a *app) open(r route) {
 
 // show shows the page of r.
 func (a *app) show(r route) {
+	a.queueOpen = false
 	a.route = r
 	if r.page == pageSearch {
 		a.query, a.searched = r.query, r

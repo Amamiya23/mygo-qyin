@@ -181,7 +181,7 @@ func TestPlayerBarHoverFrames(t *testing.T) {
 				{name: "volume", label: "音量"},
 				{name: "previous", label: "上一首"},
 				{name: "play", label: "播放/暂停"},
-				{name: "queue", label: "播放队列"},
+				{name: "queue", label: "待播清单"},
 				{name: "info", label: "打开正在播放"},
 				{name: "like", label: "喜欢"},
 				{name: "pressed-play", label: "播放/暂停", pressed: true},

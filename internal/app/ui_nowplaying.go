@@ -652,20 +652,28 @@ func (g *lyricGlide) step(c *ui.Context, s *ui.ScrollState) float32 {
 // queuePane lists the whole queue in play order, the track playing marked
 // among the others: a click plays one there, and the list stays as it is.
 func (a *app) queuePane(c *ui.Context) {
+	a.queueTracks(c, &a.queueList, &a.queueAt, palette{
+		text: white, muted: white.Alpha(0.55), faint: white.Alpha(0.4),
+		hover: white.Alpha(0.08), press: white.Alpha(0.12),
+	}).Padding(8, 0, 40, 0)
+}
+
+// queueTracks shares playback and menus between the page and its floating queue.
+func (a *app) queueTracks(c *ui.Context, list *ui.ListState, lastAt *int, p palette) ui.Element {
 	pl := a.pl
 	order, at := pl.PlayOrder()
 	// Opened, it shows the track playing at its top; after, it follows it
 	// as little as keeps it in view.
-	if at >= 0 && at != a.queueAt {
-		if a.queueAt < 0 {
-			a.queueList.ScrollTo(at, ui.Start)
+	if at >= 0 && at != *lastAt {
+		if *lastAt < 0 {
+			list.ScrollTo(at, ui.Start)
 		} else {
-			a.queueList.ScrollIntoView(at)
+			list.ScrollIntoView(at)
 		}
-		a.queueAt = at
+		*lastAt = at
 	}
-	a.queueList.Key = func(row int) any { return order[row] }
-	ui.List(c.Key("queue"), &a.queueList, len(order), func(r int) {
+	list.Key = func(row int) any { return order[row] }
+	return ui.List(c.Key("queue"), list, len(order), func(r int) {
 		i := order[r]
 		tr := &pl.Queue()[i]
 		playing := r == at
@@ -673,9 +681,9 @@ func (a *app) queuePane(c *ui.Context) {
 			ContextMenu(a.songItems(tr, 0))
 		switch {
 		case playing:
-			row.Background(white.Alpha(0.12))
+			row.Background(p.press)
 		case row.Hovered():
-			row.Background(white.Alpha(0.08))
+			row.Background(p.hover)
 		}
 		if !tr.Playable() {
 			row.Opacity(0.4)
@@ -684,9 +692,9 @@ func (a *app) queuePane(c *ui.Context) {
 			a.cover(c, tr.Album.PicURL, 96, 42, 7)
 			ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
 				ui.Text(c, tr.Name).FontSize(14).FontWeight(600).SingleLine()
-				a.artistLinks(c, tr, white.Alpha(0.55), white).FontSize(12.5).SingleLine()
+				a.artistLinks(c, tr, p.muted, p.text).FontSize(12.5).SingleLine()
 			})
-			ui.Text(c, clock(tr.Length())).FontSize(12).FontFeatures("tnum").TextColor(white.Alpha(0.4))
+			ui.Text(c, clock(tr.Length())).FontSize(12).FontFeatures("tnum").TextColor(p.faint)
 		})
 		if row.Clicked() && tr.Playable() {
 			if playing {
@@ -695,5 +703,5 @@ func (a *app) queuePane(c *ui.Context) {
 				pl.Jump(i)
 			}
 		}
-	}).Grow(1).Padding(8, 0, 40, 0).Gap(2)
+	}).Grow(1).MinHeight(0).TextColor(p.text).Gap(2)
 }
