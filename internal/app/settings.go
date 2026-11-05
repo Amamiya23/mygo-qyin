@@ -25,6 +25,8 @@ type settings struct {
 	DesktopLyricsFontSize float32 `json:"desktopLyricsFontSize,omitempty"`
 	// DesktopLyricsDoubleLine previews the next sentence for Chinese lyrics.
 	DesktopLyricsDoubleLine bool `json:"desktopLyricsDoubleLine,omitempty"`
+	// TaskbarLyrics embeds a separate compact lyric view in the Windows taskbar.
+	TaskbarLyrics bool `json:"taskbarLyrics,omitempty"`
 	// NotchActivity shows the cover and the music's levels beside the
 	// notch while music plays, which hides the menu bar there.
 	NotchActivity bool `json:"notchActivity"`

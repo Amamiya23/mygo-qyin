@@ -67,6 +67,7 @@ type app struct {
 	win           *mygo.Window
 	notch         *notch
 	desktopLyrics *desktopLyrics
+	taskbarLyrics *taskbarLyrics
 	tray          *mygo.Tray // the icon in the menu bar or notification area, while it shows
 	art           *artCache
 	pl            *player.Player
@@ -204,6 +205,15 @@ func (a *app) redraw() {
 	if d := a.desktopLyrics; d != nil && d.win != nil && a.settings.DesktopLyrics {
 		invalidateWindow(d.win)
 	}
+	if d := a.taskbarLyrics; d != nil && d.win != nil && d.visible && a.settings.TaskbarLyrics {
+		invalidateWindow(d.win)
+		if d.coverWin != nil {
+			invalidateWindow(d.coverWin)
+		}
+	}
+	if d := a.taskbarLyrics; d != nil && d.controls != nil && d.controlsOpen {
+		invalidateWindow(d.controls)
+	}
 }
 
 var invalidateWindow = (*mygo.Window).Invalidate
@@ -212,6 +222,10 @@ var invalidateWindow = (*mygo.Window).Invalidate
 func (a *app) playerChanged() {
 	if a.desktopLyrics != nil {
 		a.desktopLyrics.revision++
+	}
+	if a.taskbarLyrics != nil {
+		a.taskbarLyrics.revision++
+		a.taskbarLyrics.syncCoverWindow()
 	}
 	a.keepSession()
 	a.syncCaptions()
@@ -314,6 +328,7 @@ func Run() error {
 		a.win.OnFocus(a.freshenHome)
 		a.applyTray()
 		a.syncDesktopLyrics()
+		a.syncTaskbarLyrics()
 		if shotHook != nil {
 			shotHook(a)
 		}
@@ -335,6 +350,9 @@ func Run() error {
 		a.quitting = true
 		if a.desktopLyrics != nil {
 			a.desktopLyrics.destroy()
+		}
+		if a.taskbarLyrics != nil {
+			a.taskbarLyrics.destroy()
 		}
 		a.settings.Volume = a.volume
 		a.settings.save()

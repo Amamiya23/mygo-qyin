@@ -270,6 +270,16 @@ func (a *app) settingsContent(c *ui.Context) {
 		})
 	})
 
+	if supportsTaskbarLyrics() {
+		group("任务栏歌词", func() {
+			row("启用", "", func() {
+				if ui.Switch(c.Key("taskbar-lyrics"), &s.TaskbarLyrics).Label("启用任务栏歌词").Changed() {
+					a.setTaskbarLyricsEnabled(s.TaskbarLyrics)
+				}
+			})
+		})
+	}
+
 	if supportsDesktopLyrics() {
 		group("桌面歌词", func() {
 			row("显示行数", "双行仅针对中文歌", func() {
