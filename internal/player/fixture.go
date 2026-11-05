@@ -26,6 +26,13 @@ func (p *Player) Cue(tracks []qqmusic.Track) {
 // SetLyrics gives the current track lines, as loaded.
 func (p *Player) SetLyrics(lines []lyrics.Line) {
 	p.lyrics, p.lyricsLoaded = lines, true
+	p.instrumental = false
+}
+
+// SetInstrumentalLyrics gives the current track QQ's instrumental response.
+func (p *Player) SetInstrumentalLyrics() {
+	p.SetLyrics(nil)
+	p.instrumental = true
 }
 
 // Hold makes the player play at pos with nothing to play: its position

@@ -70,6 +70,7 @@ type Player struct {
 
 	lyrics       []lyrics.Line
 	lyricsLoaded bool
+	instrumental bool
 
 	// pending holds a seek asked for while the track loads.
 	pending time.Duration
@@ -358,6 +359,9 @@ func (p *Player) Repeat() RepeatMode { return p.repeat }
 // Lyrics returns the current track's lyrics, and whether they have loaded.
 func (p *Player) Lyrics() ([]lyrics.Line, bool) { return p.lyrics, p.lyricsLoaded }
 
+// Instrumental reports an explicit instrumental response for the current track.
+func (p *Player) Instrumental() bool { return p.instrumental }
+
 // Downloaded returns the share of the current track downloaded so far, or
 // false before it has started to.
 func (p *Player) Downloaded() (float64, bool) {
@@ -637,6 +641,7 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 	p.loading, p.playing, p.err = true, play, ""
 	p.awaiting = false
 	p.lyrics, p.lyricsLoaded = nil, false
+	p.instrumental = false
 	p.pending = from
 	p.announce(&t, nil)
 	p.refill()
@@ -658,10 +663,12 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 		if err == nil {
 			lines = lyrics.Build(lrc, trans, timed)
 		}
+		instrumental := err == nil && len(lines) == 0 && lyrics.IsInstrumental(lrc)
 		p.post(func() {
 			if gen == p.gen {
 				p.lyrics = lines
 				p.lyricsLoaded = true
+				p.instrumental = instrumental
 			}
 		})
 	}()

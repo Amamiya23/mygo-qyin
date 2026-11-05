@@ -27,6 +27,10 @@ type desktopLyricContent struct {
 
 // desktopLyricAt keeps the current line through instrumental gaps until its successor starts.
 func desktopLyricAt(lines []lyrics.Line, loaded bool, position time.Duration, doubleLine bool) desktopLyricContent {
+	return lyricAt(lines, loaded, position, doubleLine, desktopLyricsTranslation(lines))
+}
+
+func lyricAt(lines []lyrics.Line, loaded bool, position time.Duration, doubleLine, translation bool) desktopLyricContent {
 	out := desktopLyricContent{index: -1}
 	if !loaded {
 		out.text = "歌词加载中…"
@@ -45,7 +49,7 @@ func desktopLyricAt(lines []lyrics.Line, loaded bool, position time.Duration, do
 	}
 	line := lines[index]
 	out.line, out.index, out.text = line, index, line.Text
-	if desktopLyricsTranslation(lines) {
+	if translation {
 		out.translation = line.Translation
 	} else if doubleLine && index+1 < len(lines) {
 		out.preview = lines[index+1].Text

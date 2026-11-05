@@ -51,13 +51,27 @@ func TestTaskbarLyricsTwoLineContent(t *testing.T) {
 		name, lrc, translation, preview, translated string
 	}{
 		{"Chinese preview", "[00:01]我们一起听音乐\n[00:10]让歌声陪伴远方", "", "让歌声陪伴远方", ""},
+		// 快乐的扑满 contains none of the old simplified-character whitelist.
+		{"Chinese without whitelist characters", "[00:44.16]那个样子\n[00:48.39]友情 在积蓄", "", "友情 在积蓄", ""},
+		{"traditional Chinese without translation", "[00:01]山河歲月\n[00:10]風雨同行", "", "風雨同行", ""},
+		{"Han with duplicate translation", "[00:01]那个样子\n[00:10]友情 在积蓄", "[00:01]那个，样子。", "友情 在积蓄", ""},
+		{"Han with distinct translation", "[00:01]学校 国体\n[00:10]Next line", "[00:01]学校与国体", "", "学校与国体"},
+		{"Chinese with Japanese credit", "[00:00]作曲：たなか\n[00:01]那个样子\n[00:10]友情 在积蓄", "", "友情 在积蓄", ""},
+		{"Japanese without translation", "[00:01]愛\n[00:10]君をのせて", "", "", ""},
+		{"Korean without translation", "[00:01]사랑해\n[00:10]다시", "", "", ""},
 		{"foreign translation", "[00:01]Stay with me\n[00:10]Through the night", "[00:01]留在我身边\n[00:10]陪伴漫漫长夜", "", "留在我身边"},
 		{"foreign without translation", "[00:01]Stay with me\n[00:10]Through the night", "", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a, d := taskbarLyricsViewFixture()
 			a.pl.SetLyrics(lyrics.Build(tc.lrc, tc.translation, ""))
-			a.pl.Seek(2 * time.Second)
+			lines, _ := a.pl.Lyrics()
+			for _, line := range lines {
+				if !lyrics.IsCredit(line.Text) {
+					a.pl.Seek(line.At + time.Second)
+					break
+				}
+			}
 			content := d.content(a.pl.Position())
 			if content.preview != tc.preview || content.translation != tc.translated {
 				t.Fatalf("wrong secondary sentence: preview=%q translation=%q", content.preview, content.translation)
@@ -83,11 +97,32 @@ func TestTaskbarLyricsTwoLineContent(t *testing.T) {
 					t.Fatal("two-line layout stopped painting")
 				}
 			}
-			a.pl.Seek(11 * time.Second)
+			a.pl.Seek(lines[len(lines)-1].At + time.Second)
 			if after := d.content(a.pl.Position()); after.preview != "" || after.text == content.text {
 				t.Fatalf("seek kept an old Chinese preview or current line: %+v", after)
 			}
 		})
+	}
+}
+
+// Instrumentals used to be filtered into missing lyrics and never painted in the taskbar.
+func TestTaskbarLyricsInstrumental(t *testing.T) {
+	a, d := taskbarLyricsViewFixture()
+	a.pl.SetInstrumentalLyrics()
+	a.pl.Seek(0)
+	content := d.content(0)
+	if content.text != "纯音乐，请欣赏" || content.index != -1 || content.preview != "" || content.translation != "" || desktopLyricWake(content, 0) != 0 {
+		t.Fatalf("instrumental lost its static presentation: %+v", content)
+	}
+	tt := ui.NewTester(d.view, 280, 42)
+	tt.Frame()
+	if !taskbarFrameHasInk(tt.Image()) {
+		t.Fatal("instrumental status was not painted")
+	}
+	a.pl.SetLyrics(nil)
+	tt.Frame()
+	if a.pl.Instrumental() || taskbarFrameHasInk(tt.Image()) {
+		t.Fatal("missing lyrics retained the previous instrumental status")
 	}
 }
 
@@ -163,6 +198,8 @@ func TestTaskbarLyricsFrames(t *testing.T) {
 		{"chinese-dark", "", "", "[1000,9000]我们一起(1000,4000)听音乐(5000,5000)\n[12000,4000]让歌声陪伴远方(12000,4000)", 280, 42, true, 3 * time.Second},
 		{"chinese-light", "", "", "[1000,9000]我们一起(1000,4000)听音乐(5000,5000)\n[12000,4000]让歌声陪伴远方(12000,4000)", 280, 42, false, 3 * time.Second},
 		{"chinese-compact-light", "[00:01]我们一起听音乐\n[00:12]让歌声陪伴远方", "", "", 240, 28, false, 3 * time.Second},
+		{"chinese-unrecognized-light", "[00:44.16]那个样子\n[00:48.39]友情 在积蓄", "", "", 280, 42, false, 45 * time.Second},
+		{"instrumental-light", "[00:00:00]此歌曲为没有填词的纯音乐，请您欣赏", "", "", 280, 42, false, 0},
 		{"translation-dark", "[00:01]君をのせて 空へ続く道", "[00:01]伴随着你，走向天空的路", "", 280, 42, true, 3 * time.Second},
 		{"long-dark", "", "", "[1000,10000]我们一起走过漫长道路(1000,5000)直到音乐带我们走向远方(6000,5000)\n[20000,4000]让歌声陪伴远方(20000,4000)", 160, 42, true, 8 * time.Second},
 		{"compact-light", "[00:01]Stay with me through the night", "[00:01]留在我身边", "", 240, 28, false, 3 * time.Second},
@@ -171,6 +208,9 @@ func TestTaskbarLyricsFrames(t *testing.T) {
 			a, d := taskbarLyricsViewFixture()
 			d.dark = scene.dark
 			a.pl.SetLyrics(lyrics.Build(scene.lrc, scene.translation, scene.qrc))
+			if lyrics.IsInstrumental(scene.lrc) {
+				a.pl.SetInstrumentalLyrics()
+			}
 			a.pl.Seek(scene.position)
 			tt := ui.NewTester(func(c *ui.Context) {
 				ui.Box(c).Fill().Background(radixGray(scene.dark, 2)).Children(func() { d.view(c) })

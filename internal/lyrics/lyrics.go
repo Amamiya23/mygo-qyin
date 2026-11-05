@@ -136,7 +136,7 @@ func Build(lrc, translation, wordTimed string) []Line {
 	}
 	if len(lines) == 0 {
 		for _, l := range parseLRC(lrc) {
-			if l.Text != "" && !isInstrumental(l.Text) {
+			if l.Text != "" && !IsInstrumental(l.Text) {
 				lines = append(lines, l)
 			}
 		}
@@ -172,8 +172,9 @@ func Build(lrc, translation, wordTimed string) []Line {
 	return lines
 }
 
-// QQ returns this LRC placeholder for instrumentals, rather than no lines.
-func isInstrumental(text string) bool {
+// IsInstrumental recognizes QQ's explicit instrumental placeholder, including
+// when it is still inside the raw LRC. Empty or unavailable lyrics are distinct.
+func IsInstrumental(text string) bool {
 	return strings.Contains(text, "此歌曲为没有填词的纯音乐")
 }
 

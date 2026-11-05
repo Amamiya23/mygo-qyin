@@ -3,9 +3,11 @@ package app
 import (
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf16"
 
 	"github.com/egoist/mygo/ui"
+	"lilt/internal/lyrics"
 	"lilt/internal/qqmusic"
 )
 
@@ -33,7 +35,7 @@ func (d *taskbarLyrics) view(c *ui.Context) {
 	playing := d.a.pl.Playing()
 	state.step(track.ID, track.MID, d.revision, content, position, c.Now(), playing, c.Preferences().ReduceMotion || !playing)
 	var scrolling bool
-	if content.index >= 0 && content.text != "" {
+	if content.text != "" && (content.index >= 0 || d.a.pl.Instrumental()) {
 		layout := makeTaskbarLyricLayout(c, content, position, d.dark, height)
 		available := max(1, width-left-6)
 		scrolling = (layout.width > available || (!layout.preview && layout.secondaryWidth > available)) && !content.line.Timed && content.line.End > position && position >= content.line.At
@@ -130,7 +132,36 @@ func (d *taskbarLyrics) content(position time.Duration) desktopLyricContent {
 		return desktopLyricContent{index: -1}
 	}
 	lines, loaded := d.a.pl.Lyrics()
-	return desktopLyricAt(lines, loaded, position, true)
+	if loaded && d.a.pl.Instrumental() {
+		return desktopLyricContent{index: -1, text: "纯音乐，请欣赏"}
+	}
+	return lyricAt(lines, loaded, position, true, taskbarLyricsTranslation(lines))
+}
+
+// Han lyrics without a translation use current/next even when they contain none
+// of the simplified forms recognized by the desktop's conservative policy.
+// Preserve distinct translations and Japanese/Korean originals; credits do not
+// establish the language of the sung text.
+func taskbarLyricsTranslation(lines []lyrics.Line) bool {
+	if !desktopLyricsTranslation(lines) {
+		return false
+	}
+	han := false
+	for _, line := range lines {
+		if lyrics.IsCredit(line.Text) {
+			continue
+		}
+		if text := desktopLyricComparable(line.Translation); text != "" && text != desktopLyricComparable(line.Text) {
+			return true
+		}
+		for _, r := range line.Text {
+			if unicode.In(r, unicode.Hiragana, unicode.Katakana, unicode.Hangul) {
+				return true
+			}
+			han = han || unicode.Is(unicode.Han, r)
+		}
+	}
+	return !han
 }
 
 type taskbarLyricLayout struct {

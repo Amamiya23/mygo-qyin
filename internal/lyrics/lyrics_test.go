@@ -5,6 +5,25 @@ import (
 	"time"
 )
 
+// Filtering QQ's instrumental marker must still let the player distinguish it from missing lyrics.
+func TestIsInstrumental(t *testing.T) {
+	for _, tc := range []struct {
+		lrc  string
+		want bool
+	}{
+		{"[00:00:00]此歌曲为没有填词的纯音乐，请您欣赏", true},
+		{"", false},
+		{"[00:01]那个样子", false},
+	} {
+		if got := IsInstrumental(tc.lrc); got != tc.want {
+			t.Fatalf("instrumental(%q)=%t, want %t", tc.lrc, got, tc.want)
+		}
+		if tc.want && len(Build(tc.lrc, "", "")) != 0 {
+			t.Fatal("instrumental marker became a sung lyric")
+		}
+	}
+}
+
 func TestParseLRC(t *testing.T) {
 	lines := mergeLyrics("[00:01.000] 作词 : 某人\n[00:30.54]故事的小黄花\n[00:34.165][01:10.1]从出生那年就飘着\n[00:40.00]\n",
 		"[00:30.54]The little yellow flower\n")
