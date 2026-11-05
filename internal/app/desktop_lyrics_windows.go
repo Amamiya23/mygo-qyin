@@ -27,3 +27,5 @@ func styleDesktopLyricsWindow(w *mygo.Window) {
 	const noMoveSizeZOrderActivate = 0x0002 | 0x0001 | 0x0004 | 0x0010
 	user.NewProc("SetWindowPos").Call(hwnd, 0, 0, 0, 0, 0, frameChanged|noMoveSizeZOrderActivate)
 }
+
+func setDesktopLyricsIgnoreMouse(w *mygo.Window, ignore bool) { w.SetIgnoreMouseEvents(ignore) }

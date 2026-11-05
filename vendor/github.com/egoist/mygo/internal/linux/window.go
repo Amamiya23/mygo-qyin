@@ -133,6 +133,7 @@ type window struct {
 	// context menu positioning.
 	press struct {
 		button     int32
+		x, y       float64
 		rootX      float64
 		rootY      float64
 		time       uint32
@@ -143,6 +144,7 @@ type window struct {
 	// dragPending holds whether a window drag was requested with the last
 	// press and waits for the pointer to move; see StartDrag.
 	dragPending bool
+	layerDrag   layerDrag
 
 	// cursor is the resize cursor shown over an edge of a frameless
 	// window, and the page's cursor it replaced.
@@ -863,6 +865,10 @@ func (w *window) StartDrag() {
 	if !w.press.hasPressed {
 		return
 	}
+	if w.layer {
+		w.layerDrag = layerDrag{x: w.press.x, y: w.press.y, pending: true}
+		return
+	}
 	if !w.undecorated() {
 		gtkWindowBeginMoveDrag(w.win, w.press.button, int32(w.press.rootX), int32(w.press.rootY), w.press.time)
 		return
@@ -873,6 +879,10 @@ func (w *window) StartDrag() {
 // checkDragStart starts a pending window drag once the pointer moves past
 // the drag threshold with the button still down.
 func (w *window) checkDragStart(event ptr) {
+	if w.layer {
+		w.moveLayerDrag(event)
+		return
+	}
 	if !w.dragPending {
 		return
 	}
@@ -1784,6 +1794,9 @@ func initWindowCallbacks() {
 		// GdkEventButton: time 20, button 52, x_root 64, y_root 72.
 		w.press.time = field[uint32](event, 20)
 		w.press.button = int32(field[uint32](event, 52))
+		w.press.x = field[float64](event, 24)
+		w.press.y = field[float64](event, 32)
+		w.layerDrag = layerDrag{}
 		w.press.rootX = field[float64](event, 64)
 		w.press.rootY = field[float64](event, 72)
 		w.press.hasPressed = true

@@ -1,5 +1,20 @@
 # MyGo 本地补丁
 
+## v0.7.4：Linux layer-shell 面板拖动
+
+`mygo-v0.7.4-linux-layer-drag.patch` 已应用到 vendor。layer-shell
+面板不能使用普通 Wayland 顶层窗口的系统拖动；此补丁改为更新面板锚点，
+并通知窗口位置变化，以便现有窗口状态机制保存位置。拖动限制在当前输出内。
+重新生成 vendor 后，可在项目根目录重新应用：
+
+```sh
+git apply --check --directory=vendor/github.com/egoist/mygo patches/mygo-v0.7.4-linux-layer-drag.patch
+git apply --directory=vendor/github.com/egoist/mygo patches/mygo-v0.7.4-linux-layer-drag.patch
+```
+
+Linux 后端拖动状态测试：`go test ./vendor/github.com/egoist/mygo/internal/linux -run TestLayerDrag`。
+实际合成器的拖动与位置恢复仍需在目标 Wayland 桌面验证。
+
 ## v0.7.4：Windows 混合 DPI 窗口恢复
 
 `mygo-v0.7.4-windows-window-state.patch` 已应用到受 Git 跟踪的

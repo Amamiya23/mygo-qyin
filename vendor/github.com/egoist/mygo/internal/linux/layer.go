@@ -3,12 +3,65 @@
 package linux
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/egoist/mygo/internal/platform"
 )
+
+// layerDrag keeps the point held by the pointer in surface coordinates.
+type layerDrag struct {
+	x, y    float64
+	pending bool
+	active  bool
+}
+
+func (d *layerDrag) move(r platform.Rect, x, y float64, pressed bool) (platform.Rect, bool) {
+	if !pressed {
+		*d = layerDrag{}
+		return r, false
+	}
+	if !d.pending && !d.active {
+		return r, false
+	}
+	dx, dy := x-d.x, y-d.y
+	if d.pending {
+		if dx*dx+dy*dy < 64 {
+			return r, false
+		}
+		d.pending, d.active = false, true
+	}
+	r.X += int(math.Round(dx))
+	r.Y += int(math.Round(dy))
+	return r, dx != 0 || dy != 0
+}
+
+func (w *window) moveLayerDrag(event ptr) {
+	if !w.layerDrag.pending && !w.layerDrag.active {
+		return
+	}
+	r := w.layerBounds()
+	next, moved := w.layerDrag.move(r, field[float64](event, 24), field[float64](event, 32), field[uint32](event, 48)&(1<<8) != 0)
+	if !moved {
+		return
+	}
+	// Keep the panel on its current output: Wayland does not expose global
+	// pointer coordinates for finding another output during a drag.
+	m := gdkDisplayGetMonitorAtPoint(gdkDisplayGetDefault(), int32(r.X), int32(r.Y))
+	if m == 0 {
+		return
+	}
+	var g gdkRectangle
+	gdkMonitorGetGeometry(m, &g)
+	next.X = min(int(g.X+g.Width)-r.Width, max(int(g.X), next.X))
+	next.Y = min(int(g.Y+g.Height)-r.Height, max(int(g.Y), next.Y))
+	if next.X != r.X || next.Y != r.Y {
+		w.placeLayer(next.X, next.Y)
+		w.h.Moved()
+	}
+}
 
 // gtk-layer-shell makes panels surfaces of the wlr-layer-shell protocol
 // on Wayland compositors that speak it (Sway, Hyprland, KDE Plasma,

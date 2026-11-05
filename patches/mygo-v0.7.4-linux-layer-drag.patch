@@ -1,0 +1,163 @@
+diff --git a/internal/linux/layer.go b/internal/linux/layer.go
+index 38eed8e..85e4887 100644
+--- a/internal/linux/layer.go
++++ b/internal/linux/layer.go
+@@ -3,6 +3,7 @@
+ package linux
+ 
+ import (
++	"math"
+ 	"os"
+ 	"path/filepath"
+ 	"sync"
+@@ -10,6 +11,58 @@ import (
+ 	"github.com/egoist/mygo/internal/platform"
+ )
+ 
++// layerDrag keeps the point held by the pointer in surface coordinates.
++type layerDrag struct {
++	x, y    float64
++	pending bool
++	active  bool
++}
++
++func (d *layerDrag) move(r platform.Rect, x, y float64, pressed bool) (platform.Rect, bool) {
++	if !pressed {
++		*d = layerDrag{}
++		return r, false
++	}
++	if !d.pending && !d.active {
++		return r, false
++	}
++	dx, dy := x-d.x, y-d.y
++	if d.pending {
++		if dx*dx+dy*dy < 64 {
++			return r, false
++		}
++		d.pending, d.active = false, true
++	}
++	r.X += int(math.Round(dx))
++	r.Y += int(math.Round(dy))
++	return r, dx != 0 || dy != 0
++}
++
++func (w *window) moveLayerDrag(event ptr) {
++	if !w.layerDrag.pending && !w.layerDrag.active {
++		return
++	}
++	r := w.layerBounds()
++	next, moved := w.layerDrag.move(r, field[float64](event, 24), field[float64](event, 32), field[uint32](event, 48)&(1<<8) != 0)
++	if !moved {
++		return
++	}
++	// Keep the panel on its current output: Wayland does not expose global
++	// pointer coordinates for finding another output during a drag.
++	m := gdkDisplayGetMonitorAtPoint(gdkDisplayGetDefault(), int32(r.X), int32(r.Y))
++	if m == 0 {
++		return
++	}
++	var g gdkRectangle
++	gdkMonitorGetGeometry(m, &g)
++	next.X = min(int(g.X+g.Width)-r.Width, max(int(g.X), next.X))
++	next.Y = min(int(g.Y+g.Height)-r.Height, max(int(g.Y), next.Y))
++	if next.X != r.X || next.Y != r.Y {
++		w.placeLayer(next.X, next.Y)
++		w.h.Moved()
++	}
++}
++
+ // gtk-layer-shell makes panels surfaces of the wlr-layer-shell protocol
+ // on Wayland compositors that speak it (Sway, Hyprland, KDE Plasma,
+ // COSMIC…), as launchers there do (Ulauncher, Walker, anyrun): above
+diff --git a/internal/linux/window.go b/internal/linux/window.go
+index 7a13e1b..33ea5c7 100644
+--- a/internal/linux/window.go
++++ b/internal/linux/window.go
+@@ -133,6 +133,7 @@ type window struct {
+ 	// context menu positioning.
+ 	press struct {
+ 		button     int32
++		x, y       float64
+ 		rootX      float64
+ 		rootY      float64
+ 		time       uint32
+@@ -143,6 +144,7 @@ type window struct {
+ 	// dragPending holds whether a window drag was requested with the last
+ 	// press and waits for the pointer to move; see StartDrag.
+ 	dragPending bool
++	layerDrag   layerDrag
+ 
+ 	// cursor is the resize cursor shown over an edge of a frameless
+ 	// window, and the page's cursor it replaced.
+@@ -863,6 +865,10 @@ func (w *window) StartDrag() {
+ 	if !w.press.hasPressed {
+ 		return
+ 	}
++	if w.layer {
++		w.layerDrag = layerDrag{x: w.press.x, y: w.press.y, pending: true}
++		return
++	}
+ 	if !w.undecorated() {
+ 		gtkWindowBeginMoveDrag(w.win, w.press.button, int32(w.press.rootX), int32(w.press.rootY), w.press.time)
+ 		return
+@@ -873,6 +879,10 @@ func (w *window) StartDrag() {
+ // checkDragStart starts a pending window drag once the pointer moves past
+ // the drag threshold with the button still down.
+ func (w *window) checkDragStart(event ptr) {
++	if w.layer {
++		w.moveLayerDrag(event)
++		return
++	}
+ 	if !w.dragPending {
+ 		return
+ 	}
+@@ -1784,6 +1794,9 @@ func initWindowCallbacks() {
+ 		// GdkEventButton: time 20, button 52, x_root 64, y_root 72.
+ 		w.press.time = field[uint32](event, 20)
+ 		w.press.button = int32(field[uint32](event, 52))
++		w.press.x = field[float64](event, 24)
++		w.press.y = field[float64](event, 32)
++		w.layerDrag = layerDrag{}
+ 		w.press.rootX = field[float64](event, 64)
+ 		w.press.rootY = field[float64](event, 72)
+ 		w.press.hasPressed = true
+diff --git a/internal/linux/layer_drag_test.go b/internal/linux/layer_drag_test.go
+new file mode 100644
+index 0000000..3279218
+--- /dev/null
++++ b/internal/linux/layer_drag_test.go
+@@ -0,0 +1,34 @@
++//go:build linux && (amd64 || arm64)
++
++package linux
++
++import (
++	"testing"
++
++	"github.com/egoist/mygo/internal/platform"
++)
++
++// Layer panels move with the held pointer and stop on release instead of using xdg-toplevel dragging.
++func TestLayerDrag(t *testing.T) {
++	d := layerDrag{x: 20, y: 30, pending: true}
++	r := platform.Rect{X: 100, Y: 200, Width: 400, Height: 100}
++	if next, moved := d.move(r, 25, 33, true); moved || next != r {
++		t.Fatal("moved before the drag threshold")
++	}
++	next, moved := d.move(r, 30, 36, true)
++	if !moved || next.X != 110 || next.Y != 206 {
++		t.Fatalf("first move: %+v, moved=%v", next, moved)
++	}
++	// Once the surface moves, its held point returns to the original local position.
++	r = next
++	next, moved = d.move(r, 23, 28, true)
++	if !moved || next.X != 113 || next.Y != 204 {
++		t.Fatalf("continued move: %+v, moved=%v", next, moved)
++	}
++	if _, moved = d.move(next, 40, 40, false); moved || d.active || d.pending {
++		t.Fatal("release did not stop the drag")
++	}
++	if _, moved = d.move(next, 50, 50, true); moved {
++		t.Fatal("motion after release restarted the drag")
++	}
++}

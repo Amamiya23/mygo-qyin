@@ -22,7 +22,7 @@ type desktopLyrics struct {
 }
 
 func supportsDesktopLyrics() bool {
-	return runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+	return runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "linux"
 }
 
 func (a *app) setDesktopLyricsEnabled(enabled bool) {
@@ -83,7 +83,7 @@ func (a *app) syncDesktopLyrics() {
 	styleDesktopLyricsWindow(w)
 	d.desiredHeight = 0
 	d.width = float64(w.Bounds().Width)
-	w.SetIgnoreMouseEvents(a.settings.DesktopLyricsLocked)
+	setDesktopLyricsIgnoreMouse(w, a.settings.DesktopLyricsLocked)
 	w.OnReadyToShow(func() {
 		if d.win == w && a.settings.DesktopLyrics && !a.quitting {
 			w.ShowInactive()
@@ -135,7 +135,7 @@ func (d *desktopLyrics) setLocked(locked bool) {
 	d.a.settings.DesktopLyricsLocked = locked
 	d.a.settings.save()
 	if d.win != nil {
-		d.win.SetIgnoreMouseEvents(locked)
+		setDesktopLyricsIgnoreMouse(d.win, locked)
 	}
 	d.a.refreshLyricsTray()
 	d.a.redraw()
