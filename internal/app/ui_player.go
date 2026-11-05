@@ -396,7 +396,7 @@ func (a *app) playerBar(c *ui.Context) {
 	// The controls keep the middle, between sides that share what is left:
 	// narrower, the middle gives up to 140 DIPs, and what plays keeps room
 	// for its cover, some of its title and its heart.
-	controls := float32(3*32 + 2*4) // lyrics, queue and the speaker
+	controls := float32(2*32 + 4) // queue and the speaker
 	if supportsDesktopLyrics() {
 		controls += 32 + 4
 	}
@@ -461,19 +461,8 @@ func (a *app) playerBar(c *ui.Context) {
 			})
 		})
 
-		// Lyrics, volume and the switch for the selected external lyrics mode.
+		// Queue, volume and the switch for the selected external lyrics mode.
 		ui.Row(c).Grow(1).Basis(0).MinWidth(controls).Justify(ui.End).AlignItems(ui.Center).Gap(4).Children(func() {
-			lyr := p.muted
-			if a.nowPlaying {
-				lyr = p.accent
-			}
-			label := "歌词"
-			if tr != nil && tr.ProgramID != 0 {
-				label = "节目简介"
-			}
-			if iconButton(c.Key("lyrics"), iconLyrics, 16, lyr, label, playerSurface).Clicked() && tr != nil {
-				a.nowPlaying, a.npPane = true, a.lyricsPaneChosen()
-			}
 			a.queueButton(c)
 			a.volumeButton(c, p.text.Alpha(0.75))
 			if supportsDesktopLyrics() {

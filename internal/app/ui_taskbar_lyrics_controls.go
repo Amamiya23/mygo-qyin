@@ -37,6 +37,7 @@ func (d *taskbarLyrics) controlsView(c *ui.Context) {
 		*previous = identity
 	}
 	a, pl := d.a, d.a.pl
+	p := paletteFor(&theme)
 	a.tickTimes(c)
 	ui.Column(c.Key(identity)).Fill().Padding(12).Gap(8).TextColor(text).Children(func() {
 		ui.Row(c).Height(64).Gap(12).AlignItems(ui.Center).Children(func() {
@@ -68,7 +69,7 @@ func (d *taskbarLyrics) controlsView(c *ui.Context) {
 			})
 		})
 		ui.Column(c).Gap(0).Children(func() {
-			a.scrubber(c.Key("progress"), &d.scrub, radixGray(dark, 6), text, 14, radixGreen(dark, 9)).FillWidth()
+			a.scrubber(c.Key("progress"), &d.scrub, p.press, p.text.Alpha(0.75), 14, p.accent).FillWidth()
 			position := pl.Position()
 			if d.scrub.active || d.scrub.held {
 				position = secs(d.scrub.v)

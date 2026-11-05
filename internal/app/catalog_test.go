@@ -263,7 +263,7 @@ func TestPlayEpisode(t *testing.T) {
 	a.pl.SetLyrics(nil)
 	tt.Advance(time.Second)
 	tt.Frame()
-	if err := tt.Click("节目简介"); err != nil {
+	if err := tt.Click("打开正在播放"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(time.Second)
