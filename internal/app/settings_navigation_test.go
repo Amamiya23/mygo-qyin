@@ -55,8 +55,8 @@ func TestGuestAccountMenuLogin(t *testing.T) {
 	wait(t, asked, "the guest login QR")
 }
 
-// Settings from either account menu uses the main route without duplicating history or creating a window.
-func TestAccountMenuSettingsPage(t *testing.T) {
+// Settings from the sidebar uses the main route without duplicating history or creating a window.
+func TestSidebarSettingsPage(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		t.Skip("macOS opens a native settings window")
 	}
@@ -64,17 +64,11 @@ func TestAccountMenuSettingsPage(t *testing.T) {
 		t.Run(fmt.Sprint(signedIn), func(t *testing.T) {
 			a := newTestApp()
 			a.settings = defaultSettings()
-			account := "账户"
 			if signedIn {
 				a.profile = &qqmusic.Profile{UserID: 1, Nickname: "小明"}
-				account = "小明"
 			}
 			tt := ui.NewTester(a.view, 1180, 780)
 			for range 2 {
-				if err := tt.Click(account); err != nil {
-					t.Fatal(err)
-				}
-				tt.Frame()
 				if err := tt.Click("设置"); err != nil {
 					t.Fatal(err)
 				}

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"runtime"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -277,8 +276,7 @@ func (a *app) profileName() string {
 }
 
 // accountRow sits at the foot of the sidebar: who is signed in, with a
-// dropdown to open their page or the settings or sign out, or a way to
-// sign in.
+// dropdown to open their page or sign out, or a way to sign in.
 func (a *app) accountRow(c *ui.Context) {
 	p := a.pal
 	b := ui.ButtonBase(c.Key("account")).Height(40).PaddingX(8).Gap(10).Radius(10).AlignItems(ui.Center).Justify(ui.Start).FocusRing(false)
@@ -312,8 +310,7 @@ func (a *app) accountRow(c *ui.Context) {
 }
 
 // accountMenu drops up from the account row, as wide as it, in the colors
-// of the volume popover: the listener's own page and the settings, then
-// signing out.
+// of the volume popover: the listener's own page and signing out.
 func (a *app) accountMenu(c *ui.Context, row ui.Element) {
 	pop := popoverColors(a.pal.dark)
 	ui.PopoverBase(c.Key("account-menu"), row, &a.accountOpen, func(panel ui.Element) {
@@ -323,10 +320,6 @@ func (a *app) accountMenu(c *ui.Context, row ui.Element) {
 			Transition(ui.ElementTransition{Animation: &ui.Snappy, Enter: &ui.Motion{Scale: 0.96, Y: 4}, Exit: &ui.Motion{Scale: 0.98}})
 		if w := row.Bounds().W; w > 0 {
 			panel.Width(w)
-		}
-		shortcut := "Ctrl+,"
-		if runtime.GOOS == "darwin" {
-			shortcut = "⌘,"
 		}
 		if a.profile == nil {
 			if a.menuItem(c, iconUser, "登录 QQ 音乐", "").AutoFocus().Clicked() {
@@ -338,14 +331,6 @@ func (a *app) accountMenu(c *ui.Context, row ui.Element) {
 				a.accountOpen = false
 				a.open(route{page: pageUser, id: a.profile.UserID})
 			}
-		}
-		settingsLabel := "设置"
-		if runtime.GOOS == "darwin" {
-			settingsLabel = "设置…"
-		}
-		if a.menuItem(c, iconSettings, settingsLabel, shortcut).Clicked() {
-			a.accountOpen = false
-			a.openSettings()
 		}
 		if a.profile != nil {
 			ui.Box(c).Height(0.5).Margin(4, 8).Background(pop.edge)
