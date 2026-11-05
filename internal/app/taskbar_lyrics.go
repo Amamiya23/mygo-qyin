@@ -8,7 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// taskbarLyrics owns a separate Explorer child; desktop lyrics remain independent.
+// taskbarLyrics owns the Explorer child used by the taskbar lyrics mode.
 // Only the taskbar monitor works off-thread. Window and player state stay on main.
 type taskbarLyrics struct {
 	a            *app
@@ -34,10 +34,11 @@ func (a *app) setTaskbarLyricsEnabled(enabled bool) {
 	if !supportsTaskbarLyrics() {
 		return
 	}
-	a.settings.TaskbarLyrics = enabled
-	a.settings.save()
-	a.syncTaskbarLyrics()
-	a.redraw()
+	if enabled {
+		a.applyLyricsMode(lyricsTaskbar, true)
+	} else if a.settings.TaskbarLyrics {
+		a.setLyricsEnabled(false)
+	}
 }
 
 func (a *app) syncTaskbarLyrics() {

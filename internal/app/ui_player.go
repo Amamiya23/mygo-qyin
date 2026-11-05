@@ -461,7 +461,7 @@ func (a *app) playerBar(c *ui.Context) {
 			})
 		})
 
-		// Lyrics, volume and the independent desktop-lyrics switch.
+		// Lyrics, volume and the switch for the selected external lyrics mode.
 		ui.Row(c).Grow(1).Basis(0).MinWidth(controls).Justify(ui.End).AlignItems(ui.Center).Gap(4).Children(func() {
 			lyr := p.muted
 			if a.nowPlaying {
@@ -479,7 +479,7 @@ func (a *app) playerBar(c *ui.Context) {
 			}
 			a.volumeButton(c, p.text.Alpha(0.75))
 			if supportsDesktopLyrics() {
-				a.desktopLyricsPlayerButton(c, p)
+				a.externalLyricsPlayerButton(c, p)
 			}
 		})
 	})
@@ -492,19 +492,28 @@ const desktopLyricsGlyph = `<path d="M7 10h10M9 14h6"/>`
 var (
 	iconDesktopLyrics       = strokeIcon(desktopLyricsGlyph + `<path d="M8 4H6a3 3 0 0 0-3 3v2M16 4h2a3 3 0 0 1 3 3v2M21 15v2a3 3 0 0 1-3 3h-2M8 20H6a3 3 0 0 1-3-3v-2"/>`)
 	iconDesktopLyricsLocked = strokeIcon(desktopLyricsGlyph + `<rect x="3" y="4" width="18" height="16" rx="3"/>`)
+	iconTaskbarLyrics       = strokeIcon(`<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 14h18M7 17h10"/>`)
 )
 
-func (a *app) desktopLyricsPlayerButton(c *ui.Context, p palette) {
-	color, hint, icon := p.muted, "开启桌面歌词", iconDesktopLyrics
-	if a.settings.DesktopLyrics {
-		color, hint = p.accent, "关闭桌面歌词 · 右键锁定"
-		if a.settings.DesktopLyricsLocked {
-			hint, icon = "关闭桌面歌词 · 右键解锁", iconDesktopLyricsLocked
+func (a *app) externalLyricsPlayerButton(c *ui.Context, p palette) {
+	mode := a.settings.lyricsMode()
+	label, icon := "桌面歌词", iconDesktopLyrics
+	if mode == lyricsTaskbar {
+		label, icon = "任务栏歌词", iconTaskbarLyrics
+	}
+	color, hint := p.muted, "开启"+label
+	if a.settings.lyricsEnabled() {
+		color, hint = p.accent, "关闭"+label
+		if mode == lyricsDesktop {
+			hint += " · 右键锁定"
+			if a.settings.DesktopLyricsLocked {
+				hint, icon = "关闭桌面歌词 · 右键解锁", iconDesktopLyricsLocked
+			}
 		}
 	}
-	button := iconButton(c.Key("desktop-lyrics"), icon, 18, color, "桌面歌词", playerSurface).Size(32, 32).Tooltip(hint)
-	button.OnClick(func() { a.setDesktopLyricsEnabled(!a.settings.DesktopLyrics) })
-	if button.RightClicked() && a.settings.DesktopLyrics {
+	button := iconButton(c.Key("external-lyrics"), icon, 18, color, label, playerSurface).Size(32, 32).Tooltip(hint)
+	button.OnClick(func() { a.setLyricsEnabled(!a.settings.lyricsEnabled()) })
+	if button.RightClicked() && mode == lyricsDesktop && a.settings.DesktopLyrics {
 		a.setDesktopLyricsLocked(!a.settings.DesktopLyricsLocked)
 	}
 }

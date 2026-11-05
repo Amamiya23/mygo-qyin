@@ -27,6 +27,8 @@ type settings struct {
 	DesktopLyricsDoubleLine bool `json:"desktopLyricsDoubleLine,omitempty"`
 	// TaskbarLyrics embeds a separate compact lyric view in the Windows taskbar.
 	TaskbarLyrics bool `json:"taskbarLyrics,omitempty"`
+	// LyricsMode keeps the preferred location independently of its enabled state.
+	LyricsMode string `json:"lyricsMode,omitempty"`
 	// NotchActivity shows the cover and the music's levels beside the
 	// notch while music plays, which hides the menu bar there.
 	NotchActivity bool `json:"notchActivity"`
@@ -212,6 +214,7 @@ func loadSettings() settings {
 		}
 		s.path = path
 	}
+	s.normalizeLyrics()
 	return s
 }
 

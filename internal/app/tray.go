@@ -123,17 +123,23 @@ func (a *app) trayMenu() *mygo.Menu {
 		mygo.Separator(),
 	}
 	if supportsDesktopLyrics() {
+		label := "桌面歌词"
+		if a.settings.lyricsMode() == lyricsTaskbar {
+			label = "任务栏歌词"
+		}
 		lyrics := []*mygo.MenuItem{
-			{Label: "桌面歌词", Type: mygo.MenuItemCheckbox, Checked: a.settings.DesktopLyrics,
-				Click: run(func() { a.setDesktopLyricsEnabled(!a.settings.DesktopLyrics) })},
-			{Label: "解锁桌面歌词", Disabled: !a.settings.DesktopLyrics || !a.settings.DesktopLyricsLocked,
+			{Label: label, Type: mygo.MenuItemCheckbox, Checked: a.settings.lyricsEnabled(),
+				Click: run(func() { a.setLyricsEnabled(!a.settings.lyricsEnabled()) })},
+		}
+		if a.settings.lyricsMode() == lyricsDesktop {
+			lyrics = append(lyrics, &mygo.MenuItem{Label: "解锁桌面歌词", Disabled: !a.settings.DesktopLyrics || !a.settings.DesktopLyricsLocked,
 				Click: run(func() {
 					if a.desktopLyrics != nil {
 						a.desktopLyrics.setLocked(false)
 					}
-				})},
-			mygo.Separator(),
+				})})
 		}
+		lyrics = append(lyrics, mygo.Separator())
 		items = append(items, lyrics...)
 	}
 	items = append(items,

@@ -11,8 +11,8 @@ import (
 	"lilt/internal/qqmusic"
 )
 
-// The settings switch persists both directions, stops monitoring, and leaves desktop lyrics independent.
-func TestTaskbarLyricsSettingsToggle(t *testing.T) {
+// Choosing a lyric position swaps the active owner, saves the mode, and stops the previous taskbar monitor.
+func TestTaskbarLyricsSettingsModeSwitch(t *testing.T) {
 	if !supportsTaskbarLyrics() {
 		t.Skip("taskbar lyrics are Windows-only")
 	}
@@ -20,40 +20,80 @@ func TestTaskbarLyricsSettingsToggle(t *testing.T) {
 	a.settings = defaultSettings()
 	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
 	a.setDesktopLyricsEnabled(true)
-	desktop := a.desktopLyrics
 	tt := ui.NewTester(a.settingsView, 560, 2200)
 	tt.Frame()
 	stopped := 0
-	for _, enabled := range []bool{true, false, true, false} {
-		if err := tt.Click("启用任务栏歌词"); err != nil {
+	for _, choice := range []struct {
+		label, mode string
+		taskbar     bool
+	}{
+		{"任务栏", "taskbar", true},
+		{"桌面", "desktop", false},
+		{"任务栏", "taskbar", true},
+		{"桌面", "desktop", false},
+	} {
+		if err := tt.Click(choice.label); err != nil {
 			t.Fatal(err)
 		}
 		tt.Frame()
 		restored := readDesktopLyricsEntrySettings(t, a)
-		if a.settings.TaskbarLyrics != enabled || restored.TaskbarLyrics != enabled {
-			t.Fatalf("taskbar switch did not apply/persist %t: live=%t saved=%t owner=%t", enabled, a.settings.TaskbarLyrics, restored.TaskbarLyrics, a.taskbarLyrics != nil)
+		if a.settings.lyricsMode() != choice.mode || restored.lyricsMode() != choice.mode {
+			t.Fatalf("position %q was not applied and saved: live=%q saved=%q", choice.label, a.settings.lyricsMode(), restored.lyricsMode())
 		}
-		if (a.taskbarLyrics != nil) != enabled {
-			t.Fatalf("taskbar owner lifecycle did not follow enabled=%t", enabled)
+		if a.settings.TaskbarLyrics != choice.taskbar || restored.TaskbarLyrics != choice.taskbar || a.settings.DesktopLyrics == choice.taskbar || restored.DesktopLyrics == choice.taskbar {
+			t.Fatalf("position %q did not exclusively enable its lyrics: live=%+v saved=%+v", choice.label, a.settings, restored)
 		}
-		if enabled {
+		if (a.taskbarLyrics != nil) != choice.taskbar {
+			t.Fatalf("taskbar owner lifecycle did not follow position %q", choice.label)
+		}
+		if choice.taskbar {
 			a.taskbarLyrics.stop = func() { stopped++ }
-		}
-		if a.desktopLyrics != desktop || !a.settings.DesktopLyrics || !restored.DesktopLyrics {
-			t.Fatal("taskbar switch changed desktop lyrics")
 		}
 	}
 	if stopped != 2 {
 		t.Fatalf("disabling did not stop each monitor: stopped=%d", stopped)
 	}
-	// Startup uses the saved choice without needing a click in Settings.
-	a.settings.TaskbarLyrics = true
-	a.settings.save()
+	a.setLyricsMode("taskbar")
 	b := newTestApp()
 	b.settings = readDesktopLyricsEntrySettings(t, a)
+	b.settings.normalizeLyrics()
 	b.syncTaskbarLyrics()
 	if b.taskbarLyrics == nil {
 		t.Fatal("restored preference did not recreate taskbar lyrics")
+	}
+}
+
+// Choosing a taskbar position while lyrics are off saves the preference without opening either lyric window.
+func TestTaskbarLyricsSettingsModeWhileDisabled(t *testing.T) {
+	if !supportsTaskbarLyrics() {
+		t.Skip("taskbar lyrics are Windows-only")
+	}
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	tt := ui.NewTester(a.settingsView, 560, 2200)
+	tt.Frame()
+	for _, label := range []string{"任务栏", "桌面", "任务栏"} {
+		if err := tt.Click(label); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if a.settings.lyricsEnabled() || a.desktopLyrics != nil || a.taskbarLyrics != nil {
+			t.Fatalf("choosing %q opened disabled lyrics", label)
+		}
+	}
+	restored := readDesktopLyricsEntrySettings(t, a)
+	if restored.lyricsMode() != "taskbar" || restored.lyricsEnabled() {
+		t.Fatal("disabled taskbar preference did not survive saving")
+	}
+	player := desktopLyricsEntryTester(a)
+	player.Frame()
+	if err := player.Click("任务栏歌词"); err != nil {
+		t.Fatal(err)
+	}
+	player.Frame()
+	if !a.settings.TaskbarLyrics || a.settings.DesktopLyrics || a.taskbarLyrics == nil {
+		t.Fatal("player switch did not open the saved taskbar mode")
 	}
 }
 

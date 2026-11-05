@@ -270,19 +270,24 @@ func (a *app) settingsContent(c *ui.Context) {
 		})
 	})
 
-	if supportsTaskbarLyrics() {
-		group("任务栏歌词", func() {
-			row("启用", "", func() {
-				if ui.Switch(c.Key("taskbar-lyrics"), &s.TaskbarLyrics).Label("启用任务栏歌词").Changed() {
-					a.setTaskbarLyricsEnabled(s.TaskbarLyrics)
+	group("实验性功能", func() {
+		if supportsTaskbarLyrics() {
+			row("歌词显示位置", "", func() {
+				i := 0
+				if s.lyricsMode() == lyricsTaskbar {
+					i = 1
+				}
+				if segmented(c.Key("lyrics-mode"), &i, "桌面", "任务栏") {
+					mode := lyricsDesktop
+					if i == 1 {
+						mode = lyricsTaskbar
+					}
+					a.setLyricsMode(mode)
 				}
 			})
-		})
-	}
-
-	if supportsDesktopLyrics() {
-		group("桌面歌词", func() {
-			row("显示行数", "双行仅针对中文歌", func() {
+		}
+		if supportsDesktopLyrics() && s.lyricsMode() == lyricsDesktop {
+			row("桌面歌词行数", "双行仅针对中文歌", func() {
 				i := 0
 				if s.DesktopLyricsDoubleLine {
 					i = 1
@@ -293,10 +298,7 @@ func (a *app) settingsContent(c *ui.Context) {
 					a.redraw()
 				}
 			})
-		})
-	}
-
-	group("实验性功能", func() {
+		}
 		row("进度条特效", "", func() {
 			chosen := progressEffects[0].label
 			labels := make([]string, len(progressEffects))

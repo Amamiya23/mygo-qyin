@@ -29,11 +29,11 @@ func (a *app) setDesktopLyricsEnabled(enabled bool) {
 	if !supportsDesktopLyrics() {
 		return
 	}
-	a.settings.DesktopLyrics = enabled
-	a.settings.save()
-	a.syncDesktopLyrics()
-	a.refreshLyricsTray()
-	a.redraw()
+	if enabled {
+		a.applyLyricsMode(lyricsDesktop, true)
+	} else if a.settings.DesktopLyrics {
+		a.setLyricsEnabled(false)
+	}
 }
 
 func (a *app) setDesktopLyricsLocked(locked bool) {
