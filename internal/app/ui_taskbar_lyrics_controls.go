@@ -69,7 +69,7 @@ func (d *taskbarLyrics) controlsView(c *ui.Context) {
 			})
 		})
 		ui.Column(c).Gap(0).Children(func() {
-			a.scrubber(c.Key("progress"), &d.scrub, p.press, p.text.Alpha(0.75), 14, p.accent).FillWidth()
+			a.scrubber(c.Key("progress"), &d.scrub, radixGray(dark, 8), p.text.Alpha(0.75), 14, p.accent).FillWidth()
 			position := pl.Position()
 			if d.scrub.active || d.scrub.held {
 				position = secs(d.scrub.v)
