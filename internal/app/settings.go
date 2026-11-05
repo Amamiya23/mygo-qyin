@@ -62,6 +62,8 @@ type settings struct {
 	StageSparks bool `json:"stageSparks,omitempty"`
 	// Volume is where the volume was left, from 0 to 1.
 	Volume float64 `json:"volume"`
+	// PlaybackFade smooths pause and resume operations.
+	PlaybackFade bool `json:"playbackFade"`
 	// Normalize is the old volume-balance switch, kept so installs saved
 	// before the mode selector can still be read.
 	Normalize bool `json:"volumeBalance"`
@@ -96,7 +98,7 @@ type settings struct {
 }
 
 func defaultSettings() settings {
-	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", SidebarMaterial: "acrylic", Volume: 0.8, Normalize: true, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true}
+	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", SidebarMaterial: "acrylic", Volume: 0.8, PlaybackFade: true, Normalize: true, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true}
 }
 
 const (

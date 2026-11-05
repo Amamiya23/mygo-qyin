@@ -236,6 +236,12 @@ func (a *app) settingsContent(c *ui.Context) {
 				a.redraw()
 			}
 		})
+		row("播放操作淡入淡出", "", func() {
+			if ui.Switch(c.Key("playback-fade"), &s.PlaybackFade).Label("切换播放操作淡入淡出").Changed() {
+				s.save()
+				a.redraw()
+			}
+		})
 		row("间奏时显示热评", "前奏、间奏与尾奏时，歌词处换成这首歌的热门评论", func() {
 			if ui.Switch(c.Key("hot-comments"), &s.HotComments).Label("切换热评").Changed() {
 				s.save()
@@ -272,12 +278,12 @@ func (a *app) settingsContent(c *ui.Context) {
 
 	group("实验性功能", func() {
 		if supportsTaskbarLyrics() {
-			row("歌词显示位置", "", func() {
+			row("外部歌词", "", func() {
 				i := 0
 				if s.lyricsMode() == lyricsTaskbar {
 					i = 1
 				}
-				if segmented(c.Key("lyrics-mode"), &i, "桌面", "任务栏") {
+				if segmented(c.Key("lyrics-mode"), &i, "桌面歌词", "任务栏歌词") {
 					mode := lyricsDesktop
 					if i == 1 {
 						mode = lyricsTaskbar

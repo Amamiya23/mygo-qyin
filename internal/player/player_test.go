@@ -81,6 +81,28 @@ func TestPauseFades(t *testing.T) {
 	}
 }
 
+// Disabling playback fades makes pause and resume immediate, even during an earlier fade.
+func TestPlaybackFadeDisabled(t *testing.T) {
+	_, p := posted()
+	defer p.out.Close()
+	enabled := true
+	p.PlaybackFade = func() bool { return enabled }
+	p.TogglePlay()
+	enabled = false
+	p.TogglePlay()
+	if !p.Playing() || !p.out.Playing() || p.fade.silent() {
+		t.Fatal("resuming without fades did not restore playback and volume")
+	}
+	p.TogglePlay()
+	if p.Playing() || p.out.Playing() {
+		t.Fatal("pausing without fades did not stop playback immediately")
+	}
+	p.TogglePlay()
+	if !p.Playing() || !p.out.Playing() {
+		t.Fatal("resuming without fades did not start playback immediately")
+	}
+}
+
 // A seek playing pauses, which fades out over a few milliseconds, and
 // plays again once there, its position the one asked for meanwhile.
 func TestSeekWithoutClick(t *testing.T) {

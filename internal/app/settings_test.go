@@ -59,6 +59,32 @@ func TestQuitOnCloseSettings(t *testing.T) {
 	}
 }
 
+// Toggling playback fading saves the selected behavior for the next launch.
+func TestPlaybackFadeSettings(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	tt := ui.NewTester(a.settingsView, 560, 2000)
+	tt.Frame()
+	for _, want := range []bool{false, true, false} {
+		if err := tt.Click("切换播放操作淡入淡出"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		b, err := os.ReadFile(a.settings.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored := defaultSettings()
+		if err := json.Unmarshal(b, &restored); err != nil {
+			t.Fatal(err)
+		}
+		if a.settings.PlaybackFade != want || restored.PlaybackFade != want {
+			t.Fatalf("playback fade: live=%t saved=%t, want %t", a.settings.PlaybackFade, restored.PlaybackFade, want)
+		}
+	}
+}
+
 // Choosing a volume-balance mode applies it to the current player and persists across launches.
 func TestVolumeBalanceSettings(t *testing.T) {
 	a := newTestApp()

@@ -290,6 +290,7 @@ func Run() error {
 		a.pl = player.New(a.post)
 		a.pl.Quality = func() string { return a.settings.Quality }
 		a.pl.Normalize = func() string { return a.settings.volumeBalance() }
+		a.pl.PlaybackFade = func() bool { return a.settings.PlaybackFade }
 		a.pl.Cache = newSongCache(a.settings)
 		a.cacheMoving = a.settings.PendingCacheDir != nil
 		a.pl.Changed = a.playerChanged

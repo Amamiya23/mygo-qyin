@@ -37,6 +37,8 @@ type Player struct {
 	Quality func() string
 	// Normalize returns the volume-balance mode, as the settings say.
 	Normalize func() string
+	// PlaybackFade reports whether playback operations should fade.
+	PlaybackFade func() bool
 	// Cache keeps the songs played, if set.
 	Cache *Cache
 	// Changed, if set, hears that what plays, where it is or whether it
@@ -454,6 +456,23 @@ func (p *Player) TogglePlay() {
 		return
 	}
 	out := p.out
+	if p.PlaybackFade != nil && !p.PlaybackFade() {
+		p.fade.attach(out, 1)
+		if p.playing {
+			p.playing = false
+			out.Pause()
+		} else {
+			p.playing = true
+			if !p.seeking && !out.Playing() {
+				if out.Position() >= out.Duration()-time.Second {
+					out.Seek(0)
+				}
+				out.Play()
+			}
+		}
+		p.sync()
+		return
+	}
 	if p.playing {
 		p.playing = false
 		p.fade.fade(0, fadeOut, func() {
@@ -713,7 +732,7 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 			p.out = audio.NewPlayer(s)
 			// From its middle, as a session picked up again, it fades in.
 			level := 1.0
-			if p.pending > 0 {
+			if p.pending > 0 && (p.PlaybackFade == nil || p.PlaybackFade()) {
 				level = 0
 			}
 			p.fade.attach(p.out, level)

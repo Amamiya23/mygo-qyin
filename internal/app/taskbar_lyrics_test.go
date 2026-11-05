@@ -27,10 +27,10 @@ func TestTaskbarLyricsSettingsModeSwitch(t *testing.T) {
 		label, mode string
 		taskbar     bool
 	}{
-		{"任务栏", "taskbar", true},
-		{"桌面", "desktop", false},
-		{"任务栏", "taskbar", true},
-		{"桌面", "desktop", false},
+		{"任务栏歌词", "taskbar", true},
+		{"桌面歌词", "desktop", false},
+		{"任务栏歌词", "taskbar", true},
+		{"桌面歌词", "desktop", false},
 	} {
 		if err := tt.Click(choice.label); err != nil {
 			t.Fatal(err)
@@ -73,7 +73,7 @@ func TestTaskbarLyricsSettingsModeWhileDisabled(t *testing.T) {
 	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
 	tt := ui.NewTester(a.settingsView, 560, 2200)
 	tt.Frame()
-	for _, label := range []string{"任务栏", "桌面", "任务栏"} {
+	for _, label := range []string{"任务栏歌词", "桌面歌词", "任务栏歌词"} {
 		if err := tt.Click(label); err != nil {
 			t.Fatal(err)
 		}

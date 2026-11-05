@@ -50,14 +50,10 @@ func (d *taskbarLyrics) controlsView(c *ui.Context) {
 					ui.Icon(c, iconNote).Size(24, 24).TextColor(muted)
 				}
 			})
-			ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+			ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 				ui.Text(c, tr.Name).FontSize(14).FontWeight(600).LineHeight(1.15).SingleLine().Tooltip(tr.Name)
 				artist := tr.ArtistNames()
-				ui.Text(c, artist).FontSize(11.5).LineHeight(1.15).TextColor(muted).SingleLine().Tooltip(artist)
-				ui.Row(c).Gap(4).AlignItems(ui.Center).TextColor(muted).Children(func() {
-					ui.Icon(c, iconNote).Size(12, 12)
-					ui.Text(c, "Lilt").FontSize(11.5).LineHeight(1.15)
-				})
+				ui.Text(c, artist).FontSize(13).LineHeight(1.15).TextColor(muted).SingleLine().Tooltip(artist)
 			})
 			ui.Row(c).Shrink(0).Gap(8).AlignItems(ui.Center).Children(func() {
 				iconButton(c.Key("previous"), iconPrev, 18, text, "上一首", playerSurface).Size(28, 28).Shrink(0).
