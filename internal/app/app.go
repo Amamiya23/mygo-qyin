@@ -122,11 +122,12 @@ type app struct {
 
 	mineCollapsed, savedCollapsed bool
 
-	query       string
-	searchBox   ui.Handle
-	searches    map[route]*searchData // the results of each search, by its page
-	searched    route                 // the search last shown, which the sidebar goes back to
-	suggestions suggestState          // what the search field's query may be after
+	query         string
+	searchBox     ui.Handle
+	historyScroll ui.ScrollState
+	searches      map[route]*searchData // the results of each search, by its page
+	searched      route                 // the search last shown, which the sidebar goes back to
+	suggestions   suggestState          // what the search field's query may be after
 
 	nowPlaying  bool
 	npOpen      bool      // Now Playing as it last showed: open or not

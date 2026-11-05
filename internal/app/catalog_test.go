@@ -162,6 +162,85 @@ func TestSearchHistoryChoice(t *testing.T) {
 	}
 }
 
+// Search history retains 50 distinct searches and discards the oldest.
+func TestSearchHistoryLimit(t *testing.T) {
+	a := newTestApp()
+	for i := range 51 {
+		a.rememberSearch(fmt.Sprintf("history-%02d", i))
+	}
+	if len(a.settings.SearchHistory) != 50 || a.settings.SearchHistory[0] != "history-50" || a.settings.SearchHistory[49] != "history-01" {
+		t.Fatalf("history after 51 searches: %q", a.settings.SearchHistory)
+	}
+	a.rememberSearch("history-25")
+	if len(a.settings.SearchHistory) != 50 || a.settings.SearchHistory[0] != "history-25" || slices.Contains(a.settings.SearchHistory[1:], "history-25") {
+		t.Fatalf("history after repeating a search: %q", a.settings.SearchHistory)
+	}
+}
+
+// A long search history scrolls to older entries, which can still be chosen.
+func TestSearchHistoryScroll(t *testing.T) {
+	asked := fakeSearch(t)
+	a := newTestApp()
+	a.settings = defaultSettings()
+	for i := range searchHistoryLimit {
+		a.settings.SearchHistory = append(a.settings.SearchHistory, fmt.Sprintf("history-%02d", i))
+	}
+	tt := ui.NewTester(a.view, 1200, 1000)
+	tt.Frame()
+	if err := tt.Click("搜索"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	r, ok := tt.Find("history-00")
+	if !ok {
+		t.Fatal("no history")
+	}
+	tt.Move(r.X+20, r.Y+10)
+	tt.Frame()
+	tt.Wheel(r.X+20, r.Y+10, 0, 2000)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if a.historyScroll.Y <= 0 {
+		t.Fatal("history did not scroll in a tall window")
+	}
+	if err := tt.Click("history-49"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if got := wait(t, asked, "the search"); got.query != "history-49" {
+		t.Fatalf("searched %+v", got)
+	}
+}
+
+// Arrow keys bring an older history entry into view before choosing it.
+func TestSearchHistoryKeyboardScroll(t *testing.T) {
+	asked := fakeSearch(t)
+	a := newTestApp()
+	a.settings = defaultSettings()
+	for i := range searchHistoryLimit {
+		a.settings.SearchHistory = append(a.settings.SearchHistory, fmt.Sprintf("history-%02d", i))
+	}
+	tt := ui.NewTester(a.view, 1200, 600)
+	tt.Frame()
+	if err := tt.Click("搜索"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	for range searchHistoryLimit {
+		tt.Key(0, ui.KeyDown)
+	}
+	tt.Frame()
+	r, ok := tt.Find("history-49")
+	if !ok || r.Y < 0 || r.Y+r.H > 600 {
+		t.Fatalf("highlighted history is outside the window: %+v", r)
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if got := wait(t, asked, "the search"); got.query != "history-49" {
+		t.Fatalf("searched %+v", got)
+	}
+}
+
 // Typing asks for suggestions once it pauses, and a suggested album opens
 // its page, remembering the query.
 func TestSuggestionOpensPage(t *testing.T) {

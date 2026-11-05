@@ -139,7 +139,7 @@ func searchErrorMessage(err error) string {
 }
 
 // searchHistoryLimit is how many searches the history keeps.
-const searchHistoryLimit = 20
+const searchHistoryLimit = 50
 
 // rememberSearch puts q first in the history of searches, once.
 func (a *app) rememberSearch(q string) {

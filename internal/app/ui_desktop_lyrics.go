@@ -13,7 +13,7 @@ import (
 
 const desktopLyricsToolbarHeight float32 = 44
 const desktopLyricsFade = 240 * time.Millisecond
-const desktopLyricsRestAlpha float32 = 0.528
+const desktopLyricsRestAlpha float32 = 0.478
 const desktopLyricsSungAlpha float32 = 0.95
 
 // desktopLyricContent is a snapshot of the player's timeline, never a second clock.
