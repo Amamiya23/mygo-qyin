@@ -1,5 +1,21 @@
 # 更新日志
 
+## 0.3.0
+
+- Windows 和 macOS 新增实验性桌面歌词，独立显示逐字高亮的当前歌词，支持拖动、调整宽度和字号、锁定位置及悬停播放控制
+- Windows 新增实验性任务栏歌词，在空间允许的横向主任务栏中显示当前歌词与封面；点击封面可打开播放控制浮层，进行上一首、播放/暂停、下一首和进度跳转；灵感来源[TaskbarLyrics](https://github.com/ANYNC/TaskbarLyrics)
+- 设置中可统一选择桌面或任务栏歌词，并可从播放栏或托盘快速开关；关闭歌词后会保留当前模式和桌面歌词偏好
+- 歌曲菜单新增「下一首播放」，可将歌曲直接插入当前播放项之后
+
+### 下载指南
+
+| 处理器架构 | Windows | macOS | Linux |
+| :--- | :--- | :--- | :--- |
+| amd64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.0/lilt-setup-0.3.0-amd64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.0/lilt-0.3.0-amd64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.0/lilt_0.3.0_amd64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.0/lilt-0.3.0-linux-amd64.tar.gz) |
+| arm64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.0/lilt-setup-0.3.0-arm64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.0/lilt-0.3.0-arm64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.0/lilt_0.3.0_arm64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.0/lilt-0.3.0-linux-arm64.tar.gz) |
+
+> Linux：Ubuntu / Debian 等支持 deb 的发行版选 `.deb`，其他发行版选 `.tar.gz`。
+
 ## 0.2.2
 
 - 逐字歌词完全适配 QQ 音乐官方 QRC 逐字时间轴，暂停或回跳后高亮仍紧跟播放位置
