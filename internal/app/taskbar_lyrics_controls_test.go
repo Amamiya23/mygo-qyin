@@ -210,7 +210,7 @@ func TestTaskbarLyricsControlsOwnerDismissal(t *testing.T) {
 	}
 }
 
-// Export the actual taskbar song controls in light and dark mode for visual inspection.
+// Export light and dark taskbar controls, including transparent material content, for visual inspection.
 func TestTaskbarLyricsControlsFrames(t *testing.T) {
 	dir := os.Getenv("NM_FRAMES")
 	if dir == "" {
@@ -220,15 +220,22 @@ func TestTaskbarLyricsControlsFrames(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, mode := range []struct {
-		name string
-		dark bool
-	}{{"light", false}, {"dark", true}} {
+		name     string
+		dark     bool
+		vibrancy bool
+	}{{"light", false, false}, {"dark", true, false}, {"acrylic-light", false, true}, {"acrylic-dark", true, true}} {
 		t.Run(mode.name, func(t *testing.T) {
 			a, d := taskbarControlsFixture()
 			d.controlsOpen, d.dark = true, mode.dark
+			if mode.vibrancy {
+				d.dark = !mode.dark // Exercise differing app and taskbar appearances.
+			}
 			a.pl.Seek(72 * time.Second)
 			tt := ui.NewTester(d.controlsView, taskbarControlsWidth, taskbarControlsHeight)
+			tt.SetDark(mode.dark)
+			tt.SetVibrancy(mode.vibrancy)
 			tt.Move(-10, -10)
+			tt.Advance(200 * time.Millisecond)
 			tt.Frame()
 			f, err := os.Create(filepath.Join(dir, "taskbar-controls-"+mode.name+".png"))
 			if err != nil {

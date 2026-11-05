@@ -95,7 +95,7 @@ func (d *taskbarLyrics) toggleControls() {
 	w := mygo.NewFlyout(mygo.FlyoutOptions{
 		Parent: d.coverWin, Anchor: mygo.Rectangle{Width: bounds.Width, Height: bounds.Height},
 		Placement: mygo.PlacementTopStart, Gap: 16, Width: taskbarControlsWidth, Height: taskbarControlsHeight,
-		Focusable: true, Shadow: true, Hidden: true, Content: ui.View(d.controlsView),
+		Focusable: true, Shadow: true, Hidden: true, Vibrancy: mygo.VibrancyAcrylic, Content: ui.View(d.controlsView),
 	})
 	d.controls = w
 	w.OnClosed(func() {
