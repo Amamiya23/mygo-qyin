@@ -22,7 +22,7 @@ func (a *app) queueButton(c *ui.Context) {
 		w, h := c.Size()
 		height := min(float32(len(a.pl.Queue())*60+64), 460, h-topBar(c)-playerBarHeight-24)
 		panel.AttachTo(b, ui.AnchorTopEnd, ui.AnchorBottomEnd).
-			Margin(0, 0, (playerBarHeight-32)/2+8, 0).Size(min(400, w-32), height).
+			Margin(0, 0, (playerBarHeight-32)/2+8, 0).Size(min(320, w-32), height).
 			Padding(8).Radius(14).Background(pop.fill).TextColor(p.text).Border(0.5, pop.edge).
 			Shadow(0, 8, 24, -4, radixInk.Alpha(0.2)).Label("待播清单")
 		// Overlay content sits outside the page's Space shortcut scope.
