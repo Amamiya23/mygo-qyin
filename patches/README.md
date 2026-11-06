@@ -65,3 +65,43 @@ go run ./scripts/check-window-state -cycles 20
 默认以退出码 2 表示条件不满足。该检查不访问用户窗口配置，不修改系统缩放。
 
 Windows v2 测试程序位于 `build/dpi-fix-v2/lilt.exe`，完整应用仍待用户验收。
+
+## v0.7.4：macOS 开发版图标选择
+
+`mygo-v0.7.4-macos-dev-icon.patch` 已应用到 vendor。`devConfig` 为
+`macos.icon` 优先选择同目录、同扩展名的 `-dev` 兄弟文件，例如
+`icon/AppIcon.icns` → `icon/AppIcon-dev.icns`；不存在时保留正式版路径。
+通用 PNG 图标选择保持原有行为，原始配置对象和配置文件均不被修改。
+开发包直接读取选中的 `.icns`，缓存随其路径、大小和修改时间更新；
+未使用 ICNS 覆盖时，继续由通用 PNG 生成图标。
+
+构建输入同时监听 macOS 正式版图标和预期开发版路径，即使开发版尚未创建，
+也能检测其创建、修改和删除。`.icns` / `.car` 按文件监听，Icon Composer
+的 `.icon` 按目录树监听。补丁包含独立的 `cmd/mygo/dev_icon_test.go`，
+不依赖 vendor 已省略的上游测试或辅助函数。
+
+补丁路径相对 MyGo 仓库根目录，可应用到干净的 v0.7.4。重新生成 vendor 后，
+在项目根目录执行：
+
+```sh
+git apply --check --directory=vendor/github.com/egoist/mygo patches/mygo-v0.7.4-macos-dev-icon.patch
+git apply --directory=vendor/github.com/egoist/mygo patches/mygo-v0.7.4-macos-dev-icon.patch
+```
+
+已应用时检查 vendor 与补丁一致：
+
+```sh
+git apply --reverse --check --directory=vendor/github.com/egoist/mygo patches/mygo-v0.7.4-macos-dev-icon.patch
+```
+
+Windows PowerShell 针对性验证：
+
+```powershell
+$env:CGO_ENABLED = "0"
+go test ./vendor/github.com/egoist/mygo/cmd/mygo -run 'Test(DevConfigMacOSIcon|DevSessionMacOSICNS|BuildInputsMacOSIcon)$' -count=5
+```
+
+测试覆盖 ICNS、资产目录、Icon Composer 目录、绝对路径、扩展名大小写、缺失回退、
+不同扩展名不误选、源配置不变，以及图标文件和目录内容的监听快照变化。
+`TestDevSessionMacOSICNS` 还验证开发 ICNS 的实际读取、内容更新使缓存失效、
+切回正式版路径及 PNG 回退。

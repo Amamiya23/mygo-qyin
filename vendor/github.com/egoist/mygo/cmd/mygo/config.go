@@ -557,10 +557,15 @@ func (c *Config) devIcon() string {
 	if c.Icon == "" {
 		return ""
 	}
-	ext := filepath.Ext(c.Icon)
-	dev := strings.TrimSuffix(c.Icon, ext) + "-dev" + ext
+	dev := devIconPath(c.Icon)
 	if !fileExists(c.path(dev)) {
 		return ""
 	}
 	return dev
+}
+
+// devIconPath names the -dev sibling of icon, preserving its extension.
+func devIconPath(icon string) string {
+	ext := filepath.Ext(icon)
+	return strings.TrimSuffix(icon, ext) + "-dev" + ext
 }

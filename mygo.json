@@ -10,6 +10,7 @@
     "github": "Amamiya23/mygo-qyin"
   },
   "macos": {
+    "icon": "icon/AppIcon.icns",
     "minimumSystemVersion": "13.0"
   },
   "linux": {

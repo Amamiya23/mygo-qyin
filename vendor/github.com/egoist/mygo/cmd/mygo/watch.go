@@ -27,7 +27,7 @@ import (
 type buildInputs struct {
 	sourceDirs []string // directories of compiled packages: their .go and .s files
 	fileDirs   []string // directories of embedded files: all their files
-	files      []string // go.mod and go.sum files, the configuration, the icon, entitlements
+	files      []string // go.mod and go.sum files, the configuration, the icons, entitlements
 	// resources is the resources directory: everything in it but the
 	// platform directories of other platforms.
 	resources string
@@ -60,6 +60,15 @@ func listBuildInputs(c *Config) (*buildInputs, error) {
 	}
 	if c.Icon != "" {
 		in.files = append(in.files, c.path(c.Icon))
+	}
+	if icon := c.MacOS.Icon; icon != "" {
+		// Watch the missing sibling too, so adding it switches the dev icon.
+		icons := []string{c.path(icon), c.path(devIconPath(icon))}
+		if strings.EqualFold(filepath.Ext(icon), ".icon") {
+			in.trees = append(in.trees, icons...)
+		} else {
+			in.files = append(in.files, icons...)
+		}
 	}
 	if c.MacOS.Entitlements != "" {
 		in.files = append(in.files, c.path(c.MacOS.Entitlements))

@@ -499,8 +499,8 @@ func devHelp() string {
 
 // devConfig configures the development app: "<Name> Dev" with the
 // identifier "<identifier>.dev", so that its data, preferences and single
-// instance lock stay apart from the production app's, and the icon's -dev
-// sibling for its icon, when there is one, to tell it from the app's.
+// instance lock stay apart from the production app's, and the icons' -dev
+// siblings, when they exist, to tell it from the production app.
 func devConfig(c *Config) *Config {
 	d := *c
 	d.Name += " Dev"
@@ -510,6 +510,11 @@ func devConfig(c *Config) *Config {
 	}
 	if icon := c.devIcon(); icon != "" {
 		d.Icon = icon
+	}
+	if c.MacOS.Icon != "" {
+		if icon := devIconPath(c.MacOS.Icon); fileExists(c.path(icon)) {
+			d.MacOS.Icon = icon
+		}
 	}
 	return &d
 }
@@ -723,16 +728,20 @@ func (s *devSession) windowsResources(c, dc *Config) (cleanup func(), err error)
 
 // icon returns the app icon as .icns, rendering it only when it changed.
 func (s *devSession) icon(c *Config) ([]byte, error) {
-	if c.Icon == "" {
+	icon := c.Icon
+	if strings.EqualFold(filepath.Ext(c.MacOS.Icon), ".icns") {
+		icon = c.MacOS.Icon
+	}
+	if icon == "" {
 		return nil, nil
 	}
-	info, err := os.Stat(c.path(c.Icon))
+	info, err := os.Stat(c.path(icon))
 	if err != nil {
 		return nil, err
 	}
-	key := fmt.Sprint(c.path(c.Icon), info.Size(), info.ModTime().UnixNano())
+	key := fmt.Sprint(c.path(icon), info.Size(), info.ModTime().UnixNano())
 	if key != s.iconKey {
-		icns, err := appIcon(c)
+		icns, err := bundleICNS(c, nil)
 		if err != nil {
 			return nil, err
 		}
