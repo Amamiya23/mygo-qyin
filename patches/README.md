@@ -50,3 +50,37 @@ go run ./scripts/check-window-state -cycles 20
 默认以退出码 2 表示条件不满足。该检查不访问用户窗口配置，不修改系统缩放。
 
 Windows v2 测试程序位于 `build/dpi-fix-v2/lilt.exe`，完整应用仍待用户验收。
+
+## v0.7.4：开发版 macOS 图标
+
+`mygo-v0.7.4-dev-macos-icon.patch` 已应用到受 Git 跟踪的
+`vendor/github.com/egoist/mygo`。
+
+MyGo v0.7.4 的开发版只读取 `icon-dev.png`，且 `mygo dev` 不读取 `macos.icon`，
+macOS 与 Windows 开发版因此共用同一张图。补丁在 macOS 上优先使用
+`icon-dev-macos.png`（`icon-dev.png` 的 `-macos` 同名变体，存在时），
+Windows / Linux 继续使用 `icon-dev.png`；同时把两个开发图标从生产包的
+`Contents/Resources` 排除，并让 `mygo dev` 监听两者的变化。
+
+重新生成 vendor 会覆盖补丁。依赖仍为 v0.7.4 时，在项目根目录重新应用：
+
+```sh
+git apply --check --directory=vendor/github.com/egoist/mygo patches/mygo-v0.7.4-dev-macos-icon.patch
+git apply --directory=vendor/github.com/egoist/mygo patches/mygo-v0.7.4-dev-macos-icon.patch
+```
+
+已经应用时，可验证 vendor 与补丁一致：
+
+```sh
+git apply --reverse --check --directory=vendor/github.com/egoist/mygo patches/mygo-v0.7.4-dev-macos-icon.patch
+```
+
+图标约定：
+
+- `resources/icon.png`：生产图标，全出血，供 Windows / Linux；macOS 生产使用
+  `icon/AppIcon-macos.icns`（824 主体居中于 1024 画布）。
+- `resources/icon-dev.png`：开发图标，全出血，供 Windows / Linux 开发版。
+- `resources/icon-dev-macos.png`：开发图标，824 主体 + 四边 100px，供 macOS 开发版。
+
+补丁路径相对 MyGo 仓库根目录，尚未提交上游；升级 MyGo 时需要重新核对上游实现。
+

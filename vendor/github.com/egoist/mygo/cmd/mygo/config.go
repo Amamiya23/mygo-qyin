@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"unicode"
@@ -563,4 +564,24 @@ func (c *Config) devIcon() string {
 		return ""
 	}
 	return dev
+}
+
+// devIconFor returns the development app's icon of this system: devIcon,
+// or on macOS the same name with -macos before its extension
+// (icon-dev-macos.png of icon-dev.png) when it exists. macOS draws icons
+// on its 824-point grid, while Windows and Linux keep the full-bleed icon.
+func (c *Config) devIconFor() string {
+	icon := c.devIcon()
+	if icon == "" {
+		return ""
+	}
+	if runtime.GOOS != "darwin" {
+		return icon
+	}
+	ext := filepath.Ext(icon)
+	mac := strings.TrimSuffix(icon, ext) + "-macos" + ext
+	if !fileExists(c.path(mac)) {
+		return icon
+	}
+	return mac
 }

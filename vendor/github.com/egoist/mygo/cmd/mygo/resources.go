@@ -135,17 +135,19 @@ func (c *Config) resourcesWith(goos, goarch string, natives []source, reserved .
 	}
 	var top []source
 	platforms := map[string]bool{}
-	devIcon := ""
+	devIcons := map[string]bool{}
 	if icon := c.devIcon(); icon != "" {
-		devIcon = filepath.Clean(c.path(icon))
+		devIcons[filepath.Clean(c.path(icon))] = true
+		ext := filepath.Ext(icon)
+		devIcons[filepath.Clean(c.path(strings.TrimSuffix(icon, ext)+"-macos"+ext))] = true
 	}
 	for _, e := range entries {
 		name, path := e.Name(), filepath.Join(dir, e.Name())
 		if hiddenName(name) {
 			continue
 		}
-		if filepath.Clean(path) == devIcon {
-			continue // the development app's icon, which no app reads
+		if devIcons[filepath.Clean(path)] {
+			continue // the development apps' icons, which no app reads
 		}
 		if _, _, ok := platformDir(name); ok {
 			if !isDir(path) {

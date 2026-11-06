@@ -9,7 +9,9 @@
     "publicKey": "vNnYE6P6rNrupbggTNO1do2zPVVucUBpE0px82vyCHQ=",
     "github": "Amamiya23/mygo-qyin"
   },
+  "icon": "resources/icon.png",
   "macos": {
+    "icon": "icon/AppIcon-macos.icns",
     "minimumSystemVersion": "13.0"
   },
   "linux": {

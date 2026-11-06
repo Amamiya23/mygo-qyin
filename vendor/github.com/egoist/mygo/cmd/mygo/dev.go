@@ -508,7 +508,7 @@ func devConfig(c *Config) *Config {
 	if d.Slug != "" {
 		d.Slug += "-dev"
 	}
-	if icon := c.devIcon(); icon != "" {
+	if icon := c.devIconFor(); icon != "" {
 		d.Icon = icon
 	}
 	return &d

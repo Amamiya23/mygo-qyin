@@ -57,6 +57,9 @@ func listBuildInputs(c *Config) (*buildInputs, error) {
 	}
 	if icon := c.devIcon(); icon != "" {
 		in.files = append(in.files, c.path(icon))
+		if mac := c.devIconFor(); mac != icon {
+			in.files = append(in.files, c.path(mac))
+		}
 	}
 	if c.Icon != "" {
 		in.files = append(in.files, c.path(c.Icon))
