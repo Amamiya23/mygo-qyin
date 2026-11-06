@@ -1,5 +1,23 @@
 # 更新日志
 
+## 0.3.1
+
+- Linux 新增实验性桌面歌词(仅测试Fedora-kde)
+- 待播清单改为浮动面板
+- 新增播放操作淡入淡出开关
+- 打磨优化部分细节及体验
+- 优化 Windows 任务栏歌词
+- 调整应用图标样式和 macOS 图标尺寸，修复 macOS 刘海播放器展开时出现白边的问题
+
+### 下载指南
+
+| 处理器架构 | Windows | macOS | Linux |
+| :--- | :--- | :--- | :--- |
+| amd64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt-setup-0.3.1-amd64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt-0.3.1-amd64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt_0.3.1_amd64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt-0.3.1-linux-amd64.tar.gz) |
+| arm64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt-setup-0.3.1-arm64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt-0.3.1-arm64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt_0.3.1_arm64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt-0.3.1-linux-arm64.tar.gz) |
+
+> Linux：Ubuntu / Debian 等支持 deb 的发行版选 `.deb`，其他发行版选 `.tar.gz`。
+
 ## 0.3.0
 
 - Windows 和 macOS 新增实验性桌面歌词，独立显示逐字高亮的当前歌词，支持拖动、调整宽度和字号、锁定位置及悬停播放控制
