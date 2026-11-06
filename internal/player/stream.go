@@ -330,11 +330,15 @@ type stream interface {
 // openStream opens the song dl fetches, MP3 or FLAC, as its first bytes
 // say. An MP3 says nothing of its length: durationMs is it.
 func openStream(dl *download, durationMs int64) (stream, error) {
+	return openStreamMeasured(dl, durationMs, true)
+}
+
+func openStreamMeasured(dl *download, durationMs int64, measure bool) (stream, error) {
 	off := id3Size(dl)
 	if dl.waitFor(off+4) >= off+4 && string(dl.peek(off, 4)) == "fLaC" {
-		return openFLACStream(dl)
+		return openFLACStream(dl, measure)
 	}
-	return openMP3Stream(dl, durationMs)
+	return openMP3StreamMeasured(dl, durationMs, measure)
 }
 
 // openShared opens a second stream of what dl fetches, for decoding apart
@@ -344,16 +348,16 @@ func openShared(dl *download, durationMs int64) (stream, error) {
 	if !dl.share() {
 		return nil, errors.New("player: the song is gone")
 	}
-	s, err := openStream(dl, durationMs)
+	s, err := openStreamMeasured(dl, durationMs, false)
 	if err != nil {
 		dl.release()
 		return nil, err
 	}
 	switch s := s.(type) {
 	case *mp3Stream:
-		s.spec, s.drop = nil, dl.release
+		s.drop = dl.release
 	case *flacStream:
-		s.spec, s.drop = nil, dl.release
+		s.drop = dl.release
 	}
 	return s, nil
 }
@@ -376,6 +380,10 @@ type mp3Stream struct {
 }
 
 func openMP3Stream(dl *download, durationMs int64) (*mp3Stream, error) {
+	return openMP3StreamMeasured(dl, durationMs, true)
+}
+
+func openMP3StreamMeasured(dl *download, durationMs int64, measure bool) (*mp3Stream, error) {
 	s := &mp3Stream{dl: dl, drop: dl.Close}
 	dec, err := gomp3.NewDecoder(&downloadReader{d: dl})
 	if err != nil {
@@ -384,7 +392,9 @@ func openMP3Stream(dl *download, durationMs int64) (*mp3Stream, error) {
 	s.dec, s.rate = dec, dec.SampleRate()
 	s.frames = durationMs * int64(s.rate) / 1000
 	s.start = id3Size(dl)
-	s.spec = newSpectrum(s.rate, s.frames)
+	if measure {
+		s.spec = newSpectrum(s.rate)
+	}
 	return s, nil
 }
 
@@ -456,6 +466,7 @@ func (s *mp3Stream) SetPosition(frame int64) error {
 		return err
 	}
 	s.dec, s.pos = dec, frame
+	s.spec.seek()
 	// Drop what comes before frame: the preroll, or near the start, all
 	// of it from there.
 	s.skip = int(min(frame, preroll)) * 4
@@ -525,30 +536,51 @@ func frameSize(b []byte) int {
 	}
 }
 
-// The spectrum of a song, measured in chunks of fftSize frames as it
-// decodes, a second ahead of what plays: the visualizers look up the
-// chunk playing.
+// The spectrum keeps only recent mono PCM. Visualizers request the chunk
+// currently heard; a worker measures that chunk once, outside the audio and
+// UI threads. With no visualizer asking, no FFT work is done.
 
 const (
 	fftSize = 1024
 	Bands   = 24
+	// MyGo decodes a second ahead and holds another 250 ms in the output.
+	// Two seconds plus four chunks cover both, independently of song length.
+	// The cap covers even the largest 20-bit FLAC sample rate's predecode
+	// and output delay, while keeping the slots below 8.3 MiB at any rate.
+	maxSpectrumChunks = 2048
 )
 
-type spectrum struct {
-	mu     sync.RWMutex
-	rate   int
-	chunks [][Bands]float32
-	have   []bool
-	window [fftSize]float32
-	acc    []float32 // mono samples of the chunk being filled
-	accAt  int64     // its first frame
-	edges  [Bands + 1]int
-	fft    []complex128
+type spectrumChunk struct {
+	at       int64
+	pcm      [fftSize]float32
+	bands    [Bands]float32
+	analyzed bool
 }
 
-func newSpectrum(rate int, frames int64) *spectrum {
-	n := int(frames/fftSize) + 2
-	s := &spectrum{rate: rate, chunks: make([][Bands]float32, n), have: make([]bool, n), accAt: -1}
+type spectrum struct {
+	mu     sync.Mutex
+	chunks []spectrumChunk
+	// requested holds only the latest chunk asked for. A worker exits when
+	// it has caught up; it never polls, holds a timer or measures the ring.
+	requested int64
+	working   bool
+	epoch     uint64
+	lastAt    int64
+	last      [Bands]float32
+	maxLag    int64
+	window    [fftSize]float32
+	acc       []float32 // mono samples of the chunk being filled
+	accAt     int64     // its first frame
+	edges     [Bands + 1]int
+}
+
+func newSpectrum(rate int) *spectrum {
+	n := min(maxSpectrumChunks, max(8, rate*2/fftSize+4))
+	s := &spectrum{chunks: make([]spectrumChunk, n), accAt: -1, requested: -1,
+		lastAt: -1, maxLag: max(4, int64(rate)/fftSize/10+1)}
+	for i := range s.chunks {
+		s.chunks[i].at = -1
+	}
 	for i := range s.window {
 		s.window[i] = float32(0.5 - 0.5*math.Cos(2*math.Pi*float64(i)/float64(fftSize-1)))
 	}
@@ -561,7 +593,6 @@ func newSpectrum(rate int, frames int64) *spectrum {
 	for i := 1; i < len(s.edges); i++ {
 		s.edges[i] = max(s.edges[i], s.edges[i-1]+1)
 	}
-	s.fft = make([]complex128, fftSize)
 	return s
 }
 
@@ -586,26 +617,46 @@ func (s *spectrum) feed(at int64, stereo []float32) {
 	for i := 0; i+1 < len(stereo); i += 2 {
 		s.acc = append(s.acc, (stereo[i]+stereo[i+1])/2)
 		if len(s.acc) == fftSize {
-			s.analyze(s.accAt / fftSize)
+			s.keep(s.accAt / fftSize)
 			s.accAt += fftSize
 			s.acc = s.acc[:0]
 		}
 	}
 }
 
-func (s *spectrum) analyze(chunk int64) {
-	if chunk < 0 || chunk >= int64(len(s.chunks)) {
+func (s *spectrum) keep(chunk int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry := &s.chunks[chunk%int64(len(s.chunks))]
+	if entry.at == chunk {
 		return
 	}
-	for i, v := range s.acc {
-		s.fft[i] = complex(float64(v*s.window[i]), 0)
+	entry.at, entry.analyzed = chunk, false
+	copy(entry.pcm[:], s.acc)
+}
+
+// seek drops pending display results while preserving reusable immutable PCM.
+func (s *spectrum) seek() {
+	if s == nil {
+		return
 	}
-	fft(s.fft)
+	s.mu.Lock()
+	s.epoch++
+	s.requested, s.lastAt = -1, -1
+	s.mu.Unlock()
+}
+
+func (s *spectrum) analyze(pcm *[fftSize]float32) [Bands]float32 {
+	var transformed [fftSize]complex128
+	for i, v := range pcm {
+		transformed[i] = complex(float64(v*s.window[i]), 0)
+	}
+	fft(transformed[:])
 	var bands [Bands]float32
 	for b := range Bands {
 		var sum float64
 		for k := s.edges[b]; k < s.edges[b+1]; k++ {
-			sum += cmplx.Abs(s.fft[k])
+			sum += cmplx.Abs(transformed[k])
 		}
 		mag := sum / float64(s.edges[b+1]-s.edges[b]) / (fftSize / 4)
 		// Higher bands carry less energy: tilt them up, as the ear hears.
@@ -613,21 +664,67 @@ func (s *spectrum) analyze(chunk int64) {
 		db := 20 * math.Log10(mag+1e-9)
 		bands[b] = float32(math.Max(0, math.Min(1, (db+60)/52)))
 	}
-	s.mu.Lock()
-	s.chunks[chunk] = bands
-	s.have[chunk] = true
-	s.mu.Unlock()
+	return bands
 }
 
-// at returns the bands of frame, or false if not measured.
+// at returns the bands of frame, requesting them if they are still unmeasured.
 func (s *spectrum) at(frame int64) ([Bands]float32, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	c := frame / fftSize
-	if c < 0 || c >= int64(len(s.chunks)) || !s.have[c] {
+	if s == nil || frame < 0 {
 		return [Bands]float32{}, false
 	}
-	return s.chunks[c], true
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := frame / fftSize
+	// A 30 Hz visualizer often advances to another chunk before its worker
+	// finishes. Show the recent result while the current chunk is measured,
+	// but never carry it across a seek or a gap longer than about 100 ms.
+	var recent [Bands]float32
+	if s.lastAt >= 0 && s.lastAt <= c && c-s.lastAt <= s.maxLag {
+		recent = s.last
+	}
+	entry := &s.chunks[c%int64(len(s.chunks))]
+	if entry.at != c {
+		return recent, false
+	}
+	if entry.analyzed {
+		s.lastAt, s.last = c, entry.bands
+		return entry.bands, true
+	}
+	s.requested = c
+	if !s.working {
+		s.working = true
+		go s.measure()
+	}
+	return recent, false
+}
+
+func (s *spectrum) measure() {
+	for {
+		s.mu.Lock()
+		c := s.requested
+		if c < 0 {
+			s.working = false
+			s.mu.Unlock()
+			return
+		}
+		s.requested = -1
+		epoch := s.epoch
+		entry := &s.chunks[c%int64(len(s.chunks))]
+		if entry.at != c || entry.analyzed {
+			s.mu.Unlock()
+			continue
+		}
+		pcm := entry.pcm
+		s.mu.Unlock()
+		bands := s.analyze(&pcm)
+		s.mu.Lock()
+		// A seek or forward decoding may have replaced this slot meanwhile.
+		if entry.at == c && s.epoch == epoch {
+			entry.bands, entry.analyzed = bands, true
+			s.lastAt, s.last = c, bands
+		}
+		s.mu.Unlock()
+	}
 }
 
 // fft transforms x in place; len(x) is a power of two.

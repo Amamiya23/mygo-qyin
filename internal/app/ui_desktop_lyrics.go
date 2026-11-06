@@ -313,25 +313,30 @@ func desktopLyricsLayouts(c *ui.Context, content desktopLyricContent, position t
 	// user's opacity to the complete layer, including its outline, instead.
 	opacity := float32(color.A) / 255
 	color = ui.RGB(color.R, color.G, color.B)
-	spans := []ui.Span{{Text: text, Color: desktopLyricWordColor(color, 1)}}
+	var spans []ui.Span
 	if content.line.Timed && len(content.line.Words) > 0 {
 		spans = make([]ui.Span, 0, len(content.line.Words))
 		for _, word := range content.line.Words {
 			spans = append(spans, ui.Span{Text: word.Text, Color: desktopLyricWordColor(color, word.Progress(position))})
 		}
 	}
-	layout := desktopLyricLayouts{outline: ui.ShapeRichTextWith([]ui.Span{{Text: text}}, font, shape), text: ui.ShapeRichTextWith(spans, font, shape), opacity: opacity}
+	layout := desktopLyricLayouts{outline: retainedLyricText(c, text, font, shape, ui.Color{}), opacity: opacity}
+	if content.line.Timed && len(content.line.Words) > 0 {
+		layout.text = ui.ShapeRichTextWith(spans, font, shape)
+	} else {
+		layout.text = retainedLyricText(c, text, font, shape, desktopLyricWordColor(color, 1))
+	}
 	_, layout.originalHeight = layout.text.Size()
 	layout.height = layout.originalHeight
 	if content.translation != "" {
 		font.Size, font.Weight = size*0.625, 500
-		layout.translationOutline = ui.ShapeRichTextWith([]ui.Span{{Text: content.translation}}, font, shape)
+		layout.translationOutline = retainedLyricText(c, content.translation, font, shape, ui.Color{})
 		layout.translation = layout.translationOutline
 		_, h := layout.translation.Size()
 		layout.height += h + 6
 	} else if content.preview != "" {
-		layout.previewOutline = ui.ShapeRichTextWith([]ui.Span{{Text: content.preview}}, font, shape)
-		layout.preview = ui.ShapeRichTextWith([]ui.Span{{Text: content.preview, Color: desktopLyricWordColor(color, 0)}}, font, shape)
+		layout.previewOutline = retainedLyricText(c, content.preview, font, shape, ui.Color{})
+		layout.preview = retainedLyricText(c, content.preview, font, shape, desktopLyricWordColor(color, 0))
 		_, h := layout.preview.Size()
 		layout.height += h + 6
 	}

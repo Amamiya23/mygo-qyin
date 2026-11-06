@@ -25,12 +25,13 @@ type flacStream struct {
 	pos   int64     // the frame Read returns next
 	skip  int64     // frames to drop before it, after a seek
 	pend  []float32 // decoded, and not yet read: stereo
+	pcm   []float32 // base of pend, retained as its samples are consumed
 	spec  *spectrum
 	drop  func() // lets the download go, as the stream closes
 	once  sync.Once
 }
 
-func openFLACStream(dl *download) (*flacStream, error) {
+func openFLACStream(dl *download, measure bool) (*flacStream, error) {
 	start, err := flacDataStart(dl)
 	if err != nil {
 		return nil, err
@@ -44,7 +45,9 @@ func openFLACStream(dl *download) (*flacStream, error) {
 	if s.info.NChannels == 0 || s.info.SampleRate == 0 {
 		return nil, errors.New("flac: no stream info")
 	}
-	s.spec = newSpectrum(int(s.info.SampleRate), int64(s.info.NSamples))
+	if measure {
+		s.spec = newSpectrum(int(s.info.SampleRate))
+	}
 	s.r = bufio.NewReaderSize(&downloadReader{d: dl, pos: start}, 64<<10)
 	return s, nil
 }
@@ -134,10 +137,10 @@ func (s *flacStream) decode(f *frame.Frame) {
 		right = f.Subframes[1].Samples
 	}
 	scale := float32(1 / math.Exp2(float64(f.BitsPerSample-1)))
-	if cap(s.pend) < int(n)*2 {
-		s.pend = make([]float32, 0, n*2)
+	if cap(s.pcm) < int(n)*2 {
+		s.pcm = make([]float32, n*2)
 	}
-	out := s.pend[:0]
+	out := s.pcm[:0]
 	for i := from; i < n; i++ {
 		out = append(out, float32(left[i])*scale, float32(right[i])*scale)
 	}
@@ -170,6 +173,7 @@ func (s *flacStream) SetPosition(target int64) error {
 	}
 	s.r = bufio.NewReaderSize(&downloadReader{d: s.dl, pos: loOff}, 64<<10)
 	s.pos, s.skip, s.pend = target, target-lo, s.pend[:0]
+	s.spec.seek()
 	return nil
 }
 

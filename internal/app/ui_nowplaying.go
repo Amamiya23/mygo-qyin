@@ -537,8 +537,11 @@ func (a *app) timedLines(c *ui.Context, scroll ui.Element, lines []lyrics.Line, 
 								}
 							})
 							if pl.Playing() {
-								// Words brighten smoothly enough at 25 frames a second.
-								c.After(40 * time.Millisecond)
+								// Once a word ends, sleep until another starts instead of
+								// rebuilding unchanged lyrics through a gap or the outro.
+								if next := desktopLyricWake(desktopLyricContent{index: cur, line: l}, pos); next > 0 {
+									c.After(next)
+								}
 							}
 						} else {
 							ui.Text(c, l.Text).FontSize(st.size).FontWeight(st.weight).LineHeight(st.lineHeight).LetterSpacing(-0.4).TextColor(white)

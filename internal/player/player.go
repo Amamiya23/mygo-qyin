@@ -628,7 +628,10 @@ func (p *Player) Levels() ([Bands]float32, bool) {
 	}
 	_, spec := p.stream.source()
 	frame := int64(p.Position().Seconds() * float64(p.stream.SampleRate()))
-	return spec.at(frame)
+	bands, _ := spec.at(frame)
+	// An uncached chunk is measured asynchronously. Keep the visualizer live
+	// while it warms up so its next frame can pick up that result.
+	return bands, spec != nil
 }
 
 func (p *Player) stop() {

@@ -197,6 +197,67 @@ func TestLyricsWordFrameBudget(t *testing.T) {
 	}
 }
 
+// Word-timed main lyrics used to rebuild at 25 Hz through gaps, interludes and the outro.
+func TestLyricsIdleFrameBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		pos  time.Duration
+	}{{"gap", 5 * time.Second}, {"interlude", 12 * time.Second}, {"outro", 23 * time.Second}} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newTestApp()
+			a.pl.Cue([]qqmusic.Track{{ID: 7, Duration: 30000}})
+			a.pl.SetLyrics(lyrics.Build("", "", "[1000,9000]慢(1000,3000)唱(8000,2000)\n[20000,2000]后句(20000,2000)"))
+			a.pl.Hold(tc.pos)
+			builds := 0
+			tt := ui.NewTester(func(c *ui.Context) {
+				builds++
+				ui.Column(c).Size(600, 400).Children(func() { a.lyricsPane(c, a.pl.Current(), 400) })
+			}, 600, 400)
+			tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+			tt.Frame()
+			tt.Advance(time.Second)
+			before := builds
+			tt.Advance(500 * time.Millisecond)
+			if builds != before {
+				t.Fatalf("%s lyrics rebuilt %d times while unchanged", tc.name, builds-before)
+			}
+		})
+	}
+}
+
+// Sleeping main lyrics still wake for the next word and the next line using the Tester's clock.
+func TestLyricsWakeAfterGap(t *testing.T) {
+	a := newTestApp()
+	a.pl.Cue([]qqmusic.Track{{ID: 7, Duration: 30000}})
+	a.pl.SetLyrics(lyrics.Build("", "", "[1000,9000]慢(1000,3000)唱(8000,2000)\n[20000,2000]后句(20000,2000)"))
+	var started time.Time
+	builds := 0
+	tt := ui.NewTester(func(c *ui.Context) {
+		if started.IsZero() {
+			started = c.Now()
+		}
+		a.pl.Hold(5*time.Second + c.Now().Sub(started))
+		builds++
+		ui.Column(c).Size(600, 400).Children(func() { a.lyricsPane(c, a.pl.Current(), 400) })
+	}, 600, 400)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	tt.Advance(time.Second)
+	before := builds
+	tt.Advance(1900 * time.Millisecond)
+	if builds != before {
+		t.Fatalf("lyrics woke before the next word: %d builds", builds-before)
+	}
+	tt.Advance(200 * time.Millisecond)
+	if builds == before || a.pl.Position() < 8*time.Second || a.lyricAt != 0 {
+		t.Fatalf("next word did not wake: builds=%d position=%v line=%d", builds-before, a.pl.Position(), a.lyricAt)
+	}
+	tt.Advance(12 * time.Second)
+	if a.lyricAt != 1 {
+		t.Fatalf("next line did not wake after the interlude: line=%d", a.lyricAt)
+	}
+}
+
 // Another song's backdrop fades in over the last one's, which is then let
 // go, so that the backdrop stops asking for frames.
 func TestBackdropFadeEnds(t *testing.T) {
