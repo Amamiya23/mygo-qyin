@@ -199,8 +199,9 @@ func (d *desktopLyrics) view(c *ui.Context) {
 	playing := d.a.pl.Playing()
 	state.step(track, mid, d.revision, content, position, c.Now(), playing, c.Preferences().ReduceMotion)
 	blend := state.blend(c)
-	current := desktopLyricsLayouts(c, content, position, size, textWidth)
-	previous := desktopLyricsLayouts(c, state.previous, position, size, textWidth)
+	color := d.a.settings.desktopLyricsColor()
+	current := desktopLyricsLayouts(c, content, position, size, textWidth, color)
+	previous := desktopLyricsLayouts(c, state.previous, position, size, textWidth, color)
 	height := max(current.height, previous.height)
 	d.fitHeight(float64(desktopLyricsToolbarHeight + height + 28))
 	// Use the committed viewport until the deferred native resize completes.
@@ -232,6 +233,7 @@ func (d *desktopLyrics) view(c *ui.Context) {
 
 func drawDesktopLyricLayers(c *ui.Context, current, previous desktopLyricLayouts, height float32, blend desktopLyricBlend) {
 	layer := func(key string, layout desktopLyricLayouts, alpha, offset float32) {
+		alpha *= layout.opacity
 		if layout.text == nil || alpha <= 0 {
 			return
 		}
@@ -297,24 +299,28 @@ type desktopLyricLayouts struct {
 	outline, text, translationOutline, translation *ui.TextLayout
 	previewOutline, preview                        *ui.TextLayout
 	originalHeight, height                         float32
+	opacity                                        float32
 }
 
-func desktopLyricsLayouts(c *ui.Context, content desktopLyricContent, position time.Duration, size, width float32) desktopLyricLayouts {
+func desktopLyricsLayouts(c *ui.Context, content desktopLyricContent, position time.Duration, size, width float32, color ui.Color) desktopLyricLayouts {
 	if content.text == "" {
 		return desktopLyricLayouts{}
 	}
 	font := ui.Font{Family: c.Theme().Font, Size: size, Weight: 700, LineHeight: 1.3}
 	shape := ui.TextShape{Width: width, Align: ui.Center}
 	text := content.text
-	spans := []ui.Span{{Text: text, Color: radixWhite(12)}}
+	// Rich-text spans use zero alpha to mean inherited color. Apply the
+	// user's opacity to the complete layer, including its outline, instead.
+	opacity := float32(color.A) / 255
+	color = ui.RGB(color.R, color.G, color.B)
+	spans := []ui.Span{{Text: text, Color: desktopLyricWordColor(color, 1)}}
 	if content.line.Timed && len(content.line.Words) > 0 {
 		spans = make([]ui.Span, 0, len(content.line.Words))
 		for _, word := range content.line.Words {
-			brightness := desktopLyricsRestAlpha + (desktopLyricsSungAlpha-desktopLyricsRestAlpha)*word.Progress(position)
-			spans = append(spans, ui.Span{Text: word.Text, Color: radixPaper.Alpha(brightness)})
+			spans = append(spans, ui.Span{Text: word.Text, Color: desktopLyricWordColor(color, word.Progress(position))})
 		}
 	}
-	layout := desktopLyricLayouts{outline: ui.ShapeRichTextWith([]ui.Span{{Text: text}}, font, shape), text: ui.ShapeRichTextWith(spans, font, shape)}
+	layout := desktopLyricLayouts{outline: ui.ShapeRichTextWith([]ui.Span{{Text: text}}, font, shape), text: ui.ShapeRichTextWith(spans, font, shape), opacity: opacity}
 	_, layout.originalHeight = layout.text.Size()
 	layout.height = layout.originalHeight
 	if content.translation != "" {
@@ -325,7 +331,7 @@ func desktopLyricsLayouts(c *ui.Context, content desktopLyricContent, position t
 		layout.height += h + 6
 	} else if content.preview != "" {
 		layout.previewOutline = ui.ShapeRichTextWith([]ui.Span{{Text: content.preview}}, font, shape)
-		layout.preview = ui.ShapeRichTextWith([]ui.Span{{Text: content.preview, Color: radixPaper.Alpha(desktopLyricsRestAlpha)}}, font, shape)
+		layout.preview = ui.ShapeRichTextWith([]ui.Span{{Text: content.preview, Color: desktopLyricWordColor(color, 0)}}, font, shape)
 		_, h := layout.preview.Size()
 		layout.height += h + 6
 	}

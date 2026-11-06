@@ -304,6 +304,9 @@ func (a *app) settingsContent(c *ui.Context) {
 					a.redraw()
 				}
 			})
+			row("桌面歌词颜色", "", func() {
+				a.desktopLyricsColorControl(c)
+			})
 		}
 		row("进度条特效", "", func() {
 			chosen := progressEffects[0].label

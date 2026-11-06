@@ -84,9 +84,10 @@ var swatches = []struct {
 	name  string
 	color Color
 }{
-	{"red", Hex("#ef4444")}, {"orange", Hex("#f97316")}, {"yellow", Hex("#eab308")}, {"green", Hex("#22c55e")},
-	{"teal", Hex("#14b8a6")}, {"blue", Hex("#3b82f6")}, {"indigo", Hex("#6366f1")}, {"purple", Hex("#a855f7")},
-	{"pink", Hex("#ec4899")}, {"brown", Hex("#92400e")}, {"gray", Hex("#71717a")}, {"black", Hex("#000000")},
+	// Radix Colors step 9; black is the overlay scale endpoint.
+	{"red", Hex("#e5484d")}, {"orange", Hex("#f76b15")}, {"yellow", Hex("#ffe629")}, {"green", Hex("#30a46c")},
+	{"teal", Hex("#12a594")}, {"blue", Hex("#0090ff")}, {"indigo", Hex("#3e63dd")}, {"purple", Hex("#8e4ec6")},
+	{"pink", Hex("#d6409f")}, {"brown", Hex("#ad7f58")}, {"gray", Hex("#8d8d8d")}, {"black", Hex("#000000")},
 }
 
 // ColorPicker creates a picker of *color, as AppKit's color panel: a

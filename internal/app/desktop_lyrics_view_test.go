@@ -196,8 +196,8 @@ func TestDesktopLyricsTransitionFrames(t *testing.T) {
 				if !started {
 					state.changed, started = c.Now(), true
 				}
-				previous := desktopLyricsLayouts(c, desktopLyricContent{text: scene.previous}, 0, 32, 432)
-				current := desktopLyricsLayouts(c, desktopLyricContent{text: scene.current, translation: scene.translation}, 0, 32, 432)
+				previous := desktopLyricsLayouts(c, desktopLyricContent{text: scene.previous}, 0, 32, 432, radixPaper)
+				current := desktopLyricsLayouts(c, desktopLyricContent{text: scene.current, translation: scene.translation}, 0, 32, 432, radixPaper)
 				blend := state.blend(c)
 				ui.Box(c).Fill().Background(radixSage(false, 2)).PaddingX(24).Children(func() {
 					drawDesktopLyricLayers(c, current, previous, 140, blend)
@@ -318,6 +318,7 @@ func TestDesktopLyricsFrames(t *testing.T) {
 	}
 	for _, scene := range []struct {
 		name, text, translation, qrc string
+		color                        string
 		width                        int
 		dark                         bool
 		position                     time.Duration
@@ -326,6 +327,13 @@ func TestDesktopLyricsFrames(t *testing.T) {
 		doubleLine                   bool
 	}{
 		{name: "chinese-light", text: "[00:01]我们一起听音乐", width: 760, position: 2 * time.Second},
+		{name: "mint", text: "[00:01]我们一起听音乐\n[00:12]让声音陪伴远方", color: radixGreenDark[11], width: 760, dark: true, doubleLine: true, position: 2 * time.Second},
+		{name: "blue", text: "[00:01]我们一起听音乐\n[00:12]让声音陪伴远方", color: "#c2e6ff", width: 760, dark: true, doubleLine: true, position: 2 * time.Second},
+		{name: "iris", text: "[00:01]我们一起听音乐\n[00:12]让声音陪伴远方", color: "#e0dffe", width: 760, dark: true, doubleLine: true, position: 2 * time.Second},
+		{name: "amber", text: "[00:01]我们一起听音乐\n[00:12]让声音陪伴远方", color: radixAmberDark[11], width: 760, dark: true, doubleLine: true, position: 2 * time.Second},
+		{name: "pink", text: "[00:01]我们一起听音乐\n[00:12]让声音陪伴远方", color: "#fdd1ea", width: 760, dark: true, doubleLine: true, position: 2 * time.Second},
+		{name: "custom-word", text: "[00:01]慢唱", qrc: "[1000,7000]慢(1000,3000)唱(6000,2000)", color: "#b1f1cbcc", width: 760, dark: true, position: 2 * time.Second},
+		{name: "blue-translation", text: "[00:01]Stay with me", translation: "[00:01]留在我身边", color: "#c2e6ff", width: 760, dark: true, position: 2 * time.Second},
 		{name: "chinese-hover-dark", text: "[00:01]我们一起听音乐", width: 760, dark: true, hover: true, position: 2 * time.Second},
 		{name: "chinese-locked-dark", text: "[00:01]我们一起听音乐", width: 760, dark: true, hover: true, locked: true, position: 2 * time.Second},
 		{name: "japanese-dark", text: "[00:01]君をのせて 空へ続く道", translation: "[00:01]伴随着你，走向天空的路", width: 760, dark: true, position: 2 * time.Second},
@@ -340,6 +348,7 @@ func TestDesktopLyricsFrames(t *testing.T) {
 			a, d := desktopLyricsViewFixture()
 			a.settings.DesktopLyricsLocked = scene.locked
 			a.settings.DesktopLyricsDoubleLine = scene.doubleLine
+			a.settings.DesktopLyricsColor = scene.color
 			a.pl.SetLyrics(lyrics.Build(scene.text, scene.translation, scene.qrc))
 			a.pl.Seek(scene.position)
 			tt := ui.NewTester(func(c *ui.Context) {

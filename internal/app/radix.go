@@ -30,6 +30,12 @@ var (
 	radixOrange9 = ui.Hex("#f76b15")
 	radixPurple9 = ui.Hex("#8e4ec6")
 	radixCyan9   = ui.Hex("#00a2c7")
+	radixBlue9   = ui.Hex("#0090ff")
+
+	// Soft text colors for lyrics over the desktop, from the dark scales.
+	radixBlueDark12 = "#c2e6ff"
+	radixIrisDark12 = "#e0dffe"
+	radixPinkDark12 = "#fdd1ea"
 )
 
 func radixGray(dark bool, step int) ui.Color {

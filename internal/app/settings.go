@@ -25,6 +25,8 @@ type settings struct {
 	DesktopLyricsFontSize float32 `json:"desktopLyricsFontSize,omitempty"`
 	// DesktopLyricsDoubleLine previews the next sentence for Chinese lyrics.
 	DesktopLyricsDoubleLine bool `json:"desktopLyricsDoubleLine,omitempty"`
+	// DesktopLyricsColor is the original lyric color; empty keeps the white palette.
+	DesktopLyricsColor string `json:"desktopLyricsColor,omitempty"`
 	// TaskbarLyrics embeds a separate compact lyric view in the Windows taskbar.
 	TaskbarLyrics bool `json:"taskbarLyrics,omitempty"`
 	// LyricsMode keeps the preferred location independently of its enabled state.

@@ -1,5 +1,18 @@
 # MyGo 本地补丁
 
+## v0.7.4：颜色选择器使用 Radix 预设
+
+`mygo-v0.7.4-radix-color-swatches.patch` 已应用到 vendor，将原生
+`ColorPicker` / `ColorWell` 的内置色块替换为 Radix Colors 第 9 阶与黑色端点，
+与应用配色约定一致。色相、透明度和 HEX 自选功能保持原样。
+
+重新生成 vendor 后，在项目根目录重新应用；已应用时可用 `--reverse --check` 检查：
+
+```sh
+git apply --check --directory=vendor/github.com/egoist/mygo patches/mygo-v0.7.4-radix-color-swatches.patch
+git apply --directory=vendor/github.com/egoist/mygo patches/mygo-v0.7.4-radix-color-swatches.patch
+```
+
 ## v0.7.4：Linux layer-shell 面板拖动
 
 `mygo-v0.7.4-linux-layer-drag.patch` 已应用到 vendor。layer-shell
