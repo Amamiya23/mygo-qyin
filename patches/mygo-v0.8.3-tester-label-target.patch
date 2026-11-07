@@ -1,8 +1,8 @@
 diff --git a/ui/headless.go b/ui/headless.go
-index 5260574..9816201 100644
+index ff705be..9fc09d6 100644
 --- a/ui/headless.go
 +++ b/ui/headless.go
-@@ -573,16 +573,30 @@ func (t *Tester) HasText(s string) bool {
+@@ -573,16 +573,30 @@
  // targetCenter checks the named element before sending any input. Labels
  // include clipped boxes, and a visible box may be covered by another control.
  func (t *Tester) targetCenter(s string, button int) (float32, float32, error) {
@@ -12,6 +12,11 @@ index 5260574..9816201 100644
 -		if t.rt.labels[i].text == s {
 -			n = &t.rt.labels[i]
 -			break
+-		}
+-	}
+-	if n == nil {
+-		return 0, 0, fmt.Errorf("ui: no element shows %q", s)
+-	}
 +		n := &t.rt.labels[i]
 +		if n.text != s {
 +			continue
@@ -24,13 +29,11 @@ index 5260574..9816201 100644
 +		}
 +		if firstErr == nil {
 +			firstErr = err
- 		}
- 	}
--	if n == nil {
--		return 0, 0, fmt.Errorf("ui: no element shows %q", s)
++		}
++	}
 +	if firstErr != nil {
 +		return 0, 0, firstErr
- 	}
++	}
 +	return 0, 0, fmt.Errorf("ui: no element shows %q", s)
 +}
 +

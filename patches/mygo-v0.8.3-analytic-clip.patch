@@ -1,0 +1,255 @@
+diff --git a/internal/gpu/transform.go b/internal/gpu/transform.go
+index 7683f98..3b05a7d 100644
+--- a/internal/gpu/transform.go
++++ b/internal/gpu/transform.go
+@@ -3,6 +3,7 @@ package gpu
+ import (
+ 	"cmp"
+ 	"image"
++	"math"
+ 	"slices"
+ 
+ 	"github.com/egoist/mygo/internal/raster"
+@@ -51,6 +52,16 @@ func (b *Builder) prepare(in *Instance, m scene.Affine, c *clip) bool {
+ 	if !c.masked {
+ 		return true
+ 	}
++	// The shaders evaluate a stationary rounded clip in frame coordinates,
++	// even when the content inside it is scaled. Integer hard ancestors and
++	// descendants are already exact in the batch scissor. Do not rasterize
++	// a whole-window mask just because an opening card contains transforms.
++	if !c.moved && !c.masks {
++		if rounded, ok := b.analyticClip(); ok {
++			in.Clip, in.ClipRadii = rect(rounded.rect), rounded.radii
++			return true
++		}
++	}
+ 	// A hard clip sharing the drawing's coordinates is cheap to evaluate in
+ 	// the fragment shader. Keep the rounded ancestor's mask stationary even
+ 	// when a text input or custom clipped drawing moves within it. Drawing
+@@ -89,6 +100,32 @@ func (b *Builder) prepare(in *Instance, m scene.Affine, c *clip) bool {
+ 	return true
+ }
+ 
++// analyticClip finds a single rounded clip surrounded only by integer
++// hard clips. Fractional hard edges need shader antialiasing of their own;
++// multiple rounded clips still need their combined coverage mask.
++func (b *Builder) analyticClip() (clip, bool) {
++	var rounded *clip
++	for i := range b.stack {
++		c := &b.stack[i]
++		if c.radii != [4]float32{} {
++			if rounded != nil {
++				return clip{}, false
++			}
++			rounded = c
++		} else {
++			for _, v := range []float32{c.rect.X, c.rect.Y, c.rect.X + c.rect.W, c.rect.Y + c.rect.H} {
++				if v != float32(math.Floor(float64(v))) {
++					return clip{}, false
++				}
++			}
++		}
++	}
++	if rounded == nil {
++		return clip{}, false
++	}
++	return *rounded, true
++}
++
+ func (b *Builder) clipTexture(c *clip, shapes []scene.ClipShape) uintptr {
+ 	if c.maskTexture != 0 {
+ 		return c.maskTexture
+diff --git a/internal/gpu/analytic_clip_test.go b/internal/gpu/analytic_clip_test.go
+new file mode 100644
+index 0000000..959d8b1
+--- /dev/null
++++ b/internal/gpu/analytic_clip_test.go
+@@ -0,0 +1,101 @@
++package gpu
++
++import (
++	"testing"
++
++	"github.com/egoist/mygo/internal/scene"
++)
++
++// Transformed content inside a stationary rounded card used to allocate a whole-card mask on every animation frame.
++func TestStationaryRoundedClipUsesFrameCoordinates(t *testing.T) {
++	transforms := []struct {
++		name string
++		m    scene.Affine
++	}{
++		{"scale", scene.Scaling(0.85, 0.9)},
++		{"rotate", scene.Translation(30, 25).Mul(scene.Rotation(12))},
++		{"perspective", scene.Projective(1, 0, 0, 1, 20, 15, 0.001, 0.0004)},
++	}
++	for _, transform := range transforms {
++		for _, inner := range []bool{false, true} {
++			name := transform.name
++			if inner {
++				name += "/integer-child"
++			}
++			t.Run(name, func(t *testing.T) {
++				outer := scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{W: 256, H: 256}}
++				card := scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 10, Y: 10, W: 200, H: 150}, Radii: [4]float32{17, 17, 17, 17}, Continuous: true}
++				ops := []scene.Op{outer, card}
++				wantScissor := Scissor{10, 10, 210, 160}
++				if inner {
++					ops = append(ops, scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 20, Y: 20, W: 120, H: 100}})
++					wantScissor = Scissor{20, 20, 140, 120}
++				}
++				ops = append(ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 20, Y: 20, W: 100, H: 80}, Color: scene.Color{R: 255, A: 255}, Transform: transform.m})
++				if inner {
++					ops = append(ops, scene.Op{Kind: scene.OpPopClip})
++				}
++				ops = append(ops, scene.Op{Kind: scene.OpPopClip}, scene.Op{Kind: scene.OpPopClip})
++				b := Builder{NoCull: true, NoFold: true}
++				defer b.Release()
++				uploads := 0
++				b.Build(&scene.Scene{Width: 256, Height: 256, Ops: ops}, func(img *scene.Image) uintptr { uploads++; return uintptr(img.ID()) })
++				if uploads != 0 || len(b.maskSlots) != 0 || len(b.Instances) == 0 {
++					t.Fatalf("stationary card uploaded %d masks, retained %d, drew %d instances", uploads, len(b.maskSlots), len(b.Instances))
++				}
++				wantClip := [4]float32{10, 10, 200, 150}
++				wantRadii := scene.Corners(card.Rect, card.Radii, card.Continuous)
++				for _, in := range b.Instances {
++					if in.Transform1[3] != 0 || in.Clip != wantClip || in.ClipRadii != wantRadii {
++						t.Fatalf("analytic clip mode %v rect %v radii %v, want 0 %v %v", in.Transform1[3], in.Clip, in.ClipRadii, wantClip, wantRadii)
++					}
++				}
++				for _, batch := range b.Batches {
++					if batch.ClipMask != 0 || batch.Scissor != wantScissor {
++						t.Fatalf("analytic card lost exact hard scissor: mask %v scissor %v, want %v", batch.ClipMask, batch.Scissor, wantScissor)
++					}
++				}
++			})
++		}
++	}
++}
++
++// Analytic single-card clipping must retain pixel masks when clips need combined coverage or separate coordinate systems.
++func TestComplexClipRetainsCoverageMask(t *testing.T) {
++	for _, name := range []string{"fractional-child", "fractional-ancestor", "multiple-rounded", "transformed-clip", "gradient-mask", "image-mask"} {
++		t.Run(name, func(t *testing.T) {
++			outer := scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{W: 256, H: 256}}
++			card := scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 10, Y: 10, W: 200, H: 150}, Radii: [4]float32{17, 17, 17, 17}}
++			child := scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 20, Y: 20, W: 120, H: 100}}
++			switch name {
++			case "fractional-child":
++				child.Rect.X += 0.25
++			case "fractional-ancestor":
++				outer.Rect.X = 0.25
++			case "multiple-rounded":
++				child.Radii = [4]float32{8, 8, 8, 8}
++			case "transformed-clip":
++				child.Transform = scene.Rotation(5)
++			case "gradient-mask":
++				card.Paint, card.Color, card.Color2, card.Gradient = scene.PaintLinear, scene.Color{A: 0}, scene.Color{A: 255}, [4]float32{10, 10, 210, 10}
++			case "image-mask":
++				card.Image = scene.NewImageRGBA(2, 1, []byte{0, 0, 0, 128, 0, 0, 0, 255})
++				card.Src = scene.Rect{W: 2, H: 1}
++			}
++			fill := scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 20, Y: 20, W: 100, H: 80}, Color: scene.Color{R: 255, A: 255}, Transform: scene.Scaling(0.85, 0.9)}
++			ops := []scene.Op{outer, card, child, fill, {Kind: scene.OpPopClip}, {Kind: scene.OpPopClip}, {Kind: scene.OpPopClip}}
++			b := Builder{NoCull: true, NoFold: true}
++			defer b.Release()
++			uploads := 0
++			b.Build(&scene.Scene{Width: 256, Height: 256, Ops: ops}, func(img *scene.Image) uintptr { uploads++; return uintptr(img.ID()) })
++			if uploads == 0 || len(b.maskSlots) == 0 || len(b.Instances) == 0 {
++				t.Fatalf("complex clip lost its mask: uploads %d retained %d instances %d", uploads, len(b.maskSlots), len(b.Instances))
++			}
++			for _, in := range b.Instances {
++				if in.Transform1[3] != 1 && in.Transform1[3] != 2 {
++					t.Fatalf("complex clip uses analytic mode %v", in.Transform1[3])
++				}
++			}
++		})
++	}
++}
+diff --git a/internal/gpu/d3d11/analytic_clip_test.go b/internal/gpu/d3d11/analytic_clip_test.go
+new file mode 100644
+index 0000000..48ff935
+--- /dev/null
++++ b/internal/gpu/d3d11/analytic_clip_test.go
+@@ -0,0 +1,80 @@
++//go:build windows
++
++package d3d11
++
++import (
++	"runtime"
++	"testing"
++
++	"github.com/egoist/mygo/internal/raster"
++	"github.com/egoist/mygo/internal/scene"
++)
++
++// A stationary or translated rounded card clips its content and hard children without uploading a whole-card mask.
++func TestRoundedCardClipsTransformedContentWithoutMask(t *testing.T) {
++	runtime.LockOSThread()
++	defer runtime.UnlockOSThread()
++	hwnd, err := newHiddenWindow(192, 160)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer destroyWindow(hwnd)
++	r, err := New(hwnd)
++	if err != nil {
++		t.Skip("Direct3D 11 unavailable:", err)
++	}
++	defer r.Release()
++	for _, moved := range []bool{false, true} {
++		move := scene.Affine{}
++		if moved {
++			move = scene.Translation(5, 7)
++		}
++		for _, inner := range []bool{false, true} {
++			for _, transform := range []scene.Affine{{}, scene.Scaling(1.01, 1.01), scene.Rotation(11), scene.Projective(1, 0, 0, 1, 20, 15, 0.001, 0.0004)} {
++				s := &scene.Scene{Width: 192, Height: 160, Clear: scene.Color{A: 255}}
++				s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 13, Y: 11, W: 133, H: 117}, Radii: [4]float32{19, 19, 19, 19}, Transform: move})
++				if inner {
++					// #1418: a hard child reaching into its rounded parent's
++					// bottom corners must retain those corners; #1420 also
++					// folds a shared translation into the clips' frame positions.
++					s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 13, Y: 70, W: 133, H: 58}, Transform: move})
++				}
++				s.Ops = append(s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{W: 190, H: 150}, Color: scene.Color{R: 255, G: 255, B: 255, A: 255}, Transform: transform})
++				if inner {
++					s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPopClip})
++				}
++				s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPopClip})
++				if err := r.draw(s); err != nil {
++					t.Fatal(err)
++				}
++				if len(r.images) != 0 {
++					t.Fatalf("moved=%t inner=%t transform=%v: rounded card uploaded %d mask textures", moved, inner, transform, len(r.images))
++				}
++				pix, stride, err := r.read()
++				if err != nil {
++					t.Fatal(err)
++				}
++				ref := raster.NewImage(s.Width, s.Height)
++				raster.Render(ref, s)
++				maxDiff, totalDiff := 0, 0
++				for y := range s.Height {
++					for x := range s.Width {
++						// This grayscale fixture has equal RGB channels in BGRA and RGBA.
++						d := int(pix[y*stride+4*x]) - int(ref.Pix[y*ref.Stride+4*x])
++						if d < 0 {
++							d = -d
++						}
++						maxDiff = max(maxDiff, d)
++						totalDiff += d
++					}
++				}
++				if maxDiff > 20 || float64(totalDiff)/float64(s.Width*s.Height) > 0.2 {
++					t.Fatalf("moved=%t inner=%t transform=%v: rounded coverage differs from CPU: max=%d mean=%f", moved, inner, transform, maxDiff, float64(totalDiff)/float64(s.Width*s.Height))
++				}
++				if err := r.present(0); err != nil {
++					t.Fatal(err)
++				}
++			}
++		}
++	}
++}

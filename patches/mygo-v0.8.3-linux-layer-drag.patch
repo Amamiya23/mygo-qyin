@@ -2,7 +2,7 @@ diff --git a/internal/linux/layer.go b/internal/linux/layer.go
 index 38eed8e..85e4887 100644
 --- a/internal/linux/layer.go
 +++ b/internal/linux/layer.go
-@@ -3,6 +3,7 @@
+@@ -3,12 +3,65 @@
  package linux
  
  import (
@@ -10,10 +10,10 @@ index 38eed8e..85e4887 100644
  	"os"
  	"path/filepath"
  	"sync"
-@@ -10,6 +11,58 @@ import (
+ 
  	"github.com/egoist/mygo/internal/platform"
  )
- 
++
 +// layerDrag keeps the point held by the pointer in surface coordinates.
 +type layerDrag struct {
 +	x, y    float64
@@ -65,15 +65,14 @@ index 38eed8e..85e4887 100644
 +		w.h.Moved()
 +	}
 +}
-+
+ 
  // gtk-layer-shell makes panels surfaces of the wlr-layer-shell protocol
  // on Wayland compositors that speak it (Sway, Hyprland, KDE Plasma,
- // COSMIC…), as launchers there do (Ulauncher, Walker, anyrun): above
 diff --git a/internal/linux/window.go b/internal/linux/window.go
-index 235f599..58226e2 100644
+index 5c797fe..4363299 100644
 --- a/internal/linux/window.go
 +++ b/internal/linux/window.go
-@@ -139,6 +139,7 @@ type window struct {
+@@ -142,6 +142,7 @@
  	// context menu positioning.
  	press struct {
  		button     int32
@@ -81,7 +80,7 @@ index 235f599..58226e2 100644
  		rootX      float64
  		rootY      float64
  		time       uint32
-@@ -149,6 +150,7 @@ type window struct {
+@@ -152,6 +153,7 @@
  	// dragPending holds whether a window drag was requested with the last
  	// press and waits for the pointer to move; see StartDrag.
  	dragPending bool
@@ -89,7 +88,7 @@ index 235f599..58226e2 100644
  
  	// cursor is the resize cursor shown over an edge of a frameless
  	// window, and the page's cursor it replaced.
-@@ -875,6 +877,10 @@ func (w *window) StartDrag() {
+@@ -908,6 +910,10 @@
  	if !w.press.hasPressed {
  		return
  	}
@@ -100,7 +99,7 @@ index 235f599..58226e2 100644
  	if !w.undecorated() {
  		gtkWindowBeginMoveDrag(w.win, w.press.button, int32(w.press.rootX), int32(w.press.rootY), w.press.time)
  		return
-@@ -885,6 +891,10 @@ func (w *window) StartDrag() {
+@@ -918,6 +924,10 @@
  // checkDragStart starts a pending window drag once the pointer moves past
  // the drag threshold with the button still down.
  func (w *window) checkDragStart(event ptr) {
@@ -111,7 +110,7 @@ index 235f599..58226e2 100644
  	if !w.dragPending {
  		return
  	}
-@@ -1807,6 +1817,9 @@ func initWindowCallbacks() {
+@@ -1850,6 +1860,9 @@
  		// GdkEventButton: time 20, button 52, x_root 64, y_root 72.
  		w.press.time = field[uint32](event, 20)
  		w.press.button = int32(field[uint32](event, 52))

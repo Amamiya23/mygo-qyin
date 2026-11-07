@@ -99,7 +99,6 @@ type texture struct {
 	w, h      int
 	gen, ver  uint64
 	lastFrame uint64
-	transient bool
 }
 
 // canvasTexture is the texture a canvas (scene.NewCanvas) is drawn into,
@@ -565,7 +564,7 @@ func (r *Renderer) imageTexture(img *scene.Image) uintptr {
 			img.Uploaded()
 		}
 	}
-	t.lastFrame, t.transient = r.frame, img.Transient
+	t.lastFrame = r.frame
 	return uintptr(t.tex)
 }
 
@@ -609,7 +608,6 @@ func (r *Renderer) draw(s *scene.Scene) error {
 	if err := r.drawFrame(s); err != nil {
 		return err
 	}
-	r.sweepTransientImages()
 	if r.frame%120 == 0 {
 		r.sweep()
 	}
@@ -1260,17 +1258,6 @@ func (r *Renderer) FrameInfo() string {
 		return "unchanged"
 	}
 	return r.b.Summary()
-}
-
-// sweepTransientImages drops temporary pixel textures after the last drawing
-// of the frame. GL keeps submitted draws alive until they finish using them.
-func (r *Renderer) sweepTransientImages() {
-	for key, t := range r.images {
-		if t.transient && t.lastFrame != r.frame {
-			glDeleteTextures(1, &t.tex)
-			delete(r.images, key)
-		}
-	}
 }
 
 // sweep frees the textures of images no frame drew for a while, and

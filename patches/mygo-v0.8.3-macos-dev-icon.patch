@@ -2,7 +2,7 @@ diff --git a/cmd/mygo/config.go b/cmd/mygo/config.go
 index 97f2f44..381a911 100644
 --- a/cmd/mygo/config.go
 +++ b/cmd/mygo/config.go
-@@ -575,10 +575,15 @@ func (c *Config) devIcon() string {
+@@ -575,10 +575,15 @@
  	if c.Icon == "" {
  		return ""
  	}
@@ -24,7 +24,7 @@ diff --git a/cmd/mygo/dev.go b/cmd/mygo/dev.go
 index 37b8877..29c223e 100644
 --- a/cmd/mygo/dev.go
 +++ b/cmd/mygo/dev.go
-@@ -499,8 +499,8 @@ func devHelp() string {
+@@ -499,8 +499,8 @@
  
  // devConfig configures the development app: "<Name> Dev" with the
  // identifier "<identifier>.dev", so that its data, preferences and single
@@ -35,19 +35,19 @@ index 37b8877..29c223e 100644
  func devConfig(c *Config) *Config {
  	d := *c
  	d.Name += " Dev"
-@@ -511,6 +511,11 @@ func devConfig(c *Config) *Config {
+@@ -510,6 +510,11 @@
+ 	}
  	if icon := c.devIcon(); icon != "" {
  		d.Icon = icon
- 	}
++	}
 +	if c.MacOS.Icon != "" {
 +		if icon := devIconPath(c.MacOS.Icon); fileExists(c.path(icon)) {
 +			d.MacOS.Icon = icon
 +		}
-+	}
+ 	}
  	return &d
  }
- 
-@@ -723,16 +728,20 @@ func (s *devSession) windowsResources(c, dc *Config) (cleanup func(), err error)
+@@ -723,16 +728,20 @@
  
  // icon returns the app icon as .icns, rendering it only when it changed.
  func (s *devSession) icon(c *Config) ([]byte, error) {
@@ -76,7 +76,7 @@ diff --git a/cmd/mygo/watch.go b/cmd/mygo/watch.go
 index ecc97c8..2437fb7 100644
 --- a/cmd/mygo/watch.go
 +++ b/cmd/mygo/watch.go
-@@ -27,7 +27,7 @@ import (
+@@ -27,7 +27,7 @@
  type buildInputs struct {
  	sourceDirs []string // directories of compiled packages: their .go and .s files
  	fileDirs   []string // directories of embedded files: all their files
@@ -85,10 +85,11 @@ index ecc97c8..2437fb7 100644
  	// resources is the resources directory: everything in it but the
  	// platform directories of other platforms.
  	resources string
-@@ -72,6 +72,15 @@ func listBuildInputs(c *Config) (*buildInputs, error) {
+@@ -71,6 +71,15 @@
+ 	}
  	if c.Icon != "" {
  		in.files = append(in.files, c.path(c.Icon))
- 	}
++	}
 +	if icon := c.MacOS.Icon; icon != "" {
 +		// Watch the missing sibling too, so adding it switches the dev icon.
 +		icons := []string{c.path(icon), c.path(devIconPath(icon))}
@@ -97,10 +98,9 @@ index ecc97c8..2437fb7 100644
 +		} else {
 +			in.files = append(in.files, icons...)
 +		}
-+	}
+ 	}
  	if c.MacOS.Entitlements != "" {
  		in.files = append(in.files, c.path(c.MacOS.Entitlements))
- 	}
 diff --git a/cmd/mygo/dev_icon_test.go b/cmd/mygo/dev_icon_test.go
 new file mode 100644
 index 0000000..8600398

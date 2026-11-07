@@ -1,0 +1,2067 @@
+diff --git a/audio/alsa_fallback_linux_test.go b/audio/alsa_fallback_linux_test.go
+new file mode 100644
+index 0000000..dd59cab
+--- /dev/null
++++ b/audio/alsa_fallback_linux_test.go
+@@ -0,0 +1,84 @@
++//go:build linux && !android && (amd64 || arm64)
++
++package audio
++
++import (
++	"fmt"
++	"testing"
++	"time"
++	"unsafe"
++)
++
++func TestALSAUnsupportedNativeRateAllowsResampling(t *testing.T) {
++	original := sndPcmSetParams
++	defer func() { sndPcmSetParams = original }()
++	for _, rate := range []int{44100, 48000, 88200, 96000, 192000} {
++		hardwareRate := uint32(48000)
++		sndPcmSetParams = func(_ uintptr, _, _ int32, ch, requested uint32, soft int32, _ uint32) int32 {
++			if requested != uint32(rate) || ch != channels {
++				t.Fatal("wrong stream format")
++			}
++			if requested != hardwareRate && soft != 1 {
++				return -22
++			}
++			return 0 // emulate a 48k-only ALSA plugin with rate-conversion support
++		}
++		if got := configureALSA(1, 250*time.Millisecond, rate); got != 0 {
++			t.Fatalf("rate %d: failed to enable ALSA fallback: %d", rate, got)
++		}
++	}
++}
++
++func TestALSARateFallbackOpensAndWritesAudio(t *testing.T) {
++	for _, rate := range []int{44100, 48000, 88200, 96000} {
++		t.Run(fmt.Sprint(rate), func(t *testing.T) { testALSARateFallback(t, rate) })
++	}
++}
++func testALSARateFallback(t *testing.T, rate int) {
++	oldError := sndStrerror
++	defer func() { sndStrerror = oldError }()
++	sndStrerror = func(int32) string { return "unsupported hardware rate" }
++	oldOpen, oldParams, oldWrite, oldClose := sndPcmOpen, sndPcmSetParams, sndPcmWritei, sndPcmClose
++	defer func() {
++		sndPcmOpen, sndPcmSetParams, sndPcmWritei, sndPcmClose = oldOpen, oldParams, oldWrite, oldClose
++	}()
++	sndPcmOpen = func(pcm *uintptr, name *byte, _ int32, _ int32) int32 {
++		if *name == 'p' {
++			*pcm = 456
++		} else {
++			*pcm = 123
++		}
++		return 0
++	}
++	sndPcmSetParams = func(pcm uintptr, _ int32, _ int32, _ uint32, rate uint32, soft int32, _ uint32) int32 {
++		if rate != 48000 && (pcm == 123 || soft == 0) {
++			return -22
++		}
++		return 0
++	}
++	written := uintptr(0)
++	sndPcmWritei = func(pcm uintptr, _ unsafe.Pointer, n uintptr) int {
++		expectedPCM := uintptr(456)
++		if rate == 48000 {
++			expectedPCM = 123
++		}
++		if pcm != expectedPCM {
++			t.Fatal("unsupported default PCM did not fall back to plug:default")
++		}
++		written += n
++		return int(n)
++	}
++	closed := false
++	sndPcmClose = func(uintptr) int32 { closed = true; return 0 }
++	d, err := openALSALoaded(250*time.Millisecond, rate)
++	if err != nil {
++		t.Fatalf("48k-only plugin did not accept source stream with conversion: %v", err)
++	}
++	if err = d.write(make([]float32, rate/100*channels)); err != nil {
++		t.Fatal(err)
++	}
++	d.close()
++	if written != uintptr(rate/100) || !closed {
++		t.Fatal("ALSA fallback did not write/close a real stream")
++	}
++}
+diff --git a/audio/audio.go b/audio/audio.go
+index b304348..0ce795a 100644
+--- a/audio/audio.go
++++ b/audio/audio.go
+@@ -30,11 +30,12 @@ import (
+ 	"time"
+ )
+ 
+-// The output's format: every player is resampled to it.
+-const (
+-	sampleRate = 48000
+-	channels   = 2
+-)
++const channels = 2
++const defaultOutputRate = 48000
++
++// outputRate is the target device rate, guarded by mu. Backends receive
++// an immutable snapshot so opening/writing never races with Play.
++var outputRate = defaultOutputRate
+ 
+ // mu guards the voices playing and the state of every player.
+ var mu sync.Mutex
+@@ -189,7 +190,7 @@ func (s *Sound) Duration() time.Duration {
+ 
+ // NewPlayer returns a paused player of the sound.
+ func (s *Sound) NewPlayer() *Player {
+-	src := &memSource{samples: s.samples, channels: s.channels}
++	src := &memSource{samples: s.samples, rate: s.rate, channels: s.channels}
+ 	return newPlayer(src, s.rate, s.channels, int64(len(s.samples)/s.channels))
+ }
+ 
+@@ -224,9 +225,9 @@ type closingDecoder struct {
+ // ahead. d is used by one goroutine at a time. Closing the player closes d
+ // if d is an io.Closer.
+ func NewPlayer(d Decoder) *Player {
+-	ch := min(d.Channels(), 2)
++	ch, length := min(d.Channels(), 2), d.Len()
+ 	s := newStream(d)
+-	p := newPlayer(s, d.SampleRate(), ch, d.Len())
++	p := newPlayer(s, s.sampleRate(), ch, length)
+ 	// A player dropped while paused would leave its decoder waiting; one
+ 	// dropped while playing plays to its end, as a sound's do.
+ 	runtime.AddCleanup(p, func(v *voice) {
+@@ -278,6 +279,18 @@ func (p *Player) Play() {
+ 		v.src.seek(0)
+ 		v.reset(0)
+ 	}
++	if desktopAudioFeatures {
++		// A primary music player takes priority over effects and old fade-outs.
++		other := slices.ContainsFunc(voices, func(other *voice) bool {
++			return other != v && other.playing && !other.closed
++		})
++		if (v.primary || !other) && int(v.rate) > 0 {
++			outputRate = int(v.rate)
++		}
++		if v.preRoll && (outputState != outputReady || deviceRate != outputRate) {
++			warmupFrames = outputRate / 5
++		}
++	}
+ 	v.playing = true
+ 	if !v.active {
+ 		// A sound starting at its start starts at once; one resuming in
+@@ -291,6 +304,31 @@ func (p *Player) Play() {
+ 	}
+ }
+ 
++// SetPrimary lets this music player select the output rate even while
++// effects or a previous track's fade-out are still active. It has no effect
++// on Web, Android, iOS or unsupported backends.
++func (p *Player) SetPrimary(primary bool) *Player {
++	mu.Lock()
++	defer mu.Unlock()
++	p.v.primary = primary
++	return p
++}
++
++// SetPreRoll enables 200 ms of output silence when the device opens or reopens
++// while this player is playing. New songs on an already open, same-rate device
++// do not add silence.
++// It defaults to false; short mid-song resumes on an open output add no silence.
++// The output is shared: while warming up, all mixed sources stand still.
++// Changing this option takes effect on the next Play or device open;
++// disabling it cancels pending silence once no playing player requests it.
++// It has no effect on Web, Android, iOS or unsupported backends.
++func (p *Player) SetPreRoll(enabled bool) *Player {
++	mu.Lock()
++	defer mu.Unlock()
++	p.v.preRoll = enabled && desktopAudioFeatures
++	return p
++}
++
+ // Pause pauses the player where it is.
+ func (p *Player) Pause() {
+ 	mu.Lock()
+@@ -327,7 +365,9 @@ type endListener struct {
+ 
+ // OnEnd calls fn on a goroutine of its own each time the player plays to
+ // its end, which a looping player never does, as a playlist plays the
+-// next track then. off removes it.
++// next track then. On desktop outputs, natural-end notification waits for
++// queued tail audio to play; Pause, Stop and Close do not wait for it.
++// off removes the listener.
+ func (p *Player) OnEnd(fn func()) (off func()) {
+ 	mu.Lock()
+ 	defer mu.Unlock()
+@@ -368,6 +408,8 @@ func (p *Player) Position() time.Duration {
+ }
+ 
+ // Duration returns how long the player's audio is, or 0 if unknown.
++// The source length and rate are immutable after construction, so Duration
++// can be read concurrently with playback without locking.
+ func (p *Player) Duration() time.Duration {
+ 	if p.v.length < 0 {
+ 		return 0
+diff --git a/audio/device_integration_linux_test.go b/audio/device_integration_linux_test.go
+new file mode 100644
+index 0000000..91cd15f
+--- /dev/null
++++ b/audio/device_integration_linux_test.go
+@@ -0,0 +1,41 @@
++//go:build linux && !android && (amd64 || arm64)
++
++package audio
++
++import (
++	"fmt"
++	"os"
++	"testing"
++)
++
++// Opt-in native API check; writes silence only, never changes system routing.
++// It cannot establish that a physical DAC changed its clock or kept a music tail.
++func TestLinuxPulseNativeLifecycle(t *testing.T) {
++	if os.Getenv("MYGO_AUDIO_DEVICE_TEST") != "1" {
++		t.Skip("set MYGO_AUDIO_DEVICE_TEST=1 to use the host PulseAudio/PipeWire output")
++	}
++	for _, rate := range []int{44100, 48000, 88200, 96000} {
++		t.Run(fmt.Sprint(rate), func(t *testing.T) {
++			d, err := openPulse(LatencyPlayback.ahead(), rate)
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer d.close()
++			silence := make([]float32, rate/100*channels)
++			for i := 0; i < 30; i++ {
++				if err := d.write(silence); err != nil {
++					t.Fatal(err)
++				}
++			}
++			if _, err := d.(drainingDevice).drain(); err != nil {
++				t.Fatal(err)
++			}
++			if err := d.write(silence); err != nil {
++				t.Fatal(err)
++			}
++			if _, err := d.(drainingDevice).drain(); err != nil {
++				t.Fatal(err)
++			}
++		})
++	}
++}
+diff --git a/audio/mixer.go b/audio/mixer.go
+index 1bcfc80..5aca3f6 100644
+--- a/audio/mixer.go
++++ b/audio/mixer.go
+@@ -31,11 +31,16 @@ func setHeld(n int64) {
+ func heard() int64 { return mixed - unheard }
+ 
+ // rampFrames is how long volume changes, fades in and fades out take: 5 ms.
+-const rampFrames = sampleRate / 200
++func rampFrames() int { return max(outputRate/200, 1) }
++
++// Silence is part of the output clock, but never advances source cursors.
++var warmupFrames int
+ 
+ // A source gives a voice its frames. Its methods run under mu and never
+ // block.
+ type source interface {
++	// sampleRate returns the source's immutable native rate, not device state.
++	sampleRate() int
+ 	// read reads frames into dst, interleaved, and returns how many it
+ 	// read: fewer than fit only at the end, where ended is true, or while
+ 	// a stream decodes, where it is false. It goes on from the start when
+@@ -56,6 +61,8 @@ type voice struct {
+ 	mono   bool
+ 	length int64 // frames, or -1
+ 
++	preRoll bool // explicitly requests hardware warm-up on supported desktops
++	primary bool // selects the output rate ahead of other voices
+ 	playing bool // as the API sees it
+ 	active  bool // in voices, which it stays in while fading out
+ 	snap    bool // starts at its start: no fade in
+@@ -94,7 +101,9 @@ type voice struct {
+ 
+ 	// Where the voice was in its source as the output mixed its frames,
+ 	// oldest first, for Position to say where it is heard.
+-	marks []mark
++	marks     []mark
++	finishing bool  // natural EOF rendered, waiting for the device to play its tail
++	finishOut int64 // output frame after the final source frame
+ }
+ 
+ // A mark is the voice at output frame out: at frame pos of its source,
+@@ -108,6 +117,7 @@ type mark struct {
+ // reset starts the voice over at frame f of its source, which the caller
+ // has moved there.
+ func (v *voice) reset(f int64) {
++	v.finishing = false
+ 	v.hist = [4][2]float32{}
+ 	// Three frames come in before the first output: the second is f.
+ 	v.idx = f - 3
+@@ -285,6 +295,9 @@ func (v *voice) gains(master float64) [4]float32 {
+ 		x := (v.pan + 1) / 2 * math.Pi / 2
+ 		return [4]float32{float32(g * math.Sqrt2 * math.Cos(x)), 0, 0, float32(g * math.Sqrt2 * math.Sin(x))}
+ 	}
++	if v.pan == 0 {
++		return [4]float32{float32(g), 0, 0, float32(g)}
++	}
+ 	// Web Audio's StereoPannerNode for stereo input.
+ 	if v.pan <= 0 {
+ 		x := (v.pan + 1) * math.Pi / 2
+@@ -309,18 +322,36 @@ func (v *voice) retarget(t [4]float32) {
+ 	}
+ 	v.target = t
+ 	for i := range t {
+-		v.step[i] = (t[i] - v.gain[i]) / rampFrames
++		v.step[i] = (t[i] - v.gain[i]) / float32(rampFrames())
+ 	}
+-	v.rampLeft = rampFrames
++	v.rampLeft = rampFrames()
+ }
+ 
+ // mix adds the voice's next frames to out, which the output mixes from
+ // its frame at, and reports whether it is still active: false once at its
+ // end, or faded out.
+ func (v *voice) mix(out []float32, master float64, at, heard int64) bool {
++	if v.finishing {
++		if !v.playing {
++			v.finishing = false
++			return false
++		}
++		if heard >= v.finishOut {
++			v.finishing, v.playing, v.atEnd = false, false, true
++			return false
++		}
++		return true
++	}
+ 	v.mark(at, heard)
+ 	n, ok := v.play(out, master)
+ 	v.mark(at+int64(n), heard)
++	if desktopAudioFeatures && !ok && v.atEnd {
++		// Keep Playing true and postpone OnEnd until the queued tail is heard.
++		// User Pause/Stop/Close can still cancel this natural finish.
++		v.atEnd, v.playing, v.finishing = false, true, true
++		v.finishOut = at + int64(n)
++		return true
++	}
+ 	return ok
+ }
+ 
+@@ -328,10 +359,10 @@ func (v *voice) mix(out []float32, master float64, at, heard int64) bool {
+ // through its source for, and whether it is still active.
+ func (v *voice) play(out []float32, master float64) (int, bool) {
+ 	v.retarget(v.gains(master))
+-	step := v.rate / sampleRate * v.speed
++	step := v.rate / float64(outputRate) * v.speed
+ 	if v.st != nil && v.st.on {
+ 		// Stretched to the speed already.
+-		step = v.rate / sampleRate
++		step = v.rate / float64(outputRate)
+ 	}
+ 	for i := 0; i < len(out); i += 2 {
+ 		for v.phase >= 1 {
+@@ -369,6 +400,9 @@ func (v *voice) play(out []float32, master float64) (int, bool) {
+ // sample interpolates between the second and third frames with a
+ // Catmull-Rom spline.
+ func (v *voice) sample() (l, r float32) {
++	if v.phase == 0 {
++		return v.hist[1][0], v.hist[1][1]
++	}
+ 	t := float32(v.phase)
+ 	h := &v.hist
+ 	cr := func(p0, p1, p2, p3 float32) float32 {
+@@ -389,9 +423,21 @@ func mix(out []float32) bool {
+ func mixLocked(out []float32) bool {
+ 	clear(out)
+ 	at, h := mixed, heard()
++	// Split even a buffer straddling the end of pre-roll exactly. Marks
++	// on both sides of the silence keep Position fixed until music is heard.
++	if !preRollRequestedLocked() {
++		warmupFrames = 0
++	}
++	silent := min(warmupFrames, len(out)/channels)
++	warmupFrames -= silent
++	for _, v := range voices {
++		v.mark(at, h)
++		v.mark(at+int64(silent), h)
++	}
++	music := out[silent*channels:]
+ 	n := 0
+ 	for _, v := range voices {
+-		if v.closed || !v.mix(out, volume, at, h) {
++		if v.closed || !v.mix(music, volume, at+int64(silent), h) {
+ 			if v.atEnd {
+ 				v.atEnd = false
+ 				for _, l := range v.onEnd {
+diff --git a/audio/output.go b/audio/output.go
+index 210b42d..e4fceec 100644
+--- a/audio/output.go
++++ b/audio/output.go
+@@ -17,9 +17,93 @@ type device interface {
+ 	close()
+ }
+ 
++// A drainingDevice waits for queued audio to be played. reopen reports that
++// draining stopped the backend and a fresh session is needed before more audio.
++type drainingDevice interface {
++	drain() (reopen bool, err error)
++}
++
++// naturalDrain reports a primary natural EOF, or all remaining voices at EOF.
++// It excludes user pauses/stops and never holds mu during a backend operation.
++func naturalDrain() bool {
++	mu.Lock()
++	defer mu.Unlock()
++	if !desktopAudioFeatures || len(voices) == 0 {
++		return false
++	}
++	all := true
++	for _, v := range voices {
++		if v.closed || !v.playing || !v.finishing {
++			all = false
++			continue
++		}
++		// A primary track must keep its tail even while effects are active.
++		if v.primary {
++			return true
++		}
++	}
++	return all
++}
++
+ // idleClose is how long the output stays open with nothing playing.
+ const idleClose = 5 * time.Second
+ 
++// Device lifecycle, guarded by mu. deviceRate describes the opened stream;
++// outputRate is the requested rate and may change while a backend is opening.
++type deviceState uint8
++
++const (
++	outputClosed deviceState = iota
++	outputOpening
++	outputReady
++	outputClosing
++)
++
++var (
++	outputState = outputClosed
++	deviceRate  int
++)
++
++// playbackRateLocked reselects the rate from active source metadata before
++// every open, including reopening after idle close, error or system wake.
++// The most recently started primary music voice wins over sound effects.
++func playbackRateLocked() int {
++	if !desktopAudioFeatures {
++		return defaultOutputRate
++	}
++	rate := 0
++	for i := len(voices) - 1; i >= 0; i-- {
++		v := voices[i]
++		if !v.playing || v.closed {
++			continue
++		}
++		if v.primary {
++			return v.src.sampleRate()
++		}
++		// Without an explicit primary, keep the first playing voice's rate:
++		// a later effect must not change a cold device's music rate.
++		rate = v.src.sampleRate()
++	}
++	if rate > 0 {
++		return rate
++	}
++	return outputRate
++}
++
++// preRollRequestedLocked excludes ordinary effects and platforms which do
++// not support hardware pre-roll. The caller holds mu.
++func preRollRequestedLocked() bool {
++	if !desktopAudioFeatures {
++		return false
++	}
++	for _, v := range voices {
++		if v.playing && !v.closed && v.preRoll {
++			return true
++		}
++	}
++	return false
++}
++
+ var (
+ 	openOutput = openDevice // tests replace it
+ 
+@@ -49,11 +133,11 @@ func active() bool {
+ 
+ // mixFor mixes into buf for an output open at latency lat, and reports
+ // whether anything plays; ok is false, and it mixes nothing, once tests
+-// mix by hand or the latency changed.
+-func mixFor(buf []float32, lat Latency) (busy, ok bool) {
++// mix by hand or the latency/rate changed.
++func mixFor(buf []float32, lat Latency, rate int) (busy, ok bool) {
+ 	mu.Lock()
+ 	defer mu.Unlock()
+-	if testMode || latency != lat {
++	if testMode || latency != lat || outputRate != rate {
+ 		return false, false
+ 	}
+ 	return mixLocked(buf), true
+@@ -67,48 +151,103 @@ func run() {
+ 		for !active() {
+ 			<-wake
+ 		}
+-		lat := outputLatency()
+-		dev, n, err := openOutput(lat.ahead())
++		playOutput()
++	}
++}
++
++// playOutput owns one device session; only the output thread calls it.
++func playOutput() {
++	mu.Lock()
++	outputRate = playbackRateLocked()
++	lat, rate := latency, outputRate
++	outputState = outputOpening
++	mu.Unlock()
++	dev, n, err := openOutput(lat.ahead(), rate)
++	if err != nil {
++		setErr(err)
++		dev, n = newNullDevice(err != errUnsupported, rate), max(rate/100, 1)
++	} else {
++		setErr(nil)
++	}
++	mu.Lock()
++	outputState, deviceRate = outputReady, rate
++	if !testMode && outputRate == rate && latency == lat {
++		held, unheard = int64(lat.ahead())*int64(rate)/int64(time.Second), 0
+ 		if err != nil {
+-			setErr(err)
+-			dev, n = newNullDevice(err != errUnsupported), nullFrames
+-			// It holds nothing: what it takes is heard as it takes it.
+-			setHeld(0)
+-		} else {
+-			setErr(nil)
+-			setHeld(int64(lat.ahead() * sampleRate / time.Second))
++			// Null output holds nothing.
++			held = 0
+ 		}
+-		buf := make([]float32, n*channels)
+-		idle := time.Duration(0)
+-		per := frames(int64(n), sampleRate)
+-		for {
+-			busy, ok := mixFor(buf, lat)
+-			if !ok {
+-				break
+-			}
+-			if err := dev.write(buf); err != nil {
+-				// Lost, or a null device trying the real one again.
+-				break
++		warmupFrames = 0
++		if preRollRequestedLocked() {
++			warmupFrames = rate / 5
++		}
++		for _, v := range voices {
++			v.marks = v.marks[:0]
++			// Recalculate any running gain ramp at the new output rate.
++			if v.rampLeft > 0 {
++				v.rampLeft = rampFrames()
++				for i := range v.step {
++					v.step[i] = (v.target[i] - v.gain[i]) / float32(v.rampLeft)
++				}
+ 			}
+-			if busy {
+-				idle = 0
+-			} else if idle += per; idle >= idleClose {
+-				break
++		}
++	}
++	mu.Unlock()
++	buf := make([]float32, n*channels)
++	idle := time.Duration(0)
++	per := frames(int64(n), rate)
++	for {
++		busy, ok := mixFor(buf, lat, rate)
++		if !ok {
++			break
++		}
++		if err := dev.write(buf); err != nil {
++			// Lost, or a null device trying the real one again.
++			break
++		}
++		if naturalDrain() {
++			if d, ok := dev.(drainingDevice); ok {
++				reopen, err := d.drain()
++				if err != nil {
++					setErr(err)
++					break
++				}
++				mu.Lock()
++				unheard = 0
++				if reopen {
++					// Publish the heard tail before retiring the stopped backend.
++					// An empty mix completes EOF without consuming the next song.
++					mixLocked(nil)
++				}
++				mu.Unlock()
++				if reopen {
++					break
++				}
+ 			}
+ 		}
+-		dev.close()
++		if busy {
++			idle = 0
++		} else if idle += per; idle >= idleClose {
++			break
++		}
+ 	}
++	mu.Lock()
++	outputState = outputClosing
++	mu.Unlock()
++	dev.close()
++	mu.Lock()
++	outputState, deviceRate = outputClosed, 0
++	held, unheard = 0, 0
++	mu.Unlock()
+ }
+ 
+ var errUnsupported = errors.New("audio: no audio output on this platform")
+ 
+-// nullFrames is how many frames a null device takes at a time: 10 ms.
+-const nullFrames = sampleRate / 100
+-
+ // A nullDevice plays nothing, on time: players still end when they would
+ // have. One standing in for a device that failed to open fails after a
+ // while, so that the output tries the device again.
+ type nullDevice struct {
++	rate  int
+ 	next  time.Time
+ 	retry time.Time
+ 	// now and sleep are its clock, which tests replace.
+@@ -116,8 +255,8 @@ type nullDevice struct {
+ 	sleep func(time.Duration)
+ }
+ 
+-func newNullDevice(retry bool) *nullDevice {
+-	d := &nullDevice{next: time.Now(), now: time.Now, sleep: time.Sleep}
++func newNullDevice(retry bool, rate int) *nullDevice {
++	d := &nullDevice{rate: rate, next: time.Now(), now: time.Now, sleep: time.Sleep}
+ 	if retry {
+ 		d.retry = d.next.Add(2 * time.Second)
+ 	}
+@@ -135,7 +274,7 @@ func (d *nullDevice) write(samples []float32) error {
+ 		// Behind, as after a sleep: don't hurry to catch up.
+ 		d.next = now
+ 	}
+-	d.next = d.next.Add(frames(int64(len(samples)/channels), sampleRate))
++	d.next = d.next.Add(frames(int64(len(samples)/channels), d.rate))
+ 	d.sleep(d.next.Sub(d.now()))
+ 	return nil
+ }
+diff --git a/audio/output_darwin.go b/audio/output_darwin.go
+index 9508c15..3481769 100644
+--- a/audio/output_darwin.go
++++ b/audio/output_darwin.go
+@@ -49,6 +49,7 @@ var (
+ 	audioQueueAllocateBuffer func(q uintptr, size uint32, out **audioQueueBuffer) int32
+ 	audioQueueEnqueueBuffer  func(q uintptr, b *audioQueueBuffer, n uint32, descs uintptr) int32
+ 	audioQueueStart          func(q uintptr, at uintptr) int32
++	audioQueueGetProperty    func(q uintptr, property uint32, value *uint32, size *uint32) int32
+ 	audioQueueStop           func(q uintptr, immediate bool) int32
+ 	audioQueueDispose        func(q uintptr, immediate bool) int32
+ 
+@@ -69,6 +70,7 @@ func loadAudioToolbox() error {
+ 		purego.RegisterLibFunc(&audioQueueAllocateBuffer, lib, "AudioQueueAllocateBuffer")
+ 		purego.RegisterLibFunc(&audioQueueEnqueueBuffer, lib, "AudioQueueEnqueueBuffer")
+ 		purego.RegisterLibFunc(&audioQueueStart, lib, "AudioQueueStart")
++		purego.RegisterLibFunc(&audioQueueGetProperty, lib, "AudioQueueGetProperty")
+ 		purego.RegisterLibFunc(&audioQueueStop, lib, "AudioQueueStop")
+ 		purego.RegisterLibFunc(&audioQueueDispose, lib, "AudioQueueDispose")
+ 		// The queue's own thread calls it when it is done with a buffer.
+@@ -92,12 +94,12 @@ type aqDevice struct {
+ 	started bool
+ }
+ 
+-func openDevice(ahead time.Duration) (device, int, error) {
++func openDevice(ahead time.Duration, rate int) (device, int, error) {
+ 	if err := loadAudioToolbox(); err != nil {
+ 		return nil, 0, err
+ 	}
+ 	desc := audioStreamBasicDescription{
+-		sampleRate:       sampleRate,
++		sampleRate:       float64(rate),
+ 		formatID:         kAudioFormatLinearPCM,
+ 		formatFlags:      kAudioFormatFlagIsFloat,
+ 		bytesPerPacket:   channels * 4,
+@@ -106,7 +108,7 @@ func openDevice(ahead time.Duration) (device, int, error) {
+ 		channelsPerFrame: channels,
+ 		bitsPerChannel:   32,
+ 	}
+-	n := max(2, int((int64(ahead)*sampleRate/int64(time.Second)+aqFrames-1)/aqFrames))
++	n := max(2, int((int64(ahead)*int64(rate)/int64(time.Second)+aqFrames-1)/aqFrames))
+ 	d := &aqDevice{free: make(chan *audioQueueBuffer, n), buffers: n}
+ 	if st := audioQueueNewOutput(&desc, aqCallback, 0, 0, 0, 0, &d.q); st != 0 {
+ 		return nil, 0, fmt.Errorf("audio: AudioQueueNewOutput failed (OSStatus %d)", st)
+@@ -154,3 +156,39 @@ func (d *aqDevice) close() {
+ 	audioQueueStop(d.q, true)
+ 	audioQueueDispose(d.q, true)
+ }
++
++// drain confirms that Stop(false) played the queued tail. Stop may also stop
++// the audio hardware, so request a fresh session and its configured pre-roll.
++// Buffer reuse callbacks alone do NOT mean samples have played.
++func (d *aqDevice) drain() (bool, error) {
++	if !d.started && d.queued > 0 {
++		if st := audioQueueStart(d.q, 0); st != 0 {
++			return false, fmt.Errorf("audio: AudioQueueStart failed (OSStatus %d)", st)
++		}
++		d.started = true
++	}
++	if st := audioQueueStop(d.q, false); st != 0 {
++		return false, fmt.Errorf("audio: AudioQueueStop failed (OSStatus %d)", st)
++	}
++	deadline := time.NewTimer(time.Second)
++	defer deadline.Stop()
++	tick := time.NewTicker(time.Millisecond)
++	defer tick.Stop()
++	for {
++		var running uint32
++		size := uint32(4)
++		if st := audioQueueGetProperty(d.q, 0x6171726e, &running, &size); st != 0 {
++			return false, fmt.Errorf("audio: AudioQueueGetProperty(IsRunning) failed (OSStatus %d)", st)
++		}
++		if running == 0 {
++			break
++		}
++		select {
++		case <-tick.C:
++		case <-deadline.C:
++			return false, fmt.Errorf("audio: audio queue did not stop after draining")
++		}
++	}
++	d.started, d.queued = false, 0
++	return true, nil
++}
+diff --git a/audio/output_helpers_test.go b/audio/output_helpers_test.go
+new file mode 100644
+index 0000000..1539933
+--- /dev/null
++++ b/audio/output_helpers_test.go
+@@ -0,0 +1,42 @@
++package audio
++
++import "testing"
++
++// All tests drive frames explicitly; no device, decoder worker or clock sleeps.
++func resetOutputTest(t *testing.T) {
++	t.Helper()
++	mu.Lock()
++	testMode = true
++	voices = nil
++	outputRate, warmupFrames = 48000, 0
++	outputState, deviceRate = outputClosed, 0
++	mixed, held, unheard = 0, 0, 0
++	volume, latency = 1, LatencyInteractive
++	mu.Unlock()
++	original := openOutput
++	t.Cleanup(func() {
++		mu.Lock()
++		for _, v := range voices {
++			v.close()
++		}
++		voices = nil
++		testMode = true
++		openOutput = original
++		mu.Unlock()
++	})
++}
++
++func mixTest(buf []float32) bool {
++	mu.Lock()
++	outputState, deviceRate = outputReady, outputRate
++	mu.Unlock()
++	return mix(buf)
++}
++
++func testSong(rate int) *Player {
++	samples := make([]float32, rate*2)
++	for i := range samples {
++		samples[i] = float32(i%97-48) / 64
++	}
++	return NewSound(rate, 2, samples).NewPlayer().SetPreRoll(true)
++}
+diff --git a/audio/output_js.go b/audio/output_js.go
+index 8b911dc..8cb4694 100644
+--- a/audio/output_js.go
++++ b/audio/output_js.go
+@@ -85,7 +85,7 @@ func jsSetup(ahead time.Duration) error {
+ 	if ahead >= LatencyPlayback.ahead() {
+ 		hint = "playback"
+ 	}
+-	ctx := class.New(map[string]any{"sampleRate": sampleRate, "latencyHint": hint})
++	ctx := class.New(map[string]any{"sampleRate": defaultOutputRate, "latencyHint": hint})
+ 	if !ctx.Get("audioWorklet").Truthy() {
+ 		jsErr = errors.New("audio: this browser has no AudioWorklet")
+ 		return jsErr
+@@ -143,11 +143,11 @@ var jsOpen bool
+ 
+ type jsDevice struct{}
+ 
+-func openDevice(ahead time.Duration) (device, int, error) {
++func openDevice(ahead time.Duration, _ int) (device, int, error) {
+ 	if err := jsSetup(ahead); err != nil {
+ 		return nil, 0, err
+ 	}
+-	want := max(jsChunks, int((int64(ahead)*sampleRate/int64(time.Second)+jsFrames-1)/jsFrames))
++	want := max(jsChunks, int((int64(ahead)*defaultOutputRate/int64(time.Second)+jsFrames-1)/jsFrames))
+ 	if more := want - jsAhead; more > 0 {
+ 		// Asks the owed ones answer first.
+ 		cancel := min(jsOwed, more)
+diff --git a/audio/output_linux.go b/audio/output_linux.go
+index 43ba761..e41f84c 100644
+--- a/audio/output_linux.go
++++ b/audio/output_linux.go
+@@ -18,14 +18,13 @@ import (
+ // well, or else ALSA's default device. Both block while the device holds
+ // enough, from the output's goroutine.
+ 
+-const linuxFrames = sampleRate / 100 // per write: 10 ms
+-
+ var (
+ 	pulseLoad sync.Once
+ 	pulseErr  error
+ 
+ 	paSimpleNew   func(server, name *byte, dir int32, dev, stream *byte, spec *paSampleSpec, chmap, attr unsafe.Pointer, err *int32) uintptr
+ 	paSimpleWrite func(s uintptr, data unsafe.Pointer, bytes uintptr, err *int32) int32
++	paSimpleDrain func(s uintptr, err *int32) int32
+ 	paSimpleFree  func(s uintptr)
+ 	paStrerror    func(err int32) string
+ 
+@@ -36,6 +35,8 @@ var (
+ 	sndPcmSetParams func(pcm uintptr, format, access int32, channels, rate uint32, softResample int32, latency uint32) int32
+ 	sndPcmWritei    func(pcm uintptr, buf unsafe.Pointer, frames uintptr) int
+ 	sndPcmRecover   func(pcm uintptr, err int32, silent int32) int32
++	sndPcmDrain     func(pcm uintptr) int32
++	sndPcmPrepare   func(pcm uintptr) int32
+ 	sndPcmClose     func(pcm uintptr) int32
+ 	sndStrerror     func(err int32) string
+ )
+@@ -71,21 +72,21 @@ func appName() string {
+ 	return "mygo"
+ }
+ 
+-func openDevice(ahead time.Duration) (device, int, error) {
+-	d, perr := openPulse(ahead)
++func openDevice(ahead time.Duration, rate int) (device, int, error) {
++	d, perr := openPulse(ahead, rate)
+ 	if perr == nil {
+-		return d, linuxFrames, nil
++		return d, max(rate/100, 1), nil
+ 	}
+-	d, aerr := openALSA(ahead)
++	d, aerr := openALSA(ahead, rate)
+ 	if aerr == nil {
+-		return d, linuxFrames, nil
++		return d, max(rate/100, 1), nil
+ 	}
+ 	return nil, 0, errors.Join(perr, aerr)
+ }
+ 
+ type pulseDevice struct{ s uintptr }
+ 
+-func openPulse(ahead time.Duration) (device, error) {
++func openPulse(ahead time.Duration, rate int) (device, error) {
+ 	pulseLoad.Do(func() {
+ 		lib, err := purego.Dlopen("libpulse-simple.so.0", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+ 		if err != nil {
+@@ -94,20 +95,21 @@ func openPulse(ahead time.Duration) (device, error) {
+ 		}
+ 		purego.RegisterLibFunc(&paSimpleNew, lib, "pa_simple_new")
+ 		purego.RegisterLibFunc(&paSimpleWrite, lib, "pa_simple_write")
++		purego.RegisterLibFunc(&paSimpleDrain, lib, "pa_simple_drain")
+ 		purego.RegisterLibFunc(&paSimpleFree, lib, "pa_simple_free")
+ 		purego.RegisterLibFunc(&paStrerror, lib, "pa_strerror")
+ 	})
+ 	if pulseErr != nil {
+ 		return nil, pulseErr
+ 	}
+-	spec := paSampleSpec{format: paSampleFloat32LE, rate: sampleRate, channels: channels}
++	spec := paSampleSpec{format: paSampleFloat32LE, rate: uint32(rate), channels: channels}
+ 	// ahead, asking for more every 10 ms.
+ 	const frame = channels * 4
+ 	attr := paBufferAttr{
+ 		maxLength: ^uint32(0),
+-		tLength:   uint32(int64(ahead) * sampleRate / int64(time.Second) * frame),
++		tLength:   uint32(int64(ahead) * int64(rate) / int64(time.Second) * frame),
+ 		preBuf:    ^uint32(0),
+-		minReq:    linuxFrames * frame,
++		minReq:    uint32(rate / 100 * frame),
+ 		fragSize:  ^uint32(0),
+ 	}
+ 	var code int32
+@@ -131,7 +133,7 @@ func (d *pulseDevice) close() { paSimpleFree(d.s) }
+ 
+ type alsaDevice struct{ pcm uintptr }
+ 
+-func openALSA(ahead time.Duration) (device, error) {
++func openALSA(ahead time.Duration, rate int) (device, error) {
+ 	alsaLoad.Do(func() {
+ 		lib, err := purego.Dlopen("libasound.so.2", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+ 		if err != nil {
+@@ -142,17 +144,37 @@ func openALSA(ahead time.Duration) (device, error) {
+ 		purego.RegisterLibFunc(&sndPcmSetParams, lib, "snd_pcm_set_params")
+ 		purego.RegisterLibFunc(&sndPcmWritei, lib, "snd_pcm_writei")
+ 		purego.RegisterLibFunc(&sndPcmRecover, lib, "snd_pcm_recover")
++		purego.RegisterLibFunc(&sndPcmDrain, lib, "snd_pcm_drain")
++		purego.RegisterLibFunc(&sndPcmPrepare, lib, "snd_pcm_prepare")
+ 		purego.RegisterLibFunc(&sndPcmClose, lib, "snd_pcm_close")
+ 		purego.RegisterLibFunc(&sndStrerror, lib, "snd_strerror")
+ 	})
+ 	if alsaErr != nil {
+ 		return nil, alsaErr
+ 	}
++	return openALSALoaded(ahead, rate)
++}
++
++// openALSALoaded uses the bound ALSA API (also exercised with a fake API).
++func openALSALoaded(ahead time.Duration, rate int) (device, error) {
++	d, err := openALSAPCM("default", ahead, rate)
++	if err == nil {
++		return d, nil
++	}
++	// A default PCM may be direct hardware. Explicitly wrap it in ALSA's
++	// plug converter if it rejects the source format/rate.
++	d, fallbackErr := openALSAPCM("plug:default", ahead, rate)
++	if fallbackErr == nil {
++		return d, nil
++	}
++	return nil, errors.Join(err, fallbackErr)
++}
++func openALSAPCM(name string, ahead time.Duration, rate int) (device, error) {
+ 	var pcm uintptr
+-	if e := sndPcmOpen(&pcm, cstr("default"), sndPcmStreamPlayback, 0); e < 0 {
++	if e := sndPcmOpen(&pcm, cstr(name), sndPcmStreamPlayback, 0); e < 0 {
+ 		return nil, fmt.Errorf("audio: ALSA: %s", sndStrerror(e))
+ 	}
+-	if e := sndPcmSetParams(pcm, sndPcmFormatFloatLE, sndPcmAccessRWInterleaved, channels, sampleRate, 1, uint32(ahead.Microseconds())); e < 0 {
++	if e := configureALSA(pcm, ahead, rate); e < 0 {
+ 		sndPcmClose(pcm)
+ 		return nil, fmt.Errorf("audio: ALSA: %s", sndStrerror(e))
+ 	}
+@@ -176,3 +198,25 @@ func (d *alsaDevice) write(samples []float32) error {
+ }
+ 
+ func (d *alsaDevice) close() { sndPcmClose(d.pcm) }
++
++func (d *pulseDevice) drain() (bool, error) {
++	var code int32
++	if paSimpleDrain(d.s, &code) < 0 {
++		return false, fmt.Errorf("audio: PulseAudio drain: %s", paStrerror(code))
++	}
++	return false, nil
++}
++func (d *alsaDevice) drain() (bool, error) {
++	if e := sndPcmDrain(d.pcm); e < 0 {
++		return false, fmt.Errorf("audio: ALSA drain: %s", sndStrerror(e))
++	}
++	// Drain stops the PCM; reopening also applies any requested pre-roll.
++	return true, nil
++}
++
++// configureALSA requests the native stream rate but permits ALSA's plugin
++// resampler when hardware cannot accept it. The application-facing rate
++// remains rate, so mixer step, position and pre-roll calculations stay valid.
++func configureALSA(pcm uintptr, ahead time.Duration, rate int) int32 {
++	return sndPcmSetParams(pcm, sndPcmFormatFloatLE, sndPcmAccessRWInterleaved, channels, uint32(rate), 1, uint32(ahead.Microseconds()))
++}
+diff --git a/audio/output_other.go b/audio/output_other.go
+index 708404e..2a1b9e9 100644
+--- a/audio/output_other.go
++++ b/audio/output_other.go
+@@ -4,4 +4,4 @@ package audio
+ 
+ import "time"
+ 
+-func openDevice(ahead time.Duration) (device, int, error) { return nil, 0, errUnsupported }
++func openDevice(ahead time.Duration, rate int) (device, int, error) { return nil, 0, errUnsupported }
+diff --git a/audio/output_rate_test.go b/audio/output_rate_test.go
+new file mode 100644
+index 0000000..4167ee1
+--- /dev/null
++++ b/audio/output_rate_test.go
+@@ -0,0 +1,401 @@
++//go:build (darwin && !ios) || (((linux && !android) || windows) && (amd64 || arm64))
++
++package audio
++
++import (
++	"fmt"
++	"slices"
++	"testing"
++	"time"
++)
++
++func TestNativeRatePreroll(t *testing.T) {
++	for _, rate := range []int{44100, 48000, 88200, 96000, 192000} {
++		t.Run(fmt.Sprint(rate), func(t *testing.T) {
++			resetOutputTest(t)
++			p := testSong(rate)
++			p.Play()
++			if outputRate != rate {
++				t.Fatalf("rate = %d", outputRate)
++			}
++			src := p.v.src.(*memSource)
++			buf := make([]float32, (rate/5-3)*2)
++			mixTest(buf)
++			if src.pos != 0 || p.Position() != 0 || slices.ContainsFunc(buf, func(x float32) bool { return x != 0 }) {
++				t.Fatal("pre-roll consumed source, advanced position or produced sound")
++			}
++			// The boundary lies inside this buffer: exactly three silent frames.
++			buf = make([]float32, 11*2)
++			mixTest(buf)
++			if !slices.Equal(buf[:6], make([]float32, 6)) || !slices.Equal(buf[6:], src.samples[:16]) {
++				t.Fatalf("first music frames changed or skipped: %v", buf)
++			}
++			if got, want := p.Position(), frames(8, rate); got != want {
++				t.Fatalf("position %v, want %v", got, want)
++			}
++			p.Pause()
++			p.Play()
++			if warmupFrames != 0 {
++				t.Fatal("immediate resume added pre-roll")
++			}
++			p.Stop()
++			p.Play()
++			if warmupFrames != 0 {
++				t.Fatal("same-rate restart added pre-roll")
++			}
++			mixTest(make([]float32, rate/5*2))
++			replacement := testSong(rate)
++			replacement.Play()
++			if warmupFrames != 0 {
++				t.Fatal("same-rate replacement added pre-roll")
++			}
++		})
++	}
++}
++
++func TestPrerollPositionWithLatency(t *testing.T) {
++	for _, rate := range []int{44100, 48000, 88200, 96000, 192000} {
++		for _, lat := range []Latency{LatencyInteractive, LatencyPlayback} {
++			t.Run(fmt.Sprintf("%d/%d", rate, lat), func(t *testing.T) {
++				resetOutputTest(t)
++				p := testSong(rate)
++				p.Play()
++				held = int64(lat.ahead()) * int64(rate) / int64(time.Second)
++				// Mix silence plus exactly the device's look-ahead: no music heard yet.
++				mixTest(make([]float32, (rate/5+int(held))*2))
++				if p.Position() != 0 {
++					t.Fatalf("music advanced during audible pre-roll: %v", p.Position())
++				}
++				mixTest(make([]float32, rate/100*2))
++				if got, want := p.Position(), frames(int64(rate/100), rate); got != want {
++					t.Fatalf("position %v, want %v", got, want)
++				}
++			})
++		}
++	}
++}
++
++type rateTestDevice struct {
++	writeFn func([]float32) error
++	closed  bool
++}
++
++func (d *rateTestDevice) write(b []float32) error { return d.writeFn(b) }
++func (d *rateTestDevice) close()                  { d.closed = true }
++
++func TestRateChangeClosesIdleDeviceAndColdStartWarms(t *testing.T) {
++	resetOutputTest(t)
++	old := testSong(48000)
++	old.Play()
++	// Prevent Play from launching the real output goroutine in this test.
++	runOnce.Do(func() {})
++	testMode = false
++	next := testSong(96000).SetPrimary(true)
++	var devices []*rateTestDevice
++	openOutput = func(ahead time.Duration, rate int) (device, int, error) {
++		if len(devices) > 0 && !devices[len(devices)-1].closed {
++			t.Fatal("opened before closing previous device")
++		}
++		expected := 48000
++		if len(devices) > 0 {
++			expected = 96000
++		}
++		if rate != expected {
++			t.Fatalf("opened at %d, want %d", rate, expected)
++		}
++		writes := 0
++		d := &rateTestDevice{}
++		d.writeFn = func(b []float32) error {
++			writes++
++			if slices.ContainsFunc(b, func(x float32) bool { return x != 0 }) {
++				t.Fatal("cold device did not begin with silence")
++			}
++			if len(devices) == 1 {
++				// The previous track stops while the device is still open.
++				old.Pause()
++				next.Play()
++			} else {
++				if next.Position() != 0 {
++					t.Fatal("cold pre-roll advanced position")
++				}
++				mu.Lock()
++				testMode = true // finish this session deterministically
++				mu.Unlock()
++			}
++			return nil
++		}
++		devices = append(devices, d)
++		return d, rate / 100, nil
++	}
++	playOutput()
++	if !devices[0].closed {
++		t.Fatal("rate change left old device open")
++	}
++	if next.v.src.(*memSource).pos != 0 {
++		t.Fatal("mixed new track into stale device")
++	}
++	playOutput()
++	if len(devices) != 2 || !devices[1].closed {
++		t.Fatal("replacement device session failed")
++	}
++}
++
++func TestPrimaryRateAndDynamicRamp(t *testing.T) {
++	resetOutputTest(t)
++	main := testSong(44100).SetPrimary(true)
++	main.Play()
++	effect := testSong(48000)
++	effect.Play()
++	if outputRate != 44100 {
++		t.Fatal("effect changed music rate")
++	}
++	next := testSong(192000).SetPrimary(true)
++	next.Play()
++	if outputRate != 192000 {
++		t.Fatal("primary did not take priority")
++	}
++	mixTest(make([]float32, warmupFrames*2))
++	next.SetVolume(.5)
++	mixTest(make([]float32, 2))
++	if next.v.rampLeft != 192000/200-1 {
++		t.Fatalf("ramp frames %d", next.v.rampLeft)
++	}
++}
++
++// Resuming a player whose device has closed needs pre-roll even though
++// Play itself correctly treats it as a mid-song resume.
++func TestColdReopenAtSameRate(t *testing.T) {
++	resetOutputTest(t)
++	p := testSong(96000)
++	p.Play()
++	mixTest(make([]float32, (96000/5+100)*2))
++	p.Pause()
++	p.Play()
++	if warmupFrames != 0 {
++		t.Fatal("warm resume added silence")
++	}
++	sourceAt := p.v.at()
++	runOnce.Do(func() {})
++	testMode = false
++	d := &rateTestDevice{}
++	openOutput = func(ahead time.Duration, rate int) (device, int, error) {
++		if rate != 96000 {
++			t.Fatalf("reopened at %d", rate)
++		}
++		return d, 96000/5 + 7, nil
++	}
++	d.writeFn = func(b []float32) error {
++		if slices.ContainsFunc(b[:96000/5*2], func(x float32) bool { return x != 0 }) {
++			t.Fatal("missing cold pre-roll")
++		}
++		if p.v.at() != sourceAt+7 {
++			t.Fatal("cold pre-roll moved source cursor")
++		}
++		if p.Position() != frames(int64(sourceAt), 96000) {
++			t.Fatalf("cold pre-roll changed audible position: %v", p.Position())
++		}
++		mu.Lock()
++		testMode = true
++		mu.Unlock()
++		return nil
++	}
++	playOutput()
++	if !d.closed {
++		t.Fatal("device was not closed")
++	}
++}
++
++// Drive the actual five-second idle-close path by counting backend frames.
++// The fake backend consumes frames immediately, so this needs no real sleep.
++func TestLongPauseClosesAndResumesAtNativeRate(t *testing.T) {
++	for _, rate := range []int{44100, 48000, 88200, 96000} {
++		for _, lat := range []Latency{LatencyInteractive, LatencyPlayback} {
++			t.Run(fmt.Sprintf("%d/%d", rate, lat), func(t *testing.T) {
++				resetOutputTest(t)
++				latency = lat
++				p := testSong(rate).SetPrimary(true)
++				p.Play()
++				runOnce.Do(func() {})
++				testMode = false
++				session := 0
++				writes := 0
++				pausedAt := float64(0)
++				var previous *rateTestDevice
++				openOutput = func(ahead time.Duration, gotRate int) (device, int, error) {
++					if gotRate != rate {
++						t.Fatalf("open rate %d, want native %d", gotRate, rate)
++					}
++					if ahead != lat.ahead() {
++						t.Fatal("wrong latency")
++					}
++					if outputState != outputOpening {
++						t.Fatal("missing opening state")
++					}
++					if previous != nil && !previous.closed {
++						t.Fatal("reopened before closing")
++					}
++					writes = 0
++					d := &rateTestDevice{}
++					d.writeFn = func(buf []float32) error {
++						writes++
++						if outputState != outputReady || deviceRate != rate {
++							t.Fatal("device not ready at native rate")
++						}
++						if writes <= 20 {
++							if slices.ContainsFunc(buf, func(x float32) bool { return x != 0 }) {
++								t.Fatal("pre-roll was not silent")
++							}
++							if session == 1 && (p.v.at() != pausedAt || p.Position() != frames(int64(pausedAt), rate)) {
++								t.Fatal("resume pre-roll advanced cursor or position")
++							}
++						} else if writes == 21 {
++							if session == 0 {
++								p.Pause()
++							} else {
++								if p.v.at() != pausedAt+float64(rate/100) {
++									t.Fatal("resume skipped or consumed extra frames")
++								}
++								src := p.v.src.(*memSource)
++								want := src.samples[int(pausedAt)*2] * (float32(1) / float32(rampFrames()))
++								if buf[0] != want {
++									t.Fatalf("resume first sample %v, want %v", buf[0], want)
++								}
++								mu.Lock()
++								testMode = true
++								mu.Unlock()
++							}
++						}
++						return nil
++					}
++					previous = d
++					return d, rate / 100, nil
++				}
++				playOutput()
++				if !previous.closed || outputState != outputClosed || deviceRate != 0 || p.v.active || p.Playing() {
++					t.Fatal("long pause did not close device and deactivate voice")
++				}
++				if writes < 500 {
++					t.Fatal("idle close occurred before five seconds of frames")
++				}
++				pausedAt = p.v.at()
++				// Even losing transient output/mixer rate state must not lose native metadata.
++				outputRate = 48000
++				p.Play()
++				if outputRate != rate || p.v.rate != float64(rate) || warmupFrames != rate/5 {
++					t.Fatal("Play did not recover source rate and arm pre-roll")
++				}
++				session = 1
++				playOutput()
++				if !previous.closed {
++					t.Fatal("resume session failed to close")
++				}
++			})
++		}
++	}
++}
++
++func TestShortPauseResumesWithoutPrerollOrReopen(t *testing.T) {
++	resetOutputTest(t)
++	p := testSong(44100)
++	p.Play()
++	runOnce.Do(func() {})
++	testMode = false
++	writes := 0
++	opens := 0
++	d := &rateTestDevice{}
++	openOutput = func(ahead time.Duration, rate int) (device, int, error) {
++		opens++
++		return d, rate / 100, nil
++	}
++	d.writeFn = func(buf []float32) error {
++		writes++
++		switch writes {
++		case 21:
++			p.Pause()
++		case 24:
++			if p.v.active {
++				t.Fatal("pause ramp did not finish")
++			}
++			at := p.v.at()
++			p.Play()
++			if warmupFrames != 0 || p.v.at() != at || outputState != outputReady {
++				t.Fatal("short resume added pre-roll or moved cursor")
++			}
++		case 25:
++			if slices.ContainsFunc(buf, func(x float32) bool { return x != 0 }) == false {
++				t.Fatal("short resume did not produce music immediately")
++			}
++			mu.Lock()
++			testMode = true
++			mu.Unlock()
++		}
++		return nil
++	}
++	playOutput()
++	if opens != 1 {
++		t.Fatalf("short resume opened %d devices", opens)
++	}
++}
++
++func TestTrackChangesDuringDeviceOpen(t *testing.T) {
++	resetOutputTest(t)
++	first := testSong(44100)
++	first.Play()
++	runOnce.Do(func() {})
++	testMode = false
++	next := testSong(96000).SetPrimary(true)
++	stale := &rateTestDevice{writeFn: func([]float32) error { t.Fatal("consumed music before reopening at new rate"); return nil }}
++	openOutput = func(ahead time.Duration, rate int) (device, int, error) {
++		if rate != 44100 || outputState != outputOpening {
++			t.Fatal("unexpected opening state")
++		}
++		first.Pause()
++		next.Play()
++		return stale, 441, nil
++	}
++	playOutput()
++	if !stale.closed || next.v.at() != 0 || outputState != outputClosed {
++		t.Fatal("stale opening was not discarded safely")
++	}
++	fresh := &rateTestDevice{}
++	openOutput = func(ahead time.Duration, rate int) (device, int, error) {
++		if rate != 96000 {
++			t.Fatal("replacement did not use new rate")
++		}
++		return fresh, 960, nil
++	}
++	fresh.writeFn = func(buf []float32) error {
++		if slices.ContainsFunc(buf, func(x float32) bool { return x != 0 }) || next.v.at() != 0 {
++			t.Fatal("replacement did not pre-roll")
++		}
++		mu.Lock()
++		testMode = true
++		mu.Unlock()
++		return nil
++	}
++	playOutput()
++}
++
++type rateTestDecoder struct{ rate int }
++
++func (d rateTestDecoder) SampleRate() int                 { return d.rate }
++func (d rateTestDecoder) Channels() int                   { return 2 }
++func (d rateTestDecoder) Len() int64                      { return int64(d.rate) }
++func (d rateTestDecoder) SetPosition(int64) error         { return nil }
++func (d rateTestDecoder) Read(buf []float32) (int, error) { clear(buf); return len(buf), nil }
++
++func TestStreamPlayRestoresDecoderRate(t *testing.T) {
++	resetOutputTest(t)
++	p := NewPlayer(rateTestDecoder{96000}).SetPreRoll(true)
++	defer p.Close()
++	p.Play()
++	if outputRate != 96000 || p.v.rate != 96000 {
++		t.Fatal("Play did not read stream's decoder rate")
++	}
++	p.Pause()
++	outputRate = 48000
++	p.Play()
++	if outputRate != 96000 || p.v.rate != 96000 || warmupFrames != 96000/5 {
++		t.Fatal("resume did not recover decoder rate")
++	}
++}
+diff --git a/audio/output_restart_test.go b/audio/output_restart_test.go
+new file mode 100644
+index 0000000..e7c12bc
+--- /dev/null
++++ b/audio/output_restart_test.go
+@@ -0,0 +1,102 @@
++//go:build (darwin && !ios) || (((linux && !android) || windows) && (amd64 || arm64))
++
++package audio
++
++import (
++	"slices"
++	"testing"
++	"time"
++)
++
++type stoppedAfterDrainDevice struct {
++	rateTestDevice
++	drains int
++}
++
++func (d *stoppedAfterDrainDevice) drain() (bool, error) {
++	d.drains++
++	return true, nil
++}
++
++// A backend stopped by natural drain must reopen before consuming the next song.
++func TestStoppedDrainReopensWithConfiguredPreroll(t *testing.T) {
++	for _, tc := range []struct {
++		name    string
++		preRoll bool
++	}{{"enabled", true}, {"disabled", false}} {
++		t.Run(tc.name, func(t *testing.T) {
++			resetOutputTest(t)
++			const rate = 48000
++			old := testSong(rate).SetPrimary(true).SetPreRoll(tc.preRoll)
++			next := testSong(rate).SetPrimary(true).SetPreRoll(tc.preRoll)
++			started := make(chan struct{})
++			old.OnEnd(func() {
++				next.Play()
++				close(started)
++			})
++			old.Play()
++			runOnce.Do(func() {})
++			testMode = false
++			first := &stoppedAfterDrainDevice{}
++			second := &rateTestDevice{}
++			opens := 0
++			openOutput = func(_ time.Duration, gotRate int) (device, int, error) {
++				opens++
++				if gotRate != rate {
++					t.Fatalf("rate = %d", gotRate)
++				}
++				if opens == 1 {
++					return first, rate / 100, nil
++				}
++				if !first.closed || opens != 2 {
++					t.Fatal("reopened without closing the stopped output")
++				}
++				n := 7
++				if tc.preRoll {
++					n += rate / 5
++				}
++				return second, n, nil
++			}
++			first.writeFn = func([]float32) error {
++				if !old.Playing() {
++					<-started
++				}
++				mu.Lock()
++				if next.v.at() > 0 {
++					testMode = true // terminate a broken session without real-time waits
++				}
++				mu.Unlock()
++				return nil
++			}
++			playOutput()
++			<-started
++			if first.drains != 1 || !first.closed || next.v.at() != 0 {
++				t.Fatal("stopped output consumed the next song instead of reopening")
++			}
++			if old.Position() != old.Duration() {
++				t.Fatal("reopening discarded the previous song's tail")
++			}
++			second.writeFn = func(out []float32) error {
++				silent := 0
++				if tc.preRoll {
++					silent = rate / 5 * channels
++				}
++				if slices.ContainsFunc(out[:silent], func(x float32) bool { return x != 0 }) {
++					t.Fatal("reopened output did not begin with configured silence")
++				}
++				src := next.v.src.(*memSource)
++				if next.v.at() != 7 || !slices.Equal(out[silent:], src.samples[:7*channels]) {
++					t.Fatal("restart consumed or changed the next song's first frames")
++				}
++				mu.Lock()
++				testMode = true
++				mu.Unlock()
++				return nil
++			}
++			playOutput()
++			if opens != 2 || !second.closed {
++				t.Fatal("replacement session did not finish")
++			}
++		})
++	}
++}
+diff --git a/audio/output_stretch_test.go b/audio/output_stretch_test.go
+new file mode 100644
+index 0000000..6540ee9
+--- /dev/null
++++ b/audio/output_stretch_test.go
+@@ -0,0 +1,31 @@
++//go:build (darwin && !ios) || (((linux && !android) || windows) && (amd64 || arm64))
++
++package audio
++
++import (
++	"fmt"
++	"testing"
++	"time"
++)
++
++// Pitch-preserving playback follows its speed at the native output rate after pre-roll.
++func TestNativeRatePreservesPitchPosition(t *testing.T) {
++	for _, rate := range []int{44100, 96000} {
++		for _, speed := range []float64{0.5, 1.5} {
++			t.Run(fmt.Sprintf("%d/%g", rate, speed), func(t *testing.T) {
++				resetOutputTest(t)
++				p := testSong(rate).SetSpeed(speed).SetPreservesPitch(true)
++				p.Play()
++				mixTest(make([]float32, rate/5*channels))
++				if p.Position() != 0 {
++					t.Fatal("pre-roll advanced the stretched source")
++				}
++				mixTest(make([]float32, rate/10*channels))
++				want := time.Duration(speed * float64(100*time.Millisecond))
++				if delta := p.Position() - want; delta < -time.Microsecond || delta > time.Microsecond {
++					t.Fatalf("position = %v, want %v after 100ms output", p.Position(), want)
++				}
++			})
++		}
++	}
++}
+diff --git a/audio/output_windows.go b/audio/output_windows.go
+index 9e82230..dd7da57 100644
+--- a/audio/output_windows.go
++++ b/audio/output_windows.go
+@@ -67,7 +67,6 @@ const (
+ 	audclntStreamFlagsAutoConvert = 0x80000000
+ 	audclntStreamFlagsSRCQuality  = 0x08000000
+ 	waitObject0                   = 0
+-	windowsFrames                 = sampleRate / 100 // per write: 10 ms
+ )
+ 
+ // comCall calls method i of the COM interface obj. Pointers converted to
+@@ -129,7 +128,7 @@ func defaultID(enumerator uintptr) (string, error) {
+ 	return syscall.UTF16ToString(unsafe.Slice(p, n)), nil
+ }
+ 
+-func openDevice(ahead time.Duration) (device, int, error) {
++func openDevice(ahead time.Duration, rate int) (device, int, error) {
+ 	if !comInitialized {
+ 		// S_FALSE, already initialized, succeeds as well.
+ 		if hr, _, _ := procCoInitializeEx.Call(0, coinitMultithreaded); failed(hr) {
+@@ -138,14 +137,14 @@ func openDevice(ahead time.Duration) (device, int, error) {
+ 		comInitialized = true
+ 	}
+ 	d := &wasapiDevice{}
+-	if err := d.open(ahead); err != nil {
++	if err := d.open(ahead, rate); err != nil {
+ 		d.close()
+ 		return nil, 0, err
+ 	}
+-	return d, windowsFrames, nil
++	return d, rate / 100, nil
+ }
+ 
+-func (d *wasapiDevice) open(ahead time.Duration) error {
++func (d *wasapiDevice) open(ahead time.Duration, rate int) error {
+ 	if hr, _, _ := procCoCreateInstance.Call(uintptr(unsafe.Pointer(&clsidMMDeviceEnumerator)), 0, clsctxAll,
+ 		uintptr(unsafe.Pointer(&iidIMMDeviceEnumerator)), uintptr(unsafe.Pointer(&d.enumerator))); failed(hr) {
+ 		return hresult("CoCreateInstance(MMDeviceEnumerator)", hr)
+@@ -169,8 +168,8 @@ func (d *wasapiDevice) open(ahead time.Duration) error {
+ 	f := waveFormatExtensible{
+ 		formatTag:      waveFormatExtensibleTag,
+ 		channels:       channels,
+-		samplesPerSec:  sampleRate,
+-		avgBytesPerSec: sampleRate * channels * 4,
++		samplesPerSec:  uint32(rate),
++		avgBytesPerSec: uint32(rate * channels * 4),
+ 		blockAlign:     channels * 4,
+ 		bitsPerSample:  32,
+ 		size:           22,
+@@ -253,3 +252,21 @@ func (d *wasapiDevice) close() {
+ 		d.event = 0
+ 	}
+ }
++
++// drain preserves the final queued frames before a natural track transition.
++func (d *wasapiDevice) drain() (bool, error) {
++	deadline := time.Now().Add(time.Second)
++	for {
++		var padding uint32
++		if hr := comCall(d.client, 6, uintptr(unsafe.Pointer(&padding))); failed(hr) {
++			return false, hresult("IAudioClient.GetCurrentPadding", hr)
++		}
++		if padding == 0 {
++			return false, nil
++		}
++		if time.Now().After(deadline) {
++			return false, errAudioClientUnresponded
++		}
++		procWaitForSingleObject.Call(d.event, 100)
++	}
++}
+diff --git a/audio/policy_desktop.go b/audio/policy_desktop.go
+new file mode 100644
+index 0000000..af20cf1
+--- /dev/null
++++ b/audio/policy_desktop.go
+@@ -0,0 +1,6 @@
++//go:build (darwin && !ios) || (((linux && !android) || windows) && (amd64 || arm64))
++
++package audio
++
++// desktopAudioFeatures is limited to the supported desktop backends.
++const desktopAudioFeatures = true
+diff --git a/audio/policy_desktop_test.go b/audio/policy_desktop_test.go
+new file mode 100644
+index 0000000..45264fe
+--- /dev/null
++++ b/audio/policy_desktop_test.go
+@@ -0,0 +1,111 @@
++//go:build (darwin && !ios) || (((linux && !android) || windows) && (amd64 || arm64))
++
++package audio
++
++import (
++	"testing"
++	"time"
++)
++
++func TestEffectHasNoPrerollByDefault(t *testing.T) {
++	resetOutputTest(t)
++	p := testSong(44100).SetPreRoll(false)
++	p.Play()
++	if warmupFrames != 0 {
++		t.Fatal("ordinary player requested silence")
++	}
++	src := p.v.src.(*memSource)
++	out := make([]float32, 16)
++	mixTest(out)
++	if out[0] != src.samples[0] || p.v.at() != 8 {
++		t.Fatal("ordinary effect did not start immediately")
++	}
++	p.Pause()
++	p.Play()
++	if warmupFrames != 0 {
++		t.Fatal("ordinary resume requested silence")
++	}
++	p.Stop()
++	p.Play()
++	if warmupFrames != 0 {
++		t.Fatal("ordinary restart requested silence")
++	}
++}
++
++func TestEffectColdOpenHasNoPreroll(t *testing.T) {
++	resetOutputTest(t)
++	p := testSong(96000).SetPreRoll(false)
++	p.Play()
++	runOnce.Do(func() {})
++	testMode = false
++	d := &rateTestDevice{}
++	openOutput = func(_ time.Duration, rate int) (device, int, error) {
++		if rate != 96000 {
++			t.Fatal("effect cold rate")
++		}
++		return d, 960, nil
++	}
++	d.writeFn = func(out []float32) error {
++		if p.v.at() != 960 || warmupFrames != 0 || out[0] == 0 {
++			t.Fatal("ordinary cold open added pre-roll")
++		}
++		return errRetry
++	}
++	playOutput()
++}
++
++func TestEffectDoesNotRestartMusicPreroll(t *testing.T) {
++	resetOutputTest(t)
++	music := testSong(44100)
++	music.Play()
++	mixTest(make([]float32, 200))
++	left := warmupFrames
++	effect := testSong(96000).SetPreRoll(false)
++	effect.Play()
++	if outputRate != 44100 || warmupFrames != left {
++		t.Fatal("effect changed music output or restarted silence")
++	}
++	music.SetPreRoll(false)
++	mixTest(make([]float32, 2))
++	if warmupFrames != 0 || effect.v.at() == 0 {
++		t.Fatal("disabling last request did not cancel pending silence")
++	}
++}
++
++func TestUnconfiguredPlayerDefaultsToNoPreroll(t *testing.T) {
++	resetOutputTest(t)
++	p := NewSound(44100, 2, []float32{.25, .5}).NewPlayer()
++	if p.v.preRoll {
++		t.Fatal("NewPlayer defaulted to pre-roll")
++	}
++	p.Play()
++	if warmupFrames != 0 {
++		t.Fatal("unconfigured player armed silence")
++	}
++}
++
++func TestCancelledPrerollDoesNotDelayEffect(t *testing.T) {
++	for _, action := range []struct {
++		name   string
++		cancel func(*Player)
++	}{
++		{"disable", func(p *Player) { p.SetPreRoll(false) }},
++		{"pause", (*Player).Pause},
++		{"stop", (*Player).Stop},
++		{"close", (*Player).Close},
++	} {
++		t.Run(action.name, func(t *testing.T) {
++			resetOutputTest(t)
++			music := testSong(44100)
++			music.Play()
++			action.cancel(music)
++			effect := testSong(44100).SetPreRoll(false)
++			effect.Play()
++			out := make([]float32, 2)
++			mixTest(out)
++			if warmupFrames != 0 || out[0] == 0 {
++				t.Fatal("cancelled music left pre-roll on ordinary effect")
++			}
++		})
++	}
++}
+diff --git a/audio/policy_other.go b/audio/policy_other.go
+new file mode 100644
+index 0000000..91e3dd0
+--- /dev/null
++++ b/audio/policy_other.go
+@@ -0,0 +1,6 @@
++//go:build !((darwin && !ios) || (((linux && !android) || windows) && (amd64 || arm64)))
++
++package audio
++
++// Browsers, mobile systems and unsupported backends retain fixed-rate output.
++const desktopAudioFeatures = false
+diff --git a/audio/policy_other_test.go b/audio/policy_other_test.go
+new file mode 100644
+index 0000000..d8285ab
+--- /dev/null
++++ b/audio/policy_other_test.go
+@@ -0,0 +1,55 @@
++//go:build !((darwin && !ios) || (((linux && !android) || windows) && (amd64 || arm64)))
++
++package audio
++
++import (
++	"testing"
++	"time"
++)
++
++func TestOtherPlatformsIgnoreDesktopOptions(t *testing.T) {
++	resetOutputTest(t)
++	p := testSong(44100).SetPrimary(true).SetPreRoll(true)
++	p.Play()
++	if p.v.preRoll || outputRate != defaultOutputRate || warmupFrames != 0 {
++		t.Fatal("desktop options enabled on a non-desktop backend")
++	}
++	// Even stale shared state cannot turn on pre-roll on a non-desktop target.
++	warmupFrames = 9600
++	out := make([]float32, 2)
++	mixTest(out)
++	if warmupFrames != 0 || p.v.at() == 0 || out[0] == 0 {
++		t.Fatal("non-desktop playback consumed pre-roll")
++	}
++	p.Pause()
++	p.Play()
++	if outputRate != defaultOutputRate || warmupFrames != 0 {
++		t.Fatal("resume changed non-desktop rate or armed silence")
++	}
++}
++
++type fixedRateTestDevice struct{ check func([]float32) error }
++
++func (d fixedRateTestDevice) write(out []float32) error { return d.check(out) }
++func (d fixedRateTestDevice) close()                    {}
++
++func TestOtherPlatformsColdOpenRemainsFixedRate(t *testing.T) {
++	resetOutputTest(t)
++	p := testSong(96000).SetPrimary(true).SetPreRoll(true)
++	p.Play()
++	outputRate = 96000 // simulate stale state before a reopen
++	runOnce.Do(func() {})
++	testMode = false
++	openOutput = func(_ time.Duration, rate int) (device, int, error) {
++		if rate != defaultOutputRate {
++			t.Fatalf("non-desktop opened at %d", rate)
++		}
++		return fixedRateTestDevice{check: func(out []float32) error {
++			if warmupFrames != 0 || p.v.at() == 0 || out[0] == 0 {
++				t.Fatal("non-desktop cold open inserted silence")
++			}
++			return errRetry
++		}}, 480, nil
++	}
++	playOutput()
++}
+diff --git a/audio/review_test.go b/audio/review_test.go
+new file mode 100644
+index 0000000..26d0f17
+--- /dev/null
++++ b/audio/review_test.go
+@@ -0,0 +1,200 @@
++//go:build (darwin && !ios) || (((linux && !android) || windows) && (amd64 || arm64))
++
++package audio
++
++import (
++	"fmt"
++	"sync"
++	"testing"
++	"time"
++)
++
++type reviewDrainingDevice struct {
++	rateTestDevice
++	drains int
++}
++
++func (d *reviewDrainingDevice) drain() (bool, error) { d.drains++; return false, nil }
++
++func TestNaturalRateSwitchKeepsTail(t *testing.T) {
++	for _, lat := range []Latency{LatencyInteractive, LatencyPlayback} {
++		for _, nativeDrain := range []bool{false, true} {
++			t.Run(fmt.Sprintf("%d/drain=%t", lat, nativeDrain), func(t *testing.T) {
++				resetOutputTest(t)
++				latency = lat
++				tracks := []*Player{testSong(44100).SetPrimary(true), testSong(96000).SetPrimary(true), testSong(48000).SetPrimary(true), testSong(88200).SetPrimary(true), testSong(192000).SetPrimary(true)}
++				tracks[0].Play()
++				runOnce.Do(func() {})
++				testMode = false
++				for i, old := range tracks {
++					ended := make(chan struct{})
++					old.OnEnd(func() { close(ended) })
++					d := &reviewDrainingDevice{}
++					completed := false
++					openOutput = func(_ time.Duration, rate int) (device, int, error) {
++						if rate != int(old.v.rate) {
++							t.Fatalf("open rate %d", rate)
++						}
++						if nativeDrain {
++							return d, rate / 100, nil
++						}
++						return &d.rateTestDevice, rate / 100, nil
++					}
++					d.writeFn = func(_ []float32) error {
++						if !old.Playing() && !completed {
++							<-ended
++							completed = true
++							if old.Position() < old.Duration() {
++								t.Fatalf("tail cut: audible %s of %s", old.Position(), old.Duration())
++							}
++							if i+1 < len(tracks) {
++								tracks[i+1].Play()
++							} else {
++								mu.Lock()
++								testMode = true
++								mu.Unlock()
++							}
++						}
++						return nil
++					}
++					playOutput()
++					if !completed || !d.closed {
++						t.Fatal("track did not finish and close")
++					}
++					if nativeDrain && d.drains != 1 {
++						t.Fatalf("native drains %d", d.drains)
++					}
++				}
++			})
++		}
++	}
++}
++
++func TestManualRateSwitchDoesNotDrain(t *testing.T) {
++	resetOutputTest(t)
++	old := testSong(44100).SetPrimary(true)
++	next := testSong(96000).SetPrimary(true)
++	old.Play()
++	runOnce.Do(func() {})
++	testMode = false
++	d := &reviewDrainingDevice{}
++	openOutput = func(_ time.Duration, rate int) (device, int, error) { return d, rate / 100, nil }
++	d.writeFn = func(_ []float32) error { old.Close(); next.Play(); return nil }
++	playOutput()
++	if !d.closed || d.drains != 0 || next.v.at() != 0 {
++		t.Fatal("manual skip waited for natural drain or consumed next song")
++	}
++}
++
++func TestSameRateNaturalTransitionDoesNotWarmAgain(t *testing.T) {
++	resetOutputTest(t)
++	old := testSong(44100).SetPrimary(true)
++	next := testSong(44100).SetPrimary(true)
++	old.Play()
++	runOnce.Do(func() {})
++	testMode = false
++	ended := make(chan struct{})
++	old.OnEnd(func() { close(ended) })
++	d := &reviewDrainingDevice{}
++	openOutput = func(_ time.Duration, rate int) (device, int, error) { return d, rate / 100, nil }
++	switched := false
++	d.writeFn = func(out []float32) error {
++		if !old.Playing() && !switched {
++			<-ended
++			switched = true
++			next.Play()
++			if warmupFrames != 0 {
++				t.Fatal("same-rate natural transition added pre-roll")
++			}
++		} else if switched {
++			if out[0] == 0 || next.v.at() == 0 {
++				t.Fatal("same-rate next song did not start")
++			}
++			mu.Lock()
++			testMode = true
++			mu.Unlock()
++		}
++		return nil
++	}
++	playOutput()
++	if !switched || d.drains != 1 {
++		t.Fatal("same-rate transition did not drain old tail")
++	}
++}
++
++func TestDurationConcurrentWithPlay(t *testing.T) {
++	resetOutputTest(t)
++	p := testSong(96000)
++	var wg sync.WaitGroup
++	wg.Add(2)
++	go func() {
++		defer wg.Done()
++		for i := 0; i < 1000; i++ {
++			p.Pause()
++			p.Play()
++		}
++	}()
++	go func() {
++		defer wg.Done()
++		for i := 0; i < 1000; i++ {
++			if p.Duration() != time.Second {
++				t.Error("duration changed")
++				return
++			}
++		}
++	}()
++	wg.Wait()
++}
++
++func TestPrimaryNaturalEndDrainsWithLoopingEffect(t *testing.T) {
++	resetOutputTest(t)
++	old := testSong(44100).SetPrimary(true)
++	effect := testSong(44100).SetPreRoll(false).SetLoop(true)
++	next := testSong(96000).SetPrimary(true)
++	old.Play()
++	effect.Play()
++	runOnce.Do(func() {})
++	testMode = false
++	ended := make(chan struct{})
++	old.OnEnd(func() { close(ended) })
++	d := &reviewDrainingDevice{}
++	openOutput = func(_ time.Duration, rate int) (device, int, error) { return d, rate / 100, nil }
++	d.writeFn = func(_ []float32) error {
++		if !old.Playing() {
++			<-ended
++			if old.Position() != old.Duration() || d.drains != 1 || !effect.Playing() {
++				t.Fatal("primary tail was not drained alongside effect")
++			}
++			next.Play()
++		}
++		return nil
++	}
++	playOutput()
++	if !d.closed || d.drains != 1 {
++		t.Fatal("primary transition failed")
++	}
++}
++
++func TestManualSkipCancelsPendingNaturalEnd(t *testing.T) {
++	resetOutputTest(t)
++	old := testSong(44100).SetPrimary(true)
++	next := testSong(96000).SetPrimary(true)
++	old.Play()
++	runOnce.Do(func() {})
++	testMode = false
++	d := &reviewDrainingDevice{}
++	openOutput = func(_ time.Duration, rate int) (device, int, error) { return d, rate / 100, nil }
++	skipped := false
++	d.writeFn = func(_ []float32) error {
++		if old.v.finishing {
++			skipped = true
++			old.Close()
++			next.Play()
++		}
++		return nil
++	}
++	playOutput()
++	if !skipped || d.drains != 0 || !d.closed {
++		t.Fatal("manual skip could not cancel queued natural finish")
++	}
++}
+diff --git a/audio/source.go b/audio/source.go
+index 8512a38..c67b85a 100644
+--- a/audio/source.go
++++ b/audio/source.go
+@@ -8,12 +8,15 @@ import (
+ // A memSource reads a sound's samples.
+ type memSource struct {
+ 	samples    []float32
++	rate       int
+ 	channels   int
+ 	pos        int // sample
+ 	loop       bool
+ 	start, end int64 // the frames looped, end 0 for all
+ }
+ 
++func (s *memSource) sampleRate() int { return s.rate }
++
+ func (s *memSource) read(dst []float32) (int, bool) {
+ 	n := 0
+ 	for n < len(dst) {
+@@ -54,6 +57,7 @@ func (s *memSource) close() {}
+ // the voice reads without waiting.
+ type stream struct {
+ 	d        Decoder
++	rate     int // immutable Decoder.SampleRate metadata; safe while decode calls Read
+ 	channels int // of d
+ 	keep     int // channels kept: 1 or 2
+ 
+@@ -74,15 +78,17 @@ type stream struct {
+ 
+ func newStream(d Decoder) *stream {
+ 	ch := max(d.Channels(), 1)
+-	s := &stream{d: d, channels: ch, keep: min(ch, 2), seekTo: -1}
++	s := &stream{d: d, rate: d.SampleRate(), channels: ch, keep: min(ch, 2), seekTo: -1}
+ 	s.cond.L = &s.mu
+ 	// About a second ahead.
+-	frames := max(d.SampleRate(), 4096)
++	frames := max(s.rate, 4096)
+ 	s.ring = make([]float32, frames*s.keep)
+ 	go s.decode()
+ 	return s
+ }
+ 
++func (s *stream) sampleRate() int { return s.rate }
++
+ func (s *stream) decode() {
+ 	buf := make([]float32, 2048*s.channels)
+ 	var kept []float32

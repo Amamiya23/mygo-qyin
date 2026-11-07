@@ -345,7 +345,6 @@ type texture struct {
 	w, h      int
 	gen, ver  uint64
 	lastFrame uint64
-	transient bool
 }
 
 // drawState is what drawing scenes into a target keeps from frame to
@@ -999,7 +998,7 @@ func (r *Renderer) imageTexture(img *scene.Image) uintptr {
 			img.Uploaded()
 		}
 	}
-	t.lastFrame, t.transient = r.frame, img.Transient
+	t.lastFrame = r.frame
 	return t.tex
 }
 
@@ -2028,21 +2027,9 @@ const sweepEvery = 120
 // take the second way, and counting only the first, they swept seldom if
 // ever, while each frame's transient canvases piled up on the GPU.
 func (r *Renderer) sweepIfDue() {
-	r.sweepTransientImages()
 	if r.frame-r.swept >= sweepEvery {
 		r.swept = r.frame
 		r.sweep()
-	}
-}
-
-// sweepTransientImages drops temporary pixel textures once the complete frame
-// is submitted. Command buffers retain textures used by frames still in flight.
-func (r *Renderer) sweepTransientImages() {
-	for key, t := range r.images {
-		if t.transient && t.lastFrame != r.frame {
-			release(&t.tex)
-			delete(r.images, key)
-		}
 	}
 }
 

@@ -14,7 +14,9 @@ import (
 // don't use them, up to idleMaskBytes of them, so a transform that comes
 // and goes finds its masks again instead of rasterizing them.
 type clipMaskSlot struct {
-	// shapes are the clips the mask is of, their stops in stops.
+	// shapes are the clips the mask is of, their stops in stops, and area
+	// the frame pixels it covers: the clip's scissor rectangle, or more
+	// for a clip that grows (maskArea).
 	shapes []scene.ClipShape
 	stops  []scene.Stop
 	area   image.Rectangle
@@ -42,6 +44,9 @@ func (b *Builder) prepare(in *Instance, m scene.Affine, c *clip) bool {
 		in.Transform0 = [4]float32{m.A, m.C, m.X, 1}
 		in.Transform1 = [4]float32{m.B, m.D, m.Y, 0}
 		in.Transform2 = [4]float32{m.G, m.H, 0, 0}
+		if m.Behind {
+			in.Transform2[2] = 1 // the divisor's constant term is -1
+		}
 	}
 	in.Clip, in.ClipRadii = rect(c.rect), c.radii
 	if !c.masked {
@@ -62,9 +67,14 @@ func (b *Builder) prepare(in *Instance, m scene.Affine, c *clip) bool {
 	// when a text input or custom clipped drawing moves within it. Drawing
 	// that a translation of the clip's moved shares them too, folded into
 	// the frame's (scene.TranslationFolder): the clip's rectangle moves.
+	// So does drawing that nothing transforms, or that a translation only
+	// moves, in a clip in the frame's coordinates (as a clip only moved
+	// is, scene.MovedClip), whose rectangle moves the other way: as a
+	// pane reaching into the rounded corners of the frame around it
+	// (markEnclosing), which then needs no mask of its own.
 	shared, dx, dy := c.shape.Transform == m && m.Set, float32(0), float32(0)
-	if !m.Set {
-		dx, dy, shared = c.shape.Transform.Translation()
+	if tx, ty, moved := m.Translation(); !c.shape.Transform.Set && (!m.Set || moved) {
+		dx, dy, shared = -tx, -ty, true
 	}
 	if c.shape.Radii == [4]float32{} && !c.shape.Masks() && shared && len(b.stack) > 1 {
 		parent := &b.stack[len(b.stack)-2]
@@ -75,7 +85,7 @@ func (b *Builder) prepare(in *Instance, m scene.Affine, c *clip) bool {
 			}
 			in.Clip = rect(c.rect)
 			in.Clip[0], in.Clip[1] = in.Clip[0]+dx, in.Clip[1]+dy
-			in.ClipRadii = maskRect(parent.maskArea)
+			in.ClipRadii = areaRect(parent.maskArea)
 			in.Transform1[3] = 2
 			return true
 		}
@@ -84,7 +94,7 @@ func (b *Builder) prepare(in *Instance, m scene.Affine, c *clip) bool {
 	if b.preparedMask == 0 {
 		return false
 	}
-	in.Clip = maskRect(c.maskArea)
+	in.Clip = areaRect(c.maskArea)
 	in.ClipRadii = [4]float32{}
 	in.Transform1[3] = 1
 	return true
@@ -116,27 +126,19 @@ func (b *Builder) analyticClip() (clip, bool) {
 	return *rounded, true
 }
 
-func maskRect(area image.Rectangle) [4]float32 {
-	return [4]float32{float32(area.Min.X), float32(area.Min.Y), float32(area.Dx()), float32(area.Dy())}
-}
-
 func (b *Builder) clipTexture(c *clip, shapes []scene.ClipShape) uintptr {
 	if c.maskTexture != 0 {
 		return c.maskTexture
 	}
-	// Animated clips used to resize their CPU buffer and GPU texture for
-	// every pixel of growth. Keep the texture in tiles; the scissor and
-	// shapes still cut at their exact edges, and prepare maps the full area.
-	const tile = 64
-	area := image.Rect(int(c.scissor.Left)&^(tile-1), int(c.scissor.Top)&^(tile-1),
-		(int(c.scissor.Right)+tile-1)&^(tile-1), (int(c.scissor.Bottom)+tile-1)&^(tile-1))
+	area := image.Rect(int(c.scissor.Left), int(c.scissor.Top), int(c.scissor.Right), int(c.scissor.Bottom))
 	// The mask of the same clip, in this frame or an earlier one; else
 	// the one the clip in its place had last frame, which it most likely
 	// is, changed; else a new one.
-	found, reuse, idle := -1, -1, -1
-	idleBytes := 0
+	found, reuse := -1, -1
 	for i := range b.maskSlots {
 		m := &b.maskSlots[i]
+		// A mask of more of the frame than the clip's scissor rectangle
+		// holds the same coverage there.
 		if area.In(m.area) && slices.EqualFunc(m.shapes, shapes, func(a, b scene.ClipShape) bool { return a.Same(&b) }) {
 			found = i
 			break
@@ -144,48 +146,16 @@ func (b *Builder) clipTexture(c *clip, shapes []scene.ClipShape) uintptr {
 		if reuse < 0 && m.frame == b.frame-1 && m.slot == c.maskSlot {
 			reuse = i
 		}
-		if m.frame != b.frame {
-			idleBytes += cap(m.image.Pix)
-			if idle < 0 {
-				idle = i
-			}
-		}
 	}
 	if found < 0 {
 		found = reuse
-		if found < 0 && idleBytes+4*area.Dx()*area.Dy() > idleMaskBytes {
-			// Under budget pressure, reuse an idle slot rather than adding
-			// another texture. Otherwise keep stationary clips cached while
-			// other branches draw. Never overwrite this frame's used masks.
-			found = idle
-		}
 		if found < 0 {
 			found = len(b.maskSlots)
 			b.maskSlots = append(b.maskSlots, clipMaskSlot{})
 		}
 		m := &b.maskSlots[found]
-		if m.image != nil {
-			// Retain the texture's size as the clip shrinks. On growth,
-			// leave room for following frames, bounded by the viewport.
-			// Moving the origin only repaints pixels; it needs no new texture.
-			w, h := m.image.W, m.image.H
-			if area.Dx() > w {
-				w = (max(area.Dx(), w*3/2) + tile - 1) &^ (tile - 1)
-			}
-			if area.Dy() > h {
-				h = (max(area.Dy(), h*3/2) + tile - 1) &^ (tile - 1)
-			}
-			if len(b.stack) > 0 {
-				sc := b.stack[0].scissor
-				w = max(area.Dx(), min(w, (int(sc.Right-sc.Left)+tile-1)&^(tile-1)))
-				h = max(area.Dy(), min(h, (int(sc.Bottom-sc.Top)+tile-1)&^(tile-1)))
-			}
-			x := min(max(m.area.Min.X, area.Max.X-w), area.Min.X)
-			y := min(max(m.area.Min.Y, area.Max.Y-h), area.Min.Y)
-			area = image.Rect(x, y, x+w, y+h)
-		}
-		m.image = raster.ClipMask(m.image, shapes, area)
-		m.area = area
+		m.area = maskArea(area, m.image, b.stack[0].scissor)
+		m.image = raster.ClipMask(m.image, shapes, m.area)
 		m.keep(shapes)
 	}
 	m := &b.maskSlots[found]
@@ -193,6 +163,46 @@ func (b *Builder) clipTexture(c *clip, shapes []scene.ClipShape) uintptr {
 	c.maskArea = m.area
 	c.maskTexture = b.imageTexture(m.image)
 	return c.maskTexture
+}
+
+// maskArea returns the frame pixels to rasterize a clip's mask into,
+// for a clip whose scissor rectangle is area, given had, the mask the
+// clip in its place had last frame. A new mask covers area. Otherwise
+// the mask keeps had's size, placed where area fits in it, so that a
+// clip that changes reuses its mask's memory and texture instead of
+// allocating both again on every frame of its animation. A card growing
+// out of a cover to fill the window allocated 190 MB in 40 frames
+// (egoist/mygo-music#55). A side that outgrows it doubles, up to the
+// frame's size, and a clip that shrinks to less than a quarter of it
+// takes its own size.
+func maskArea(area image.Rectangle, had *scene.Image, frame Scissor) image.Rectangle {
+	if had == nil || had.W <= 0 || had.H <= 0 {
+		return area
+	}
+	w, h := area.Dx(), area.Dy()
+	if 4*w*h < had.W*had.H {
+		return area
+	}
+	grow := func(n, was, most int) int {
+		if n <= was {
+			return was
+		}
+		return max(n, min(2*was, most))
+	}
+	w, h = grow(w, had.W, int(frame.Right-frame.Left)), grow(h, had.H, int(frame.Bottom-frame.Top))
+	// Within the frame where it fits, rather than rasterizing what is off
+	// it.
+	place := func(lo, hi, n int, end int32) int {
+		return max(min(lo, int(end)-n), hi-n)
+	}
+	x, y := place(area.Min.X, area.Max.X, w, frame.Right), place(area.Min.Y, area.Max.Y, h, frame.Bottom)
+	return image.Rect(x, y, x+w, y+h)
+}
+
+// areaRect returns area, a mask's frame pixels, as the shaders take it:
+// its origin and size, which map frame pixels to the mask's texels.
+func areaRect(area image.Rectangle) [4]float32 {
+	return [4]float32{float32(area.Min.X), float32(area.Min.Y), float32(area.Dx()), float32(area.Dy())}
 }
 
 // keep keeps shapes as the mask's, with copies of their stops, which
@@ -221,6 +231,8 @@ func (b *Builder) dropIdleMasks(idle int) {
 		if m.frame == b.frame {
 			continue
 		}
+		// The memory a mask keeps, which may be more than its pixels
+		// take up: Resize reuses it for smaller ones.
 		if idle -= cap(m.image.Pix); idle < 0 {
 			clear(b.maskSlots[i:])
 			b.maskSlots = b.maskSlots[:i]

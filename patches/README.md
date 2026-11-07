@@ -1,23 +1,24 @@
 # MyGo 本地补丁
 
-当前依赖为 [MyGo v0.8.1](https://github.com/egoist/mygo/releases/tag/v0.8.1)。
+当前依赖为 [MyGo v0.8.3](https://github.com/egoist/mygo/releases/tag/v0.8.3)。
 以下补丁均已应用到受 Git 跟踪的 `vendor/github.com/egoist/mygo`，
-路径相对 MyGo 根目录，并以干净的 v0.8.1 为基准生成。
+路径相对 MyGo 根目录，并以干净的 v0.8.3 为基准生成。
 
 | 补丁 | 用途 |
 | --- | --- |
-| `mygo-v0.8.1-radix-color-swatches.patch` | ColorPicker / ColorWell 内置色块使用 Radix Colors 第 9 阶与黑色端点，保留自选色及透明度。 |
-| `mygo-v0.8.1-linux-layer-drag.patch` | Wayland layer-shell 歌词面板通过更新锚点拖动，限制在当前输出内，并通知位置保存。 |
-| `mygo-v0.8.1-macos-dev-icon.patch` | 开发包优先选择 `macos.icon` 的 `-dev` 兄弟文件，正确读取和缓存 ICNS，并监听文件或资产目录变化。 |
-| `mygo-v0.8.1-windows-state-compat.patch` | 将旧版本地补丁保存的 `windowsBounds` 读入上游 `pixel*` 字段；已有 `pixel*` 优先，下次保存使用上游格式。 |
-| `mygo-v0.8.1-tester-label-target.patch` | Tester 点击同名目标时逐个验证实际命中，避免 RichText 父文本误挡内联链接；仍拒绝被遮挡的目标。 |
-| `mygo-v0.8.1-clip-mask-memory.patch` | 单个未变换圆角直接由 GPU 裁剪；复杂遮罩复用分块缓冲与纹理、按实际容量计费，并及时释放闲置临时纹理，修复播放页过渡内存上涨。 |
+| `mygo-v0.8.3-radix-color-swatches.patch` | ColorPicker / ColorWell 内置色块使用 Radix Colors 第 9 阶与黑色端点，保留自选色及透明度。 |
+| `mygo-v0.8.3-linux-layer-drag.patch` | Wayland layer-shell 歌词面板通过更新锚点拖动，限制在当前输出内，并通知位置保存。 |
+| `mygo-v0.8.3-macos-dev-icon.patch` | 开发包优先选择 `macos.icon` 的 `-dev` 兄弟文件，正确读取和缓存 ICNS，并监听文件或资产目录变化。 |
+| `mygo-v0.8.3-windows-state-compat.patch` | 将旧版本地补丁保存的 `windowsBounds` 读入上游 `pixel*` 字段；已有 `pixel*` 优先，下次保存使用上游格式。 |
+| `mygo-v0.8.3-tester-label-target.patch` | Tester 点击同名目标时逐个验证实际命中，避免 RichText 父文本误挡内联链接；仍拒绝被遮挡的目标。 |
+| `mygo-v0.8.3-desktop-audio.patch` | 保留桌面原采样率输出、可选设备预热、自然尾音排空及停止后端重开、ALSA 转换回退，以及 WSOLA 按输出率步进的修复与回归。 |
+| `mygo-v0.8.3-analytic-clip.patch` | 单个未变换圆角直接由 GPU 裁剪变换后的内容，避免播放页整窗遮罩；分数硬边界、多圆角、变换裁剪及图片/渐变遮罩继续走上游实现。 |
 
 重新生成 vendor 后，在项目根目录应用全部补丁：
 
 ```powershell
 go mod vendor
-Get-ChildItem patches/mygo-v0.8.1-*.patch | ForEach-Object {
+Get-ChildItem patches/mygo-v0.8.3-*.patch | ForEach-Object {
     git apply --check --directory=vendor/github.com/egoist/mygo $_.FullName
     if ($LASTEXITCODE -ne 0) { throw "补丁检查失败：$($_.Name)" }
     git apply --directory=vendor/github.com/egoist/mygo $_.FullName
@@ -46,6 +47,7 @@ go tool mygo vet .
 go test github.com/egoist/mygo -run TestWindowStateLegacyPixels
 go test github.com/egoist/mygo/ui -run TestTesterClicksInlineLinkWithParagraphLabel -count=5
 go test github.com/egoist/mygo/cmd/mygo -run 'Test(DevConfigMacOSIcon|DevSessionMacOSICNS|BuildInputsMacOSIcon)$' -count=5
+go test github.com/egoist/mygo/audio -count=5
 go run ./scripts/check-window-state -cycles 20
 ```
 
@@ -54,19 +56,34 @@ Linux 目标机可运行 `go test github.com/egoist/mygo/internal/linux -run Tes
 
 ## 播放页裁剪内存
 
-单个圆角裁剪在帧坐标直接计算覆盖率，允许内部内容缩放、旋转或透视；
-裁剪链自身无变换、无图片/渐变遮罩，且其余硬矩形边界必须是整数像素。
-多圆角、变换裁剪及分数硬边界继续使用像素遮罩。
+v0.8.3 已包含上游的[增长遮罩复用](https://github.com/egoist/mygo/pull/1428)、
+[容量预算修复](https://github.com/egoist/mygo/pull/1408)和
+[Windows 闲置纹理清理修复](https://github.com/egoist/mygo/pull/1394)，
+替代本地提交 `da4d659` 的缓存和纹理修复。原 `clip-mask-memory.patch`
+已移除，仍有效的单圆角解析裁剪优化独立为 `analytic-clip.patch`。
 
-复杂遮罩按块复用尺寸，增长时预留容量、缩小时保留纹理尺寸；采样使用实际
-遮罩区域，精确 scissor 不变。空闲预算按底层容量计量，受压时复用未被本帧
-使用的槽。D3D11、GL 和 Metal 在提交帧后释放未使用的临时遮罩纹理，普通封面
-沿用原缓存策略。
+上游沿用像素遮罩，按轴翻倍复用增长尺寸、收缩过大的遮罩，并按实际容量
+限制空闲预算。`TestGrowingClipKeepsItsMask` 直接覆盖从封面展开到整窗的
+40 帧动画，同时检查像素覆盖和纹理尺寸复用。上游测试未被 `go mod vendor`
+复制；前两条命令验证未打本地补丁的固定版本模块，后两条验证本地补丁和应用：
 
 ```powershell
-go test github.com/egoist/mygo/internal/gpu -count=5
-go test github.com/egoist/mygo/internal/gpu/d3d11 -count=5
+go test -mod=mod github.com/egoist/mygo/internal/gpu -run 'Test(GrowingClipKeepsItsMask|IdleMasksStayWithinBudget|TurningCardMasksKeepWithinBudget)$' -count=5
+go test -mod=mod github.com/egoist/mygo/internal/gpu/d3d11 -run 'Test(SweepBetweenUnchangedFrames|TransientCanvas)$' -count=5
+go test github.com/egoist/mygo/internal/gpu github.com/egoist/mygo/internal/gpu/d3d11 -run 'Test(StationaryRoundedClipUsesFrameCoordinates|ComplexClipRetainsCoverageMask|RoundedCardClipsTransformedContentWithoutMask)$' -count=5
+go test ./internal/app -run 'Test(NowPlaying|SpaceAfterOpeningNowPlaying|BackdropFadeEnds)' -count=5
 ```
 
-Windows 原生离线十次开关已确认占用趋于稳定；Direct3D 像素覆盖与纹理释放
-回归通过。GL / Metal 已交叉编译，尚未做对应平台真机 GPU 验收。
+Windows 原生离线十次开关使用同一份应用和探针，仅切换 MyGo 源码；
+固定 600px 封面、60 行歌词、暂停、关闭 Fog，各采样先执行 GC：
+
+| MyGo 实现 | 首次展开工作集 | 第十次展开工作集 |
+| --- | --- | --- |
+| 升级前 v0.8.1 完整本地补丁 | 125 MiB | 157 MiB |
+| v0.8.3 上游 | 222 MiB | 321 MiB |
+| v0.8.3 + 解析裁剪补丁 | 182 MiB | 229 MiB |
+
+精简补丁保留了部分收益，仍未达到升级前的内存水平。它只改变 `prepare`
+的单圆角路径，保留上游的裁剪标记、遮挡判断、复杂遮罩复用和后端清理。
+这些数值是本机诊断场景的采样，不能当作所有机器的峰值或整应用承诺。
+Windows Direct3D 像素回归已验证；GL / Metal 尚未在对应平台真机验收。
