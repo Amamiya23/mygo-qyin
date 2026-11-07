@@ -73,6 +73,9 @@ func (a *app) nowPlayingLayer(c *ui.Context, open, settled bool) {
 func (a *app) nowPlayingView(c *ui.Context) {
 	pl := a.pl
 	tr := pl.Current()
+	// The covered player bar stops building once this layer settles, so
+	// keep our time labels ticking independently of paint-only animations.
+	a.tickTimes(c)
 	w, h := c.Size()
 	art := a.art.get(qqmusic.Sized(tr.Album.PicURL, 600), true)
 	// The colors stay the last song's while its cover loads, rather than
