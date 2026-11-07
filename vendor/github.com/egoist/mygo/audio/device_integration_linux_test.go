@@ -27,13 +27,13 @@ func TestLinuxPulseNativeLifecycle(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := d.(drainingDevice).drain(); err != nil {
+			if _, err := d.(drainingDevice).drain(); err != nil {
 				t.Fatal(err)
 			}
 			if err := d.write(silence); err != nil {
 				t.Fatal(err)
 			}
-			if err := d.(drainingDevice).drain(); err != nil {
+			if _, err := d.(drainingDevice).drain(); err != nil {
 				t.Fatal(err)
 			}
 		})

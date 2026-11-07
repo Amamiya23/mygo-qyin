@@ -157,18 +157,18 @@ func (d *aqDevice) close() {
 	audioQueueDispose(d.q, true)
 }
 
-// drain requests asynchronous stop and confirms IsRunning is zero. Buffer
-// reuse callbacks alone do NOT mean samples have played. Keep the queue object
-// and format for reuse; write primes and starts it again after the drain.
-func (d *aqDevice) drain() error {
+// drain confirms that Stop(false) played the queued tail. Stop may also stop
+// the audio hardware, so request a fresh session and its configured pre-roll.
+// Buffer reuse callbacks alone do NOT mean samples have played.
+func (d *aqDevice) drain() (bool, error) {
 	if !d.started && d.queued > 0 {
 		if st := audioQueueStart(d.q, 0); st != 0 {
-			return fmt.Errorf("audio: AudioQueueStart failed (OSStatus %d)", st)
+			return false, fmt.Errorf("audio: AudioQueueStart failed (OSStatus %d)", st)
 		}
 		d.started = true
 	}
 	if st := audioQueueStop(d.q, false); st != 0 {
-		return fmt.Errorf("audio: AudioQueueStop failed (OSStatus %d)", st)
+		return false, fmt.Errorf("audio: AudioQueueStop failed (OSStatus %d)", st)
 	}
 	deadline := time.NewTimer(time.Second)
 	defer deadline.Stop()
@@ -178,7 +178,7 @@ func (d *aqDevice) drain() error {
 		var running uint32
 		size := uint32(4)
 		if st := audioQueueGetProperty(d.q, 0x6171726e, &running, &size); st != 0 {
-			return fmt.Errorf("audio: AudioQueueGetProperty(IsRunning) failed (OSStatus %d)", st)
+			return false, fmt.Errorf("audio: AudioQueueGetProperty(IsRunning) failed (OSStatus %d)", st)
 		}
 		if running == 0 {
 			break
@@ -186,23 +186,9 @@ func (d *aqDevice) drain() error {
 		select {
 		case <-tick.C:
 		case <-deadline.C:
-			return fmt.Errorf("audio: audio queue did not stop after draining")
+			return false, fmt.Errorf("audio: audio queue did not stop after draining")
 		}
 	}
 	d.started, d.queued = false, 0
-	ready := make([]*audioQueueBuffer, 0, d.buffers)
-	defer func() {
-		for _, b := range ready {
-			d.free <- b
-		}
-	}()
-	for len(ready) < d.buffers {
-		select {
-		case b := <-d.free:
-			ready = append(ready, b)
-		case <-deadline.C:
-			return fmt.Errorf("audio: audio queue did not drain")
-		}
-	}
-	return nil
+	return true, nil
 }

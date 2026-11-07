@@ -199,21 +199,19 @@ func (d *alsaDevice) write(samples []float32) error {
 
 func (d *alsaDevice) close() { sndPcmClose(d.pcm) }
 
-func (d *pulseDevice) drain() error {
+func (d *pulseDevice) drain() (bool, error) {
 	var code int32
 	if paSimpleDrain(d.s, &code) < 0 {
-		return fmt.Errorf("audio: PulseAudio drain: %s", paStrerror(code))
+		return false, fmt.Errorf("audio: PulseAudio drain: %s", paStrerror(code))
 	}
-	return nil
+	return false, nil
 }
-func (d *alsaDevice) drain() error {
+func (d *alsaDevice) drain() (bool, error) {
 	if e := sndPcmDrain(d.pcm); e < 0 {
-		return fmt.Errorf("audio: ALSA drain: %s", sndStrerror(e))
+		return false, fmt.Errorf("audio: ALSA drain: %s", sndStrerror(e))
 	}
-	if e := sndPcmPrepare(d.pcm); e < 0 {
-		return fmt.Errorf("audio: ALSA prepare: %s", sndStrerror(e))
-	}
-	return nil
+	// Drain stops the PCM; reopening also applies any requested pre-roll.
+	return true, nil
 }
 
 // configureALSA requests the native stream rate but permits ALSA's plugin

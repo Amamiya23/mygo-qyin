@@ -17,8 +17,11 @@ type device interface {
 	close()
 }
 
-// A drainingDevice waits for queued audio to be played without closing it.
-type drainingDevice interface{ drain() error }
+// A drainingDevice waits for queued audio to be played. reopen reports that
+// draining stopped the backend and a fresh session is needed before more audio.
+type drainingDevice interface {
+	drain() (reopen bool, err error)
+}
 
 // naturalDrain reports a primary natural EOF, or all remaining voices at EOF.
 // It excludes user pauses/stops and never holds mu during a backend operation.
@@ -204,13 +207,22 @@ func playOutput() {
 		}
 		if naturalDrain() {
 			if d, ok := dev.(drainingDevice); ok {
-				if err := d.drain(); err != nil {
+				reopen, err := d.drain()
+				if err != nil {
 					setErr(err)
 					break
 				}
 				mu.Lock()
 				unheard = 0
+				if reopen {
+					// Publish the heard tail before retiring the stopped backend.
+					// An empty mix completes EOF without consuming the next song.
+					mixLocked(nil)
+				}
 				mu.Unlock()
+				if reopen {
+					break
+				}
 			}
 		}
 		if busy {

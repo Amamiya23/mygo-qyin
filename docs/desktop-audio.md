@@ -72,7 +72,9 @@ out.Play()
 
 ALSA 配置保留 soft_resample=1：请求源采样率，但允许 ALSA 插件在硬件不支持时转换。default PCM 拒绝格式时会再尝试 plug:default，显式启用转换层。混音器仍按应用流采样率工作；这不表示硬件使用了该采样率，也不保证 bit-perfect。
 
-自然结束使用 PulseAudio pa_simple_drain、ALSA snd_pcm_drain（随后 prepare）、WASAPI padding 归零和 AudioQueue 非立即停止并等待 IsRunning 归零等待尾音播放完。并行音效下，主音乐的自然结束也会排空已排队输出；主动切歌不执行自然排空。Playing() 和 OnEnd 在自然结束时延后到尾音排空/播放时钟确认结束后，不再在混音读到 EOF 时提前通知。无原生排空能力的假设备用输出帧时钟等待。
+自然结束使用 PulseAudio pa_simple_drain、ALSA snd_pcm_drain、WASAPI padding 归零和 AudioQueue 非立即停止并等待 IsRunning 归零等待尾音播放完。并行音效下，主音乐的自然结束也会排空已排队输出；主动切歌不执行自然排空。Playing() 和 OnEnd 在自然结束时延后到尾音排空/播放时钟确认结束后，不再在混音读到 EOF 时提前通知。无原生排空能力的假设备用输出帧时钟等待。
+
+macOS 的 AudioQueueStop 和直连 ALSA 的 snd_pcm_drain 会停止后端，因此排空后会关闭旧会话，下一次播放重新打开输出，并按 SetPreRoll 配置预热；即使采样率相同也不能把已停止的后端视为持续运行。Windows 和 PulseAudio 排空后仍可复用，无需为同采样率切歌增加预热。
 
 ### 核心机制细节
 

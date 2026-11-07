@@ -14,7 +14,7 @@ type reviewDrainingDevice struct {
 	drains int
 }
 
-func (d *reviewDrainingDevice) drain() error { d.drains++; return nil }
+func (d *reviewDrainingDevice) drain() (bool, error) { d.drains++; return false, nil }
 
 func TestNaturalRateSwitchKeepsTail(t *testing.T) {
 	for _, lat := range []Latency{LatencyInteractive, LatencyPlayback} {
