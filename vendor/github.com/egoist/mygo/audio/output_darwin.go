@@ -49,6 +49,7 @@ var (
 	audioQueueAllocateBuffer func(q uintptr, size uint32, out **audioQueueBuffer) int32
 	audioQueueEnqueueBuffer  func(q uintptr, b *audioQueueBuffer, n uint32, descs uintptr) int32
 	audioQueueStart          func(q uintptr, at uintptr) int32
+	audioQueueGetProperty    func(q uintptr, property uint32, value *uint32, size *uint32) int32
 	audioQueueStop           func(q uintptr, immediate bool) int32
 	audioQueueDispose        func(q uintptr, immediate bool) int32
 
@@ -69,6 +70,7 @@ func loadAudioToolbox() error {
 		purego.RegisterLibFunc(&audioQueueAllocateBuffer, lib, "AudioQueueAllocateBuffer")
 		purego.RegisterLibFunc(&audioQueueEnqueueBuffer, lib, "AudioQueueEnqueueBuffer")
 		purego.RegisterLibFunc(&audioQueueStart, lib, "AudioQueueStart")
+		purego.RegisterLibFunc(&audioQueueGetProperty, lib, "AudioQueueGetProperty")
 		purego.RegisterLibFunc(&audioQueueStop, lib, "AudioQueueStop")
 		purego.RegisterLibFunc(&audioQueueDispose, lib, "AudioQueueDispose")
 		// The queue's own thread calls it when it is done with a buffer.
@@ -92,12 +94,12 @@ type aqDevice struct {
 	started bool
 }
 
-func openDevice(ahead time.Duration) (device, int, error) {
+func openDevice(ahead time.Duration, rate int) (device, int, error) {
 	if err := loadAudioToolbox(); err != nil {
 		return nil, 0, err
 	}
 	desc := audioStreamBasicDescription{
-		sampleRate:       sampleRate,
+		sampleRate:       float64(rate),
 		formatID:         kAudioFormatLinearPCM,
 		formatFlags:      kAudioFormatFlagIsFloat,
 		bytesPerPacket:   channels * 4,
@@ -106,7 +108,7 @@ func openDevice(ahead time.Duration) (device, int, error) {
 		channelsPerFrame: channels,
 		bitsPerChannel:   32,
 	}
-	n := max(2, int((int64(ahead)*sampleRate/int64(time.Second)+aqFrames-1)/aqFrames))
+	n := max(2, int((int64(ahead)*int64(rate)/int64(time.Second)+aqFrames-1)/aqFrames))
 	d := &aqDevice{free: make(chan *audioQueueBuffer, n), buffers: n}
 	if st := audioQueueNewOutput(&desc, aqCallback, 0, 0, 0, 0, &d.q); st != 0 {
 		return nil, 0, fmt.Errorf("audio: AudioQueueNewOutput failed (OSStatus %d)", st)
@@ -153,4 +155,40 @@ func (d *aqDevice) close() {
 	aqCurrent.CompareAndSwap(d, nil)
 	audioQueueStop(d.q, true)
 	audioQueueDispose(d.q, true)
+}
+
+// drain confirms that Stop(false) played the queued tail. Stop may also stop
+// the audio hardware, so request a fresh session and its configured pre-roll.
+// Buffer reuse callbacks alone do NOT mean samples have played.
+func (d *aqDevice) drain() (bool, error) {
+	if !d.started && d.queued > 0 {
+		if st := audioQueueStart(d.q, 0); st != 0 {
+			return false, fmt.Errorf("audio: AudioQueueStart failed (OSStatus %d)", st)
+		}
+		d.started = true
+	}
+	if st := audioQueueStop(d.q, false); st != 0 {
+		return false, fmt.Errorf("audio: AudioQueueStop failed (OSStatus %d)", st)
+	}
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for {
+		var running uint32
+		size := uint32(4)
+		if st := audioQueueGetProperty(d.q, 0x6171726e, &running, &size); st != 0 {
+			return false, fmt.Errorf("audio: AudioQueueGetProperty(IsRunning) failed (OSStatus %d)", st)
+		}
+		if running == 0 {
+			break
+		}
+		select {
+		case <-tick.C:
+		case <-deadline.C:
+			return false, fmt.Errorf("audio: audio queue did not stop after draining")
+		}
+	}
+	d.started, d.queued = false, 0
+	return true, nil
 }

@@ -30,11 +30,12 @@ import (
 	"time"
 )
 
-// The output's format: every player is resampled to it.
-const (
-	sampleRate = 48000
-	channels   = 2
-)
+const channels = 2
+const defaultOutputRate = 48000
+
+// outputRate is the target device rate, guarded by mu. Backends receive
+// an immutable snapshot so opening/writing never races with Play.
+var outputRate = defaultOutputRate
 
 // mu guards the voices playing and the state of every player.
 var mu sync.Mutex
@@ -189,7 +190,7 @@ func (s *Sound) Duration() time.Duration {
 
 // NewPlayer returns a paused player of the sound.
 func (s *Sound) NewPlayer() *Player {
-	src := &memSource{samples: s.samples, channels: s.channels}
+	src := &memSource{samples: s.samples, rate: s.rate, channels: s.channels}
 	return newPlayer(src, s.rate, s.channels, int64(len(s.samples)/s.channels))
 }
 
@@ -224,9 +225,9 @@ type closingDecoder struct {
 // ahead. d is used by one goroutine at a time. Closing the player closes d
 // if d is an io.Closer.
 func NewPlayer(d Decoder) *Player {
-	ch := min(d.Channels(), 2)
+	ch, length := min(d.Channels(), 2), d.Len()
 	s := newStream(d)
-	p := newPlayer(s, d.SampleRate(), ch, d.Len())
+	p := newPlayer(s, s.sampleRate(), ch, length)
 	// A player dropped while paused would leave its decoder waiting; one
 	// dropped while playing plays to its end, as a sound's do.
 	runtime.AddCleanup(p, func(v *voice) {
@@ -278,6 +279,18 @@ func (p *Player) Play() {
 		v.src.seek(0)
 		v.reset(0)
 	}
+	if desktopAudioFeatures {
+		// A primary music player takes priority over effects and old fade-outs.
+		other := slices.ContainsFunc(voices, func(other *voice) bool {
+			return other != v && other.playing && !other.closed
+		})
+		if (v.primary || !other) && int(v.rate) > 0 {
+			outputRate = int(v.rate)
+		}
+		if v.preRoll && (outputState != outputReady || deviceRate != outputRate) {
+			warmupFrames = outputRate / 5
+		}
+	}
 	v.playing = true
 	if !v.active {
 		// A sound starting at its start starts at once; one resuming in
@@ -289,6 +302,31 @@ func (p *Player) Play() {
 		voices = append(voices, v)
 		wakeOutput()
 	}
+}
+
+// SetPrimary lets this music player select the output rate even while
+// effects or a previous track's fade-out are still active. It has no effect
+// on Web, Android, iOS or unsupported backends.
+func (p *Player) SetPrimary(primary bool) *Player {
+	mu.Lock()
+	defer mu.Unlock()
+	p.v.primary = primary
+	return p
+}
+
+// SetPreRoll enables 200 ms of output silence when the device opens or reopens
+// while this player is playing. New songs on an already open, same-rate device
+// do not add silence.
+// It defaults to false; short mid-song resumes on an open output add no silence.
+// The output is shared: while warming up, all mixed sources stand still.
+// Changing this option takes effect on the next Play or device open;
+// disabling it cancels pending silence once no playing player requests it.
+// It has no effect on Web, Android, iOS or unsupported backends.
+func (p *Player) SetPreRoll(enabled bool) *Player {
+	mu.Lock()
+	defer mu.Unlock()
+	p.v.preRoll = enabled && desktopAudioFeatures
+	return p
 }
 
 // Pause pauses the player where it is.
@@ -327,7 +365,9 @@ type endListener struct {
 
 // OnEnd calls fn on a goroutine of its own each time the player plays to
 // its end, which a looping player never does, as a playlist plays the
-// next track then. off removes it.
+// next track then. On desktop outputs, natural-end notification waits for
+// queued tail audio to play; Pause, Stop and Close do not wait for it.
+// off removes the listener.
 func (p *Player) OnEnd(fn func()) (off func()) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -368,6 +408,8 @@ func (p *Player) Position() time.Duration {
 }
 
 // Duration returns how long the player's audio is, or 0 if unknown.
+// The source length and rate are immutable after construction, so Duration
+// can be read concurrently with playback without locking.
 func (p *Player) Duration() time.Duration {
 	if p.v.length < 0 {
 		return 0
