@@ -418,8 +418,14 @@ func (a *app) playerBar(c *ui.Context) {
 			reveal := info.AnimateTo("reveal", b2f(hovered), motion)
 			info.Children(func() {
 				cover := ui.Box(c).Size(48, 48).Shrink(0)
+				if b := cover.LayoutBounds(); b.W > 0 {
+					a.npFrom = b
+				}
+				if a.npT > 0 && !a.npStill {
+					cover.Invisible() // the flying cover takes its place
+				}
 				cover.Translate(0, -reveal).Children(func() {
-					a.cover(c, tr.Album.PicURL, 120, 48, 8).Shadow(0, 2, 8, 0, p.cardShade)
+					a.cover(c, tr.Album.PicURL, 120, 48, npFromRadius).Shadow(0, 2, 8, 0, p.cardShade)
 					ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(8).Center().PassThrough().
 						Opacity(reveal).Background(radixBlack(5)).TextColor(radixPaper).Children(func() {
 						ui.Icon(c, iconDown).Size(18, 18).Rotate(180).Translate(0, 3*(1-reveal))

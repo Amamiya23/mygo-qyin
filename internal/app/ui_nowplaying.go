@@ -13,22 +13,15 @@ import (
 
 var white = radixPaper
 
-var npSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 450 * time.Millisecond, Bounce: 0.08}}
-
-// npSettle is how long Now Playing takes to come or go, its spring at rest.
-const npSettle = 600 * time.Millisecond
+var npSpring = ui.SpringOptions{Duration: 340 * time.Millisecond}
 
 // npState tracks Now Playing opening and closing, and reports whether it is
 // open and whether it has come to rest, open or closed. Call it once a
 // build, before the window's content.
 func (a *app) npState(c *ui.Context) (open, settled bool) {
 	open = a.nowPlaying && a.pl.Current() != nil
-	now := c.Now()
 	if open != a.npOpen {
-		a.npOpen, a.npChangedAt = open, now
-		// A build once it is at rest: to stop painting what it covers, or
-		// itself once gone.
-		c.After(npSettle)
+		a.npOpen = open
 		// The window buttons light over its dark backdrop, and as the
 		// theme over the pages (Windows).
 		if a.win != nil {
@@ -39,33 +32,93 @@ func (a *app) npState(c *ui.Context) (open, settled bool) {
 			a.win.SetWindowButtonsTheme(buttons)
 		}
 	}
-	return open, now.Sub(a.npChangedAt) >= npSettle
+	return open, a.npAtRest(open)
 }
 
-// nowPlayingLayer holds Now Playing over the whole window, rising into
-// view as it opens and sinking away as it closes. The layer moves itself,
-// staying on top all the way, rather than leaving as an exit transition
-// would, under the rest of the window: that would show it going over the
-// sidebar's material while the page above it hid it at once. Its pose
-// moves it in frames that only paint, building nothing.
+// nowPlayingLayer grows Now Playing out of the bar's cover and shrinks it
+// back there, keeping the whole card over both the page and the sidebar.
+// A pull follows the pointer, closing when let go far or fast enough.
 func (a *app) nowPlayingLayer(c *ui.Context, open, settled bool) {
+	w, h := c.Size()
 	layer := ui.Box(c.Key("now-playing-layer")).Absolute().Top(0).Left(0).Right(0).Bottom(0)
-	pose := ui.Pose{Y: 60, Fade: 1}
-	if open {
-		pose = ui.Pose{}
+	a.npStill = c.Preferences().ReduceMotion
+	spring := npSpring
+	_, dy, held := layer.Dragged()
+	held = held && open
+	if held {
+		a.npPull += dy
 	}
-	layer.AnimatePose(pose, npSpring)
-	if !open && settled || a.pl.Current() == nil {
+	if _, vy, ok := layer.DragEnded(); ok && open {
+		if a.npPull > h*0.2 || a.npPull > 24 && vy > 700 {
+			a.nowPlaying, open = false, false
+			spring.Velocity = -max(vy, 0) / h
+		}
+	}
+	if !held {
+		a.npPull = 0
+	}
+	a.npHeld = held
+	target := float32(0)
+	if open {
+		target = 1
+	}
+	var t, shift float32
+	if a.npStill {
+		// MyGo 0.7 keeps color animation under ReduceMotion: use its alpha
+		// for a fade without depending on the newer NonMotion API.
+		fade := layer.AnimateColor("fade", white.Alpha(target), ui.Animation{Duration: 200 * time.Millisecond})
+		t = float32(fade.A) / 255
+	} else {
+		t = layer.AnimateTo("open", target, ui.Animation{Spring: spring})
+	}
+	if held {
+		shift = layer.Jump("pull", ui.Rubberband(a.npPull, 0, h, h))
+	} else {
+		shift = layer.AnimateTo("pull", 0, ui.Animation{Spring: npSpring})
+	}
+	fresh, was := a.npT <= 0 && t > 0, a.npT
+	a.npT, a.npShift = t, shift
+	if a.npAtRest(open) != settled {
+		c.AnimationFrame() // let the covered page and bar come or go
+	}
+	if t <= 0 && !open && was <= 0 || a.pl.Current() == nil {
 		// Closed: nothing to paint or click.
 		layer.Invisible()
 		a.queueAt, a.wallState.track = -1, 0
 		return
 	}
+	if fresh {
+		// Lay out the cover before its first visible frame.
+		layer.Opacity(0)
+		c.AnimationFrame()
+	} else if a.npStill {
+		layer.Opacity(max(t, 0))
+	}
 	if !open {
 		// On its way out, the window under it takes the clicks.
-		layer.PassThrough()
+		layer.IgnoreInput(true)
 	}
-	layer.Children(func() { a.nowPlayingView(c) })
+	layer.Children(func() {
+		// A clipped viewport around a fixed-size canvas is ClipInset's
+		// equivalent on MyGo 0.7; the content keeps its window layout.
+		card := ui.Box(c.Key("card")).Absolute().Top(0).Left(0).Right(0).Bottom(0)
+		var x, y float32
+		if !a.npStill {
+			k := 1 - clamp01(t)
+			from := a.npFromRect(w, h)
+			x, y = from.X*k, from.Y*k
+			card.Top(y).Left(x).Right((w - from.X - from.W) * k).Bottom((h - from.Y - from.H) * k).
+				Radius(npFromRadius*k + 28*clamp01(shift/120)).Clip()
+			if shift != 0 {
+				s := 1 - 0.12*clamp01(shift/h)
+				card.TransformOrigin(0.5, 0).Scale(s, s).Translate(0, shift)
+			}
+		}
+		card.Children(func() {
+			ui.Box(c.Key("canvas")).Absolute().Top(-y).Left(-x).Size(w, h).
+				Children(func() { a.nowPlayingView(c) })
+		})
+	})
 }
 
 // nowPlayingView fills the window with what plays: its cover over a slow
@@ -91,12 +144,23 @@ func (a *app) nowPlayingView(c *ui.Context) {
 	}
 	accent := tint.Mix(white, 0.45)
 
+	bg := radixSage(true, 1)
+	if t := a.npT; t < 1 && !a.npStill {
+		bg = bg.Alpha(smoothstep(0, 0.35, t))
+	}
 	root := ui.Box(c.Key("now-playing")).Absolute().Top(0).Left(0).Right(0).Bottom(0).
-		Background(radixSage(true, 1)).TextColor(white)
+		Background(bg).TextColor(white)
 	// The pointer is over the view whenever it is in the window.
 	pointerIn := root.Hovered()
 	root.Children(func() {
-		a.backdrop(c, shown, tint)
+		bloom := ui.Box(c.Key("bloom")).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough()
+		if t := a.npT; t < 1 && !a.npStill {
+			from := a.npFromRect(w, h)
+			s := 1 + 0.3*(1-clamp01(t))
+			bloom.Opacity(smoothstep(0.05, 0.55, t)).
+				TransformOrigin((from.X+from.W/2)/w, (from.Y+from.H/2)/h).Scale(s, s)
+		}
+		bloom.Children(func() { a.backdrop(c, shown, tint) })
 		// Over the backdrop, which is positioned too: positioned elements
 		// paint over those in the flow.
 		ui.Column(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Children(func() { a.nowPlayingBody(c, tr, art, accent, w, h, pointerIn) })
@@ -130,7 +194,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 	{
 		// The top strip drags the window; the chevron closes the view,
 		// showing only while the pointer is in the window, as the pane tabs do.
-		ui.Row(c).Height(topBar(c)).Justify(ui.Center).AlignItems(ui.Center).DragWindow().Children(func() {
+		a.npRise(ui.Row(c).Height(topBar(c)).Justify(ui.Center).AlignItems(ui.Center).DragWindow(), 0).Children(func() {
 			reveal(ui.Box(c.Key("close-reveal")), pointerIn).Children(func() {
 				if npCollapseButton(c.Key("close")).Clicked() {
 					a.nowPlaying = false
@@ -140,7 +204,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 		if a.npPane == paneStage {
 			// The stage takes the whole view: the lyrics are the show, the
 			// controls a slim bar at the foot.
-			reveal(npTabsRow(c, w, h), pointerIn).Children(func() {
+			a.npRise(reveal(npTabsRow(c, w, h), pointerIn), 0).Children(func() {
 				a.paneTabs(c)
 				a.stageStyleButton(c)
 			})
@@ -159,14 +223,16 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 		// wide enough for the controls even when the cover is small.
 		side := max(coverSize, 280)
 		padX := npSideX(w)
-		reveal(npTabsRow(c, w, h), pointerIn).Children(func() { a.paneTabs(c) })
+		a.npRise(reveal(npTabsRow(c, w, h), pointerIn), 0).Children(func() { a.paneTabs(c) })
 		ui.Row(c).Grow(1).Padding(0, padX, 44, padX).Gap(72).AlignItems(ui.Stretch).Children(func() {
 			var coverTop float32
 			ui.Column(c).Width(side).Justify(ui.Center).Gap(0).Children(func() {
 				coverTop = ui.Box(c.Key("cover-top")).Height(0).LayoutBounds().Y
-				a.npCover(c, tr, art, coverSize)
+				a.npMorph(c, ui.Box(c.Key("cover-morph")).Size(coverSize, coverSize).AlignSelf(ui.Start)).Children(func() {
+					a.npCover(c, tr, art, coverSize)
+				})
 
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(36, 0, 18, 0).Children(func() {
+				a.npRise(ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(36, 0, 18, 0), 1).Children(func() {
 					ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
 						if r := pl.Radio(); r != "" {
 							a.radioChip(c, r)
@@ -177,10 +243,10 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 					a.likeButton(c.Key("like"), tr, 22, white.Alpha(0.7), mediaSurface)
 					a.songMenu(c.Key("more"), tr, 22, white.Alpha(0.7), mediaSurface).Margin(0, -8, 0, 0)
 				})
-				a.scrubber(c.Key("np-scrub"), &a.npScrub, white.Alpha(0.18), white.Alpha(0.9), 16, accent.Mix(white, 0.35))
+				a.npRise(a.scrubber(c.Key("np-scrub"), &a.npScrub, white.Alpha(0.18), white.Alpha(0.9), 16, accent.Mix(white, 0.35)), 2)
 				// As tall with the quality's badge as without it: the badge goes
 				// while the next song loads, and the column would move with it.
-				ui.Row(c).Height(16).AlignItems(ui.Center).Children(func() {
+				a.npRise(ui.Row(c).Height(16).AlignItems(ui.Center), 2).Children(func() {
 					ui.Text(c, clock(pl.Position())).FontSize(11).FontFeatures("tnum").TextColor(white.Alpha(0.5))
 					ui.Spacer(c)
 					qualityBadge(c, pl.Stream())
@@ -191,15 +257,16 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 					}
 					ui.Text(c, status).FontSize(11).FontFeatures("tnum").TextColor(white.Alpha(0.5))
 				})
-				ui.Box(c).Margin(14, 0, 18, 0).Children(func() {
+				a.npRise(ui.Box(c).Margin(14, 0, 18, 0), 3).Children(func() {
 					a.transport(c, white, white.Alpha(0.45), accent, 28, mediaSurface)
 				})
-				ui.Row(c).Justify(ui.Center).Children(func() {
+				a.npRise(ui.Row(c).Justify(ui.Center), 4).Children(func() {
 					a.volumeSlider(c, white.Alpha(0.7), white.Alpha(0.18), 180, mediaSurface)
 				})
 			})
 
 			pane := ui.Column(c.Key("pane")).Grow(1).Basis(0).MinWidth(0)
+			a.npRise(pane, 2)
 			pane.Children(func() {
 				// The pane starts level with the cover beside it, but below the
 				// tabs, which start level with the pane's top: they come and go
@@ -384,23 +451,25 @@ func qualityBadge(c *ui.Context, st *qqmusic.Stream) {
 func (a *app) stageBar(c *ui.Context, tr *qqmusic.Track, art *artwork, accent ui.Color) {
 	pl := a.pl
 	ui.Column(c).Padding(0, 48, 28, 48).Gap(10).Children(func() {
-		a.scrubber(c.Key("stage-scrub"), &a.npScrub, white.Alpha(0.18), white.Alpha(0.9), 14, accent.Mix(white, 0.35))
+		a.npRise(a.scrubber(c.Key("stage-scrub"), &a.npScrub, white.Alpha(0.18), white.Alpha(0.9), 14, accent.Mix(white, 0.35)), 2)
 		ui.Row(c).Gap(14).AlignItems(ui.Center).Children(func() {
 			ui.Row(c).Grow(1).Basis(0).MinWidth(0).Gap(12).AlignItems(ui.Center).Children(func() {
 				if bmp := bitmap(art); bmp != nil {
-					cov := ui.Box(c.Key(tr.ID)).Size(44, 44)
+					cov := a.npMorph(c, ui.Box(c.Key(tr.ID)).Size(44, 44))
 					in := artIn(cov, bmp)
-					cov.Children(func() { artImage(c, bmp, 8, in) })
+					cov.Children(func() { artImage(c, bmp, a.npRadius(c, 8, 44), in) })
 				}
-				ui.Column(c).Shrink(1).MinWidth(0).Gap(2).Children(func() {
-					ui.Text(c, tr.Name).FontSize(14).FontWeight(700).SingleLine()
-					a.artistLinks(c, tr, white.Alpha(0.55), white).FontSize(12).SingleLine()
+				a.npRise(ui.Row(c).Shrink(1).MinWidth(0).Gap(12).AlignItems(ui.Center), 3).Children(func() {
+					ui.Column(c).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+						ui.Text(c, tr.Name).FontSize(14).FontWeight(700).SingleLine()
+						a.artistLinks(c, tr, white.Alpha(0.55), white).FontSize(12).SingleLine()
+					})
+					a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6), mediaSurface)
+					a.songMenu(c.Key("more"), tr, 17, white.Alpha(0.6), mediaSurface).Margin(0, 0, 0, -10)
 				})
-				a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6), mediaSurface)
-				a.songMenu(c.Key("more"), tr, 17, white.Alpha(0.6), mediaSurface).Margin(0, 0, 0, -10)
 			})
-			a.transport(c, white, white.Alpha(0.45), white, 22, mediaSurface)
-			ui.Row(c).Grow(1).Basis(0).MinWidth(0).Justify(ui.End).Children(func() {
+			a.npRise(ui.Row(c), 3).Children(func() { a.transport(c, white, white.Alpha(0.45), white, 22, mediaSurface) })
+			a.npRise(ui.Row(c).Grow(1).Basis(0).MinWidth(0).Justify(ui.End), 4).Children(func() {
 				ui.Text(c, clock(pl.Position())+" / "+clock(pl.Duration())).FontSize(11.5).FontFeatures("tnum").TextColor(white.Alpha(0.5))
 			})
 		})

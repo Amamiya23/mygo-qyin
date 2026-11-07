@@ -97,6 +97,7 @@ func (a *app) stage(c *ui.Context, tr *qqmusic.Track, accent ui.Color) {
 	w, h := c.Size()
 	f := min(64, max(36, w*0.045))
 	box := ui.Box(c.Key("stage")).Grow(1)
+	a.npRise(box, 1)
 	// In a quiet part a hot comment takes the middle, the lyrics nearly
 	// gone under it (ui_quiet.go).
 	dim, quiet := a.quietShown(c, box, tr, lines, loaded)

@@ -108,7 +108,7 @@ func (a *app) wallPane(c *ui.Context, tr *qqmusic.Track, art *artwork, accent ui
 	// Up into the frost, covers blur more and more and fade into the
 	// backdrop, painted again over them, opaque by the frost's top: there
 	// it shows what shows above it, so that no edge does.
-	ui.Box(c.Key("wall-frost")).Absolute().Top(wallY).Left(0).Right(0).Height(frost).PassThrough().
+	a.npRise(ui.Box(c.Key("wall-frost")), 2).Absolute().Top(wallY).Left(0).Right(0).Height(frost).PassThrough().
 		Material(glass.Blur{Radius: 16, Mask: &ui.LinearGradient{From: radixInk, To: ui.Transparent, Angle: 180}}).
 		Draw(func(p *ui.Painter, r ui.Rect) {
 			a.backdropOver(p, ui.Rect{W: w, H: h}, r, func(t float32) float32 {
@@ -117,14 +117,14 @@ func (a *app) wallPane(c *ui.Context, tr *qqmusic.Track, art *artwork, accent ui
 		})
 	// Down under the controls, they blur and fade most of the way, for
 	// the controls to read over them.
-	ui.Box(c.Key("wall-foot")).Absolute().Left(0).Right(0).Bottom(0).Height(foot).PassThrough().
+	a.npRise(ui.Box(c.Key("wall-foot")), 2).Absolute().Left(0).Right(0).Bottom(0).Height(foot).PassThrough().
 		Material(glass.Blur{Radius: 14, Mask: &ui.LinearGradient{From: radixInk, To: ui.Transparent, Angle: 0}}).
 		Draw(func(p *ui.Painter, r ui.Rect) {
 			a.backdropOver(p, ui.Rect{W: w, H: h}, r, func(t float32) float32 { return 0.7 * smoothstep(0, 0.9, t) })
 		})
 	a.wallSong(c, tr, art, top, songH)
 	a.wallBar(c, accent)
-	reveal(npTabsRow(c, w, h), pointerIn).Children(func() { a.paneTabs(c) })
+	a.npRise(reveal(npTabsRow(c, w, h), pointerIn), 0).Children(func() { a.paneTabs(c) })
 }
 
 // wallSong is the song playing, over the wall: its cover, which breathes
@@ -137,18 +137,22 @@ func (a *app) wallSong(c *ui.Context, tr *qqmusic.Track, art *artwork, top, h fl
 		// Not Now Playing's cover, which the pointer tilts and flings: here
 		// the wall is what the pointer moves.
 		size := h - 48
-		cov := ui.Box(c.Key(coverKey{tr.ID, 0})).Size(size, size).Radius(16).Shadow(0, 24, 50, -12, radixInk.Alpha(0.55))
-		scale := float32(1)
-		if !pl.Playing() {
-			scale = 0.92
-		}
-		cov.AnimatePose(ui.Pose{Scale: scale}, ui.Animation{Spring: ui.SpringOptions{Duration: 600 * time.Millisecond, Bounce: 0.25}})
-		in := artIn(cov, bitmap(art))
-		if in < 1 {
-			cov.Background(white.Alpha(0.08))
-		}
-		cov.Children(func() { artImage(c, bitmap(art), 16, in) })
-		ui.Column(c).Width(440).Shrink(1).MinWidth(0).Gap(4).Children(func() {
+		radius := a.npRadius(c, 16, size)
+		fly := ui.Box(c.Key("wall-cover-morph")).Size(size, size)
+		a.npMorph(c, fly).Children(func() {
+			cov := ui.Box(c.Key(coverKey{tr.ID, 0})).Fill().Radius(radius).Shadow(0, 24, 50, -12, radixInk.Alpha(0.55))
+			scale := float32(1)
+			if !pl.Playing() {
+				scale = 0.92
+			}
+			a.npBreathe(cov, scale)
+			in := artIn(cov, bitmap(art))
+			if in < 1 {
+				cov.Background(white.Alpha(0.08))
+			}
+			cov.Children(func() { artImage(c, bitmap(art), radius, in) })
+		})
+		a.npRise(ui.Column(c).Width(440).Shrink(1).MinWidth(0).Gap(4), 1).Children(func() {
 			if r := pl.Radio(); r != "" {
 				a.radioChip(c, r)
 			}
@@ -205,6 +209,7 @@ func (a *app) wall(c *ui.Context, y, w, h, top, foot, frost float32) {
 	// Covers go only into the frost, never past it over the song: the area
 	// clips them, standing still as they move in it.
 	area := ui.Box(c.Key("wall")).Absolute().Top(y).Left(0).Right(0).Bottom(0).Clip()
+	a.npRise(area, 2)
 	// The trackpad and the wheel move it at once: the fingers carry it,
 	// and their momentum, as far as it goes.
 	area.HandleInput(func(ev ui.InputEvent) bool {
@@ -363,7 +368,7 @@ func (a *app) wallTile(c *ui.Context, tr *qqmusic.Track, i int, x float32, playi
 // and the transport between how far it has gone and how far it has left.
 func (a *app) wallBar(c *ui.Context, accent ui.Color) {
 	pl := a.pl
-	ui.Column(c.Key("wall-bar")).Absolute().Left(0).Right(0).Bottom(0).Padding(0, 48, 24, 48).Gap(10).Children(func() {
+	a.npRise(ui.Column(c.Key("wall-bar")), 3).Absolute().Left(0).Right(0).Bottom(0).Padding(0, 48, 24, 48).Gap(10).Children(func() {
 		a.scrubber(c.Key("wall-scrub"), &a.npScrub, white.Alpha(0.18), white.Alpha(0.9), 14, accent.Mix(white, 0.35))
 		ui.Row(c).Gap(14).AlignItems(ui.Center).Children(func() {
 			ui.Row(c).Grow(1).Basis(0).MinWidth(0).Children(func() {

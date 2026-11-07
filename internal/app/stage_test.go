@@ -14,6 +14,7 @@ func TestStageStyleMenu(t *testing.T) {
 	a.nowPlaying, a.npPane = true, paneStage
 	a.pl.Seek(2 * time.Second)
 	tt.Frame()
+	tt.Advance(time.Second) // the tabs enter after the cover
 	for _, c := range []struct{ item, want string }{{"云阶", "partita"}, {"倾诉", "tilt"}, {"流光", ""}} {
 		if err := tt.Click("律动效果"); err != nil {
 			t.Fatal(err)
@@ -35,6 +36,7 @@ func TestStageSparksMenu(t *testing.T) {
 	a.nowPlaying, a.npPane = true, paneStage
 	a.settings.StageStyle = "tilt"
 	tt.Frame()
+	tt.Advance(time.Second)
 	for _, want := range []bool{true, false} {
 		if err := tt.Click("律动效果"); err != nil {
 			t.Fatal(err)

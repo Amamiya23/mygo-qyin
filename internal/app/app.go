@@ -130,10 +130,15 @@ type app struct {
 	suggestions   suggestState          // what the search field's query may be after
 
 	nowPlaying  bool
-	npOpen      bool      // Now Playing as it last showed: open or not
-	npChangedAt time.Time // when it last opened or closed
-	npPane      int       // paneLyrics, paneQueue, paneStage, paneComments, paneProgram or paneCaptions
-	npPaneTop   float32   // how far the cover beside the pane starts below its top
+	npOpen      bool    // Now Playing as it last showed: open or not
+	npT         float32 // how far open Now Playing last showed, 0 to 1
+	npShift     float32 // how far down it showed while pulled
+	npPull      float32 // how far the pointer has pulled it down
+	npHeld      bool    // whether the pointer is pulling it
+	npStill     bool    // reduced motion: fade in place
+	npFrom      ui.Rect // the player bar's cover, which it grows out of
+	npPane      int     // paneLyrics, paneQueue, paneStage, paneComments, paneProgram or paneCaptions
+	npPaneTop   float32 // how far the cover beside the pane starts below its top
 	lyricScroll ui.ScrollState
 	lyricGlide  lyricGlide
 	lyricAt     int

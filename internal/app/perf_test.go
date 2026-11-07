@@ -166,6 +166,28 @@ func TestNowPlayingFrameBudget(t *testing.T) {
 	}
 }
 
+// Opening and closing the cover card must stop requesting animation frames once it settles.
+func TestNowPlayingTransitionFrameBudget(t *testing.T) {
+	a := newTestApp()
+	a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "宝船", Duration: 200000}})
+	a.pl.SetLyrics(nil)
+	a.npPane = paneQueue
+	tt := ui.NewTester(a.view, 1200, 800)
+	if err := tt.Click("打开正在播放"); err != nil {
+		t.Fatal(err)
+	}
+	// Commit the open pose before settling the paused cover's breathing pose.
+	tt.Advance(time.Second)
+	tt.Frame()
+	if n := framesAt(a, tt, 12*time.Second); n > 3 {
+		t.Errorf("the open card at rest: %d frames a second", n)
+	}
+	tt.Key(0, ui.KeyEscape)
+	if n := framesAt(a, tt, 12*time.Second); n > 3 {
+		t.Errorf("the closed card at rest: %d frames a second", n)
+	}
+}
+
 // Only real word timing needs periodic highlight builds; the old estimated
 // LRC highlighting kept repainting even though its timing was invented.
 func TestLyricsWordFrameBudget(t *testing.T) {
