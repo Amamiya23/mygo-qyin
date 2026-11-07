@@ -252,3 +252,21 @@ func (d *wasapiDevice) close() {
 		d.event = 0
 	}
 }
+
+// drain preserves the final queued frames before a natural track transition.
+func (d *wasapiDevice) drain() error {
+	deadline := time.Now().Add(time.Second)
+	for {
+		var padding uint32
+		if hr := comCall(d.client, 6, uintptr(unsafe.Pointer(&padding))); failed(hr) {
+			return hresult("IAudioClient.GetCurrentPadding", hr)
+		}
+		if padding == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errAudioClientUnresponded
+		}
+		procWaitForSingleObject.Call(d.event, 100)
+	}
+}

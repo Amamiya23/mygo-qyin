@@ -49,6 +49,7 @@ var (
 	audioQueueAllocateBuffer func(q uintptr, size uint32, out **audioQueueBuffer) int32
 	audioQueueEnqueueBuffer  func(q uintptr, b *audioQueueBuffer, n uint32, descs uintptr) int32
 	audioQueueStart          func(q uintptr, at uintptr) int32
+	audioQueueGetProperty    func(q uintptr, property uint32, value *uint32, size *uint32) int32
 	audioQueueStop           func(q uintptr, immediate bool) int32
 	audioQueueDispose        func(q uintptr, immediate bool) int32
 
@@ -69,6 +70,7 @@ func loadAudioToolbox() error {
 		purego.RegisterLibFunc(&audioQueueAllocateBuffer, lib, "AudioQueueAllocateBuffer")
 		purego.RegisterLibFunc(&audioQueueEnqueueBuffer, lib, "AudioQueueEnqueueBuffer")
 		purego.RegisterLibFunc(&audioQueueStart, lib, "AudioQueueStart")
+		purego.RegisterLibFunc(&audioQueueGetProperty, lib, "AudioQueueGetProperty")
 		purego.RegisterLibFunc(&audioQueueStop, lib, "AudioQueueStop")
 		purego.RegisterLibFunc(&audioQueueDispose, lib, "AudioQueueDispose")
 		// The queue's own thread calls it when it is done with a buffer.
@@ -153,4 +155,54 @@ func (d *aqDevice) close() {
 	aqCurrent.CompareAndSwap(d, nil)
 	audioQueueStop(d.q, true)
 	audioQueueDispose(d.q, true)
+}
+
+// drain requests asynchronous stop and confirms IsRunning is zero. Buffer
+// reuse callbacks alone do NOT mean samples have played. Keep the queue object
+// and format for reuse; write primes and starts it again after the drain.
+func (d *aqDevice) drain() error {
+	if !d.started && d.queued > 0 {
+		if st := audioQueueStart(d.q, 0); st != 0 {
+			return fmt.Errorf("audio: AudioQueueStart failed (OSStatus %d)", st)
+		}
+		d.started = true
+	}
+	if st := audioQueueStop(d.q, false); st != 0 {
+		return fmt.Errorf("audio: AudioQueueStop failed (OSStatus %d)", st)
+	}
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for {
+		var running uint32
+		size := uint32(4)
+		if st := audioQueueGetProperty(d.q, 0x6171726e, &running, &size); st != 0 {
+			return fmt.Errorf("audio: AudioQueueGetProperty(IsRunning) failed (OSStatus %d)", st)
+		}
+		if running == 0 {
+			break
+		}
+		select {
+		case <-tick.C:
+		case <-deadline.C:
+			return fmt.Errorf("audio: audio queue did not stop after draining")
+		}
+	}
+	d.started, d.queued = false, 0
+	ready := make([]*audioQueueBuffer, 0, d.buffers)
+	defer func() {
+		for _, b := range ready {
+			d.free <- b
+		}
+	}()
+	for len(ready) < d.buffers {
+		select {
+		case b := <-d.free:
+			ready = append(ready, b)
+		case <-deadline.C:
+			return fmt.Errorf("audio: audio queue did not drain")
+		}
+	}
+	return nil
 }

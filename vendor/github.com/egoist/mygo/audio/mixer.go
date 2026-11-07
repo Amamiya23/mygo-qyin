@@ -61,7 +61,6 @@ type voice struct {
 	mono   bool
 	length int64 // frames, or -1
 
-	fresh   bool // has never started, including a player initially seeked into a song
 	preRoll bool // explicitly requests hardware warm-up on supported desktops
 	primary bool // selects the output rate ahead of other voices
 	playing bool // as the API sees it
@@ -97,7 +96,9 @@ type voice struct {
 
 	// Where the voice was in its source as the output mixed its frames,
 	// oldest first, for Position to say where it is heard.
-	marks []mark
+	marks     []mark
+	finishing bool  // natural EOF rendered, waiting for the device to play its tail
+	finishOut int64 // output frame after the final source frame
 }
 
 // A mark is the voice at output frame out: at frame pos of its source,
@@ -111,6 +112,7 @@ type mark struct {
 // reset starts the voice over at frame f of its source, which the caller
 // has moved there.
 func (v *voice) reset(f int64) {
+	v.finishing = false
 	v.hist = [4][2]float32{}
 	// Three frames come in before the first output: the second is f.
 	v.idx = f - 3
@@ -282,9 +284,27 @@ func (v *voice) retarget(t [4]float32) {
 // its frame at, and reports whether it is still active: false once at its
 // end, or faded out.
 func (v *voice) mix(out []float32, master float64, at, heard int64) bool {
+	if v.finishing {
+		if !v.playing {
+			v.finishing = false
+			return false
+		}
+		if heard >= v.finishOut {
+			v.finishing, v.playing, v.atEnd = false, false, true
+			return false
+		}
+		return true
+	}
 	v.mark(at, heard)
 	n, ok := v.play(out, master)
 	v.mark(at+int64(n), heard)
+	if desktopAudioFeatures && !ok && v.atEnd {
+		// Keep Playing true and postpone OnEnd until the queued tail is heard.
+		// User Pause/Stop/Close can still cancel this natural finish.
+		v.atEnd, v.playing, v.finishing = false, true, true
+		v.finishOut = at + int64(n)
+		return true
+	}
 	return ok
 }
 

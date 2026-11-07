@@ -262,7 +262,7 @@ type Player struct {
 }
 
 func newPlayer(src source, rate, ch int, length int64) *Player {
-	v := &voice{src: src, rate: float64(rate), mono: ch == 1, length: length, volume: 1, speed: 1, fresh: true}
+	v := &voice{src: src, rate: float64(rate), mono: ch == 1, length: length, volume: 1, speed: 1}
 	v.reset(0)
 	return &Player{v}
 }
@@ -275,10 +275,6 @@ func (p *Player) Play() {
 	if v.closed || v.playing {
 		return
 	}
-	// Read source metadata on every start/resume. Stream metadata is captured
-	// from Decoder.SampleRate before its worker starts: calling the decoder
-	// directly here could race with Read. Output resets never change it.
-	v.rate = float64(v.src.sampleRate())
 	if v.ended() {
 		v.src.seek(0)
 		v.reset(0)
@@ -291,11 +287,10 @@ func (p *Player) Play() {
 		if (v.primary || !other) && int(v.rate) > 0 {
 			outputRate = int(v.rate)
 		}
-		if v.preRoll && (v.fresh || v.at() == 0 || outputState != outputReady || deviceRate != outputRate) {
+		if v.preRoll && (outputState != outputReady || deviceRate != outputRate) {
 			warmupFrames = outputRate / 5
 		}
 	}
-	v.fresh = false
 	v.playing = true
 	if !v.active {
 		// A sound starting at its start starts at once; one resuming in
@@ -319,8 +314,9 @@ func (p *Player) SetPrimary(primary bool) *Player {
 	return p
 }
 
-// SetPreRoll enables 200 ms of output silence before this player starts
-// a new song, restarts from the beginning or needs its output reopened.
+// SetPreRoll enables 200 ms of output silence when the device opens or reopens
+// while this player is playing. New songs on an already open, same-rate device
+// do not add silence.
 // It defaults to false; short mid-song resumes on an open output add no silence.
 // The output is shared: while warming up, all mixed sources stand still.
 // Changing this option takes effect on the next Play or device open;
@@ -369,7 +365,9 @@ type endListener struct {
 
 // OnEnd calls fn on a goroutine of its own each time the player plays to
 // its end, which a looping player never does, as a playlist plays the
-// next track then. off removes it.
+// next track then. On desktop outputs, natural-end notification waits for
+// queued tail audio to play; Pause, Stop and Close do not wait for it.
+// off removes the listener.
 func (p *Player) OnEnd(fn func()) (off func()) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -410,6 +408,8 @@ func (p *Player) Position() time.Duration {
 }
 
 // Duration returns how long the player's audio is, or 0 if unknown.
+// The source length and rate are immutable after construction, so Duration
+// can be read concurrently with playback without locking.
 func (p *Player) Duration() time.Duration {
 	if p.v.length < 0 {
 		return 0

@@ -24,6 +24,7 @@ var (
 
 	paSimpleNew   func(server, name *byte, dir int32, dev, stream *byte, spec *paSampleSpec, chmap, attr unsafe.Pointer, err *int32) uintptr
 	paSimpleWrite func(s uintptr, data unsafe.Pointer, bytes uintptr, err *int32) int32
+	paSimpleDrain func(s uintptr, err *int32) int32
 	paSimpleFree  func(s uintptr)
 	paStrerror    func(err int32) string
 
@@ -34,6 +35,8 @@ var (
 	sndPcmSetParams func(pcm uintptr, format, access int32, channels, rate uint32, softResample int32, latency uint32) int32
 	sndPcmWritei    func(pcm uintptr, buf unsafe.Pointer, frames uintptr) int
 	sndPcmRecover   func(pcm uintptr, err int32, silent int32) int32
+	sndPcmDrain     func(pcm uintptr) int32
+	sndPcmPrepare   func(pcm uintptr) int32
 	sndPcmClose     func(pcm uintptr) int32
 	sndStrerror     func(err int32) string
 )
@@ -92,6 +95,7 @@ func openPulse(ahead time.Duration, rate int) (device, error) {
 		}
 		purego.RegisterLibFunc(&paSimpleNew, lib, "pa_simple_new")
 		purego.RegisterLibFunc(&paSimpleWrite, lib, "pa_simple_write")
+		purego.RegisterLibFunc(&paSimpleDrain, lib, "pa_simple_drain")
 		purego.RegisterLibFunc(&paSimpleFree, lib, "pa_simple_free")
 		purego.RegisterLibFunc(&paStrerror, lib, "pa_strerror")
 	})
@@ -140,17 +144,37 @@ func openALSA(ahead time.Duration, rate int) (device, error) {
 		purego.RegisterLibFunc(&sndPcmSetParams, lib, "snd_pcm_set_params")
 		purego.RegisterLibFunc(&sndPcmWritei, lib, "snd_pcm_writei")
 		purego.RegisterLibFunc(&sndPcmRecover, lib, "snd_pcm_recover")
+		purego.RegisterLibFunc(&sndPcmDrain, lib, "snd_pcm_drain")
+		purego.RegisterLibFunc(&sndPcmPrepare, lib, "snd_pcm_prepare")
 		purego.RegisterLibFunc(&sndPcmClose, lib, "snd_pcm_close")
 		purego.RegisterLibFunc(&sndStrerror, lib, "snd_strerror")
 	})
 	if alsaErr != nil {
 		return nil, alsaErr
 	}
+	return openALSALoaded(ahead, rate)
+}
+
+// openALSALoaded uses the bound ALSA API (also exercised with a fake API).
+func openALSALoaded(ahead time.Duration, rate int) (device, error) {
+	d, err := openALSAPCM("default", ahead, rate)
+	if err == nil {
+		return d, nil
+	}
+	// A default PCM may be direct hardware. Explicitly wrap it in ALSA's
+	// plug converter if it rejects the source format/rate.
+	d, fallbackErr := openALSAPCM("plug:default", ahead, rate)
+	if fallbackErr == nil {
+		return d, nil
+	}
+	return nil, errors.Join(err, fallbackErr)
+}
+func openALSAPCM(name string, ahead time.Duration, rate int) (device, error) {
 	var pcm uintptr
-	if e := sndPcmOpen(&pcm, cstr("default"), sndPcmStreamPlayback, 0); e < 0 {
+	if e := sndPcmOpen(&pcm, cstr(name), sndPcmStreamPlayback, 0); e < 0 {
 		return nil, fmt.Errorf("audio: ALSA: %s", sndStrerror(e))
 	}
-	if e := sndPcmSetParams(pcm, sndPcmFormatFloatLE, sndPcmAccessRWInterleaved, channels, uint32(rate), 0, uint32(ahead.Microseconds())); e < 0 {
+	if e := configureALSA(pcm, ahead, rate); e < 0 {
 		sndPcmClose(pcm)
 		return nil, fmt.Errorf("audio: ALSA: %s", sndStrerror(e))
 	}
@@ -174,3 +198,27 @@ func (d *alsaDevice) write(samples []float32) error {
 }
 
 func (d *alsaDevice) close() { sndPcmClose(d.pcm) }
+
+func (d *pulseDevice) drain() error {
+	var code int32
+	if paSimpleDrain(d.s, &code) < 0 {
+		return fmt.Errorf("audio: PulseAudio drain: %s", paStrerror(code))
+	}
+	return nil
+}
+func (d *alsaDevice) drain() error {
+	if e := sndPcmDrain(d.pcm); e < 0 {
+		return fmt.Errorf("audio: ALSA drain: %s", sndStrerror(e))
+	}
+	if e := sndPcmPrepare(d.pcm); e < 0 {
+		return fmt.Errorf("audio: ALSA prepare: %s", sndStrerror(e))
+	}
+	return nil
+}
+
+// configureALSA requests the native stream rate but permits ALSA's plugin
+// resampler when hardware cannot accept it. The application-facing rate
+// remains rate, so mixer step, position and pre-roll calculations stay valid.
+func configureALSA(pcm uintptr, ahead time.Duration, rate int) int32 {
+	return sndPcmSetParams(pcm, sndPcmFormatFloatLE, sndPcmAccessRWInterleaved, channels, uint32(rate), 1, uint32(ahead.Microseconds()))
+}

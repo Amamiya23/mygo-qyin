@@ -17,6 +17,31 @@ type device interface {
 	close()
 }
 
+// A drainingDevice waits for queued audio to be played without closing it.
+type drainingDevice interface{ drain() error }
+
+// naturalDrain reports a primary natural EOF, or all remaining voices at EOF.
+// It excludes user pauses/stops and never holds mu during a backend operation.
+func naturalDrain() bool {
+	mu.Lock()
+	defer mu.Unlock()
+	if !desktopAudioFeatures || len(voices) == 0 {
+		return false
+	}
+	all := true
+	for _, v := range voices {
+		if v.closed || !v.playing || !v.finishing {
+			all = false
+			continue
+		}
+		// A primary track must keep its tail even while effects are active.
+		if v.primary {
+			return true
+		}
+	}
+	return all
+}
+
 // idleClose is how long the output stays open with nothing playing.
 const idleClose = 5 * time.Second
 
@@ -176,6 +201,17 @@ func playOutput() {
 		if err := dev.write(buf); err != nil {
 			// Lost, or a null device trying the real one again.
 			break
+		}
+		if naturalDrain() {
+			if d, ok := dev.(drainingDevice); ok {
+				if err := d.drain(); err != nil {
+					setErr(err)
+					break
+				}
+				mu.Lock()
+				unheard = 0
+				mu.Unlock()
+			}
 		}
 		if busy {
 			idle = 0

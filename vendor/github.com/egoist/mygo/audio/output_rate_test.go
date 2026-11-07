@@ -40,21 +40,21 @@ func TestNativeRatePreroll(t *testing.T) {
 			}
 			p.Stop()
 			p.Play()
-			if warmupFrames != rate/5 {
-				t.Fatal("restart missing pre-roll")
+			if warmupFrames != 0 {
+				t.Fatal("same-rate restart added pre-roll")
 			}
 			mixTest(make([]float32, rate/5*2))
 			replacement := testSong(rate)
 			replacement.Play()
-			if warmupFrames != rate/5 {
-				t.Fatal("same-rate replacement missing pre-roll")
+			if warmupFrames != 0 {
+				t.Fatal("same-rate replacement added pre-roll")
 			}
 		})
 	}
 }
 
 func TestPrerollPositionWithLatency(t *testing.T) {
-	for _, rate := range []int{44100, 96000, 192000} {
+	for _, rate := range []int{44100, 48000, 88200, 96000, 192000} {
 		for _, lat := range []Latency{LatencyInteractive, LatencyPlayback} {
 			t.Run(fmt.Sprintf("%d/%d", rate, lat), func(t *testing.T) {
 				resetOutputTest(t)
@@ -208,7 +208,7 @@ func TestColdReopenAtSameRate(t *testing.T) {
 // Drive the actual five-second idle-close path by counting backend frames.
 // The fake backend consumes frames immediately, so this needs no real sleep.
 func TestLongPauseClosesAndResumesAtNativeRate(t *testing.T) {
-	for _, rate := range []int{44100, 96000} {
+	for _, rate := range []int{44100, 48000, 88200, 96000} {
 		for _, lat := range []Latency{LatencyInteractive, LatencyPlayback} {
 			t.Run(fmt.Sprintf("%d/%d", rate, lat), func(t *testing.T) {
 				resetOutputTest(t)
@@ -280,7 +280,6 @@ func TestLongPauseClosesAndResumesAtNativeRate(t *testing.T) {
 				pausedAt = p.v.at()
 				// Even losing transient output/mixer rate state must not lose native metadata.
 				outputRate = 48000
-				p.v.rate = 48000
 				p.Play()
 				if outputRate != rate || p.v.rate != float64(rate) || warmupFrames != rate/5 {
 					t.Fatal("Play did not recover source rate and arm pre-roll")
@@ -389,14 +388,12 @@ func TestStreamPlayRestoresDecoderRate(t *testing.T) {
 	resetOutputTest(t)
 	p := NewPlayer(rateTestDecoder{96000}).SetPreRoll(true)
 	defer p.Close()
-	p.v.rate = 48000
 	p.Play()
 	if outputRate != 96000 || p.v.rate != 96000 {
 		t.Fatal("Play did not read stream's decoder rate")
 	}
 	p.Pause()
 	outputRate = 48000
-	p.v.rate = 48000
 	p.Play()
 	if outputRate != 96000 || p.v.rate != 96000 || warmupFrames != 96000/5 {
 		t.Fatal("resume did not recover decoder rate")
