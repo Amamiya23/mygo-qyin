@@ -345,6 +345,7 @@ type texture struct {
 	w, h      int
 	gen, ver  uint64
 	lastFrame uint64
+	transient bool
 }
 
 // drawState is what drawing scenes into a target keeps from frame to
@@ -998,7 +999,7 @@ func (r *Renderer) imageTexture(img *scene.Image) uintptr {
 			img.Uploaded()
 		}
 	}
-	t.lastFrame = r.frame
+	t.lastFrame, t.transient = r.frame, img.Transient
 	return t.tex
 }
 
@@ -1039,6 +1040,7 @@ func (r *Renderer) waitLast() {
 func (r *Renderer) track(cb id) {
 	r.inflight[r.inUse] = send(cb, "retain")
 	r.slot = (r.inUse + 1) % ringSize
+	r.sweepTransient()
 }
 
 // encode encodes drawing s into target, whole, returning the
@@ -2030,6 +2032,25 @@ func (r *Renderer) sweepIfDue() {
 	if r.frame-r.swept >= sweepEvery {
 		r.swept = r.frame
 		r.sweep()
+	}
+}
+
+// sweepTransient releases the cache's ownership of temporary resources
+// this submitted frame no longer uses. In-flight command buffers retain
+// their resources, so retiring one does not need to wait for the GPU.
+func (r *Renderer) sweepTransient() {
+	for key, t := range r.images {
+		if t.transient && t.lastFrame != r.frame {
+			release(&t.tex)
+			delete(r.images, key)
+		}
+	}
+	for key, t := range r.canvases {
+		if c := t.canvas.Value(); c == nil || c.Transient && t.lastFrame != r.frame {
+			release(&t.tex)
+			t.drawState.release()
+			delete(r.canvases, key)
+		}
 	}
 }
 

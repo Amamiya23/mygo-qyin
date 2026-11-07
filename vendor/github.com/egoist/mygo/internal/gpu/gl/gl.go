@@ -99,6 +99,7 @@ type texture struct {
 	w, h      int
 	gen, ver  uint64
 	lastFrame uint64
+	transient bool
 }
 
 // canvasTexture is the texture a canvas (scene.NewCanvas) is drawn into,
@@ -564,7 +565,7 @@ func (r *Renderer) imageTexture(img *scene.Image) uintptr {
 			img.Uploaded()
 		}
 	}
-	t.lastFrame = r.frame
+	t.lastFrame, t.transient = r.frame, img.Transient
 	return uintptr(t.tex)
 }
 
@@ -607,6 +608,9 @@ func (r *Renderer) draw(s *scene.Scene) error {
 	}
 	if err := r.drawFrame(s); err != nil {
 		return err
+	}
+	if r.redrew != redrewNothing {
+		r.sweepTransient()
 	}
 	if r.frame%120 == 0 {
 		r.sweep()
@@ -1258,6 +1262,23 @@ func (r *Renderer) FrameInfo() string {
 		return "unchanged"
 	}
 	return r.b.Summary()
+}
+
+// sweepTransient frees temporary images and canvases a built frame no
+// longer uses. OpenGL keeps resources referenced by queued commands alive.
+func (r *Renderer) sweepTransient() {
+	for key, t := range r.images {
+		if t.transient && t.lastFrame != r.frame {
+			glDeleteTextures(1, &t.tex)
+			delete(r.images, key)
+		}
+	}
+	for key, t := range r.canvases {
+		if c := t.canvas.Value(); c == nil || c.Transient && t.lastFrame != r.frame {
+			r.deleteCanvas(t)
+			delete(r.canvases, key)
+		}
+	}
 }
 
 // sweep frees the textures of images no frame drew for a while, and

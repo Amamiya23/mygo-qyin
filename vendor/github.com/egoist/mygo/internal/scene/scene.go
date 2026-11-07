@@ -464,10 +464,10 @@ type Image struct {
 	// PixVersion is the version Pix holds.
 	Scene      *Scene
 	PixVersion uint64
-	// Transient marks a canvas drawn anew in every frame that shows it,
-	// as an element's effect layer: renderers free its texture once
-	// frames stop drawing it, rather than once it is collected, which
-	// the little memory it takes of Go's heap may put off for minutes.
+	// Transient marks temporary render resources, such as an element's
+	// effect layer or a generated clip mask: renderers free their textures
+	// when a drawn frame stops using them. Retained CPU pixels can upload
+	// the texture again if the image returns in a later frame.
 	Transient bool
 	// Restore re-creates Pix when a renderer needs the pixels after an
 	// owner dropped them, to upload or to draw them again, and Dropped

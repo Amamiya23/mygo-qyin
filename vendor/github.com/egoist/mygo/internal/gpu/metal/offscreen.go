@@ -92,6 +92,7 @@ func (o *Offscreen) Render(s *scene.Scene) (gpu time.Duration, err error) {
 			err = fmt.Errorf("metal: the frame failed: %s", describe(send(cb, "error")))
 			return
 		}
+		r.sweepTransient()
 		secs := msgDouble(cb, uintptr(sel("GPUEndTime"))) - msgDouble(cb, uintptr(sel("GPUStartTime")))
 		gpu = time.Duration(secs * float64(time.Second))
 	})

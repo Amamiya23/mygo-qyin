@@ -52,10 +52,9 @@ func (b *Builder) prepare(in *Instance, m scene.Affine, c *clip) bool {
 	if !c.masked {
 		return true
 	}
-	// The shaders evaluate a stationary rounded clip in frame coordinates,
-	// even when the content inside it is scaled. Integer hard ancestors and
-	// descendants are already exact in the batch scissor. Do not rasterize
-	// a whole-window mask just because an opening card contains transforms.
+	// Stationary clips can often reduce to one rounded rectangle, even
+	// around scaled content or a fractional scrolling viewport. Evaluate
+	// that geometry in the shader instead of rasterizing a window-sized mask.
 	if !c.moved && !c.masks {
 		if rounded, ok := b.analyticClip(); ok {
 			in.Clip, in.ClipRadii = rect(rounded.rect), rounded.radii
@@ -100,30 +99,144 @@ func (b *Builder) prepare(in *Instance, m scene.Affine, c *clip) bool {
 	return true
 }
 
-// analyticClip finds a single rounded clip surrounded only by integer
-// hard clips. Fractional hard edges need shader antialiasing of their own;
-// multiple rounded clips still need their combined coverage mask.
+// analyticClip removes clips that cover every pixel of the scissor, then
+// represents the remaining coverage with one rectangle and its corners.
+// Overlapping antialiased edges still need their multiplied pixel mask.
 func (b *Builder) analyticClip() (clip, bool) {
-	var rounded *clip
+	var rounded, hard *clip
+	rounds, fractions := 0, 0
+	sc := b.stack[len(b.stack)-1].scissor
+	area := scene.Rect{X: float32(sc.Left), Y: float32(sc.Top), W: float32(sc.Right - sc.Left), H: float32(sc.Bottom - sc.Top)}
 	for i := range b.stack {
 		c := &b.stack[i]
+		if c.radii != [4]float32{} {
+			rounds++
+		} else if integerClip(c.rect) {
+			continue // the batch scissor implements these edges exactly
+		} else {
+			fractions++
+		}
+		if clipOpaqueWithin(c, area) {
+			continue
+		}
 		if c.radii != [4]float32{} {
 			if rounded != nil {
 				return clip{}, false
 			}
 			rounded = c
 		} else {
-			for _, v := range []float32{c.rect.X, c.rect.Y, c.rect.X + c.rect.W, c.rect.Y + c.rect.H} {
-				if v != float32(math.Floor(float64(v))) {
-					return clip{}, false
-				}
+			if hard != nil {
+				return clip{}, false
 			}
+			hard = c
 		}
 	}
 	if rounded == nil {
+		if hard != nil {
+			return *hard, true
+		}
+		return clip{rect: area}, true
+	}
+	// Keep the existing single-clip path for continuous corners, but do not
+	// extend it: only Metal currently evaluates their curves in the shader.
+	continuous := rounded.radii[0] < 0 || rounded.radii[1] < 0 || rounded.radii[2] < 0 || rounded.radii[3] < 0
+	if continuous && (rounds != 1 || fractions != 0) {
 		return clip{}, false
 	}
+	if hard != nil {
+		return intersectAnalyticClip(*rounded, hard.rect)
+	}
 	return *rounded, true
+}
+
+func integerClip(r scene.Rect) bool {
+	for _, v := range [4]float32{r.X, r.Y, r.X + r.W, r.Y + r.H} {
+		if v != float32(math.Floor(float64(v))) {
+			return false
+		}
+	}
+	return true
+}
+
+// clipCornerBounds conservatively encloses each curve and its antialiasing.
+// Continuous corners reach less than two radii along either edge.
+func clipCornerBounds(c *clip) [4]scene.Rect {
+	r := c.rect
+	var boxes [4]scene.Rect
+	for i, radius := range c.radii {
+		if radius == 0 {
+			continue
+		}
+		reach := radius
+		if reach < 0 {
+			reach *= -2
+		}
+		reach++
+		box := scene.Rect{X: r.X, Y: r.Y, W: reach, H: reach}
+		if i == 1 || i == 2 {
+			box.X = r.X + r.W - reach
+		}
+		if i == 2 || i == 3 {
+			box.Y = r.Y + r.H - reach
+		}
+		boxes[i] = box
+	}
+	return boxes
+}
+
+// clipOpaqueWithin proves that a clip contributes coverage 1 to every
+// integer pixel box in area; merely containing the pixel centers is unsafe.
+func clipOpaqueWithin(c *clip, area scene.Rect) bool {
+	r := c.rect
+	if area.X < r.X || area.Y < r.Y || area.X+area.W > r.X+r.W || area.Y+area.H > r.Y+r.H {
+		return false
+	}
+	for _, box := range clipCornerBounds(c) {
+		if !box.Intersect(area).Empty() {
+			return false
+		}
+	}
+	return true
+}
+
+// intersectAnalyticClip trims away whole corners, as a fractional lyrics
+// viewport trims its player card. Cutting a curve or multiplying partial
+// coverages cannot be represented by a single rounded rectangle.
+func intersectAnalyticClip(c clip, hard scene.Rect) (clip, bool) {
+	r := c.rect.Intersect(hard)
+	if r.W < 1 || r.H < 1 {
+		return clip{}, false
+	}
+	before := [4]float32{c.rect.X, c.rect.Y, c.rect.X + c.rect.W, c.rect.Y + c.rect.H}
+	after := [4]float32{r.X, r.Y, r.X + r.W, r.Y + r.H}
+	edges := [4]float32{hard.X, hard.Y, hard.X + hard.W, hard.Y + hard.H}
+	for i, edge := range edges {
+		old := float64(before[i])
+		if i < 2 {
+			if edge <= before[i] && float64(edge) > math.Floor(old) || edge > before[i] && math.Floor(float64(edge)) < math.Ceil(old) {
+				return clip{}, false
+			}
+		} else if edge >= before[i] && float64(edge) < math.Ceil(old) || edge < before[i] && math.Ceil(float64(edge)) > math.Floor(old) {
+			return clip{}, false
+		}
+	}
+	pixels := scene.Rect{X: float32(math.Floor(float64(r.X))), Y: float32(math.Floor(float64(r.Y)))}
+	pixels.W, pixels.H = float32(math.Ceil(float64(r.X+r.W)))-pixels.X, float32(math.Ceil(float64(r.Y+r.H)))-pixels.Y
+	for i, box := range clipCornerBounds(&c) {
+		sides := [4][2]int{{0, 1}, {2, 1}, {2, 3}, {0, 3}}[i]
+		if after[sides[0]] != before[sides[0]] || after[sides[1]] != before[sides[1]] {
+			if !box.Intersect(pixels).Empty() {
+				return clip{}, false
+			}
+			c.radii[i] = 0
+		} else if box.W > r.W/2 || box.H > r.H/2 {
+			// Moving a surviving curve across the new midpoint would change
+			// which corner the shader evaluates there.
+			return clip{}, false
+		}
+	}
+	c.rect = r
+	return c, true
 }
 
 func (b *Builder) clipTexture(c *clip, shapes []scene.ClipShape) uintptr {
@@ -131,6 +244,7 @@ func (b *Builder) clipTexture(c *clip, shapes []scene.ClipShape) uintptr {
 		return c.maskTexture
 	}
 	area := image.Rect(int(c.scissor.Left), int(c.scissor.Top), int(c.scissor.Right), int(c.scissor.Bottom))
+	frame := b.stack[0].scissor
 	// The mask of the same clip, in this frame or an earlier one; else
 	// the one the clip in its place had last frame, which it most likely
 	// is, changed; else a new one.
@@ -139,7 +253,8 @@ func (b *Builder) clipTexture(c *clip, shapes []scene.ClipShape) uintptr {
 		m := &b.maskSlots[i]
 		// A mask of more of the frame than the clip's scissor rectangle
 		// holds the same coverage there.
-		if area.In(m.area) && slices.EqualFunc(m.shapes, shapes, func(a, b scene.ClipShape) bool { return a.Same(&b) }) {
+		fits := m.image.W <= int(frame.Right-frame.Left) && m.image.H <= int(frame.Bottom-frame.Top)
+		if fits && area.In(m.area) && slices.EqualFunc(m.shapes, shapes, func(a, b scene.ClipShape) bool { return a.Same(&b) }) {
 			found = i
 			break
 		}
@@ -148,14 +263,16 @@ func (b *Builder) clipTexture(c *clip, shapes []scene.ClipShape) uintptr {
 		}
 	}
 	if found < 0 {
-		found = reuse
+		keepSize := !c.moved && !c.masks
+		found = b.idleMaskFor(area, reuse, keepSize)
 		if found < 0 {
 			found = len(b.maskSlots)
 			b.maskSlots = append(b.maskSlots, clipMaskSlot{})
 		}
 		m := &b.maskSlots[found]
-		m.area = maskArea(area, m.image, b.stack[0].scissor)
+		m.area = maskArea(area, m.image, frame, keepSize)
 		m.image = raster.ClipMask(m.image, shapes, m.area)
+		m.image.Transient = true
 		m.keep(shapes)
 	}
 	m := &b.maskSlots[found]
@@ -163,6 +280,37 @@ func (b *Builder) clipTexture(c *clip, shapes []scene.ClipShape) uintptr {
 	c.maskArea = m.area
 	c.maskTexture = b.imageTexture(m.image)
 	return c.maskTexture
+}
+
+// idleMaskFor reuses an idle buffer when creating or growing a mask would
+// exceed the idle budget. A clip returning as a small cover can then grow
+// into its retained large buffer instead of allocating it again. Keep small
+// cached branches while they fit, and never change a current-frame mask.
+func (b *Builder) idleMaskFor(area image.Rectangle, preferred int, keepSize bool) int {
+	needed := 4 * area.Dx() * area.Dy()
+	if preferred >= 0 {
+		m := b.maskSlots[preferred].image
+		next := maskArea(area, m, b.stack[0].scissor, keepSize)
+		if next.Dx() == m.W && next.Dy() == m.H {
+			return preferred
+		}
+		needed = 4 * next.Dx() * next.Dy()
+	}
+	idle, reuse := 0, -1
+	for i := range b.maskSlots {
+		m := &b.maskSlots[i]
+		if m.frame == b.frame {
+			continue
+		}
+		idle += cap(m.image.Pix)
+		if reuse < 0 || cap(m.image.Pix) > cap(b.maskSlots[reuse].image.Pix) {
+			reuse = i
+		}
+	}
+	if idle+needed > idleMaskBytes {
+		return reuse
+	}
+	return preferred
 }
 
 // maskArea returns the frame pixels to rasterize a clip's mask into,
@@ -173,19 +321,20 @@ func (b *Builder) clipTexture(c *clip, shapes []scene.ClipShape) uintptr {
 // allocating both again on every frame of its animation. A card growing
 // out of a cover to fill the window allocated 190 MB in 40 frames
 // (egoist/mygo-music#55). A side that outgrows it doubles, up to the
-// frame's size, and a clip that shrinks to less than a quarter of it
-// takes its own size.
-func maskArea(area image.Rectangle, had *scene.Image, frame Scissor) image.Rectangle {
+// frame's size. Fixed-coordinate clips keep that size while closing, up to
+// the idle budget; transformed or image/gradient masks still shrink when
+// much smaller, so a turning card does not keep rasterizing a large mask.
+func maskArea(area image.Rectangle, had *scene.Image, frame Scissor, keepSize bool) image.Rectangle {
 	if had == nil || had.W <= 0 || had.H <= 0 {
 		return area
 	}
 	w, h := area.Dx(), area.Dy()
-	if 4*w*h < had.W*had.H {
+	if !keepSize && 4*w*h < had.W*had.H {
 		return area
 	}
 	grow := func(n, was, most int) int {
 		if n <= was {
-			return was
+			return max(n, min(was, most))
 		}
 		return max(n, min(2*was, most))
 	}

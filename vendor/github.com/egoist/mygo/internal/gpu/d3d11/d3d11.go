@@ -265,6 +265,7 @@ type texture struct {
 	w, h      int
 	gen, ver  uint64
 	lastFrame uint64
+	transient bool
 }
 
 // canvasTexture is the texture a canvas (scene.NewCanvas) is drawn into,
@@ -940,7 +941,7 @@ func (r *Renderer) imageView(img *scene.Image) uintptr {
 			img.Uploaded()
 		}
 	}
-	t.lastFrame = r.frame
+	t.lastFrame, t.transient = r.frame, img.Transient
 	return t.srv
 }
 
@@ -1063,6 +1064,7 @@ func (r *Renderer) drawFrame(s *scene.Scene) (bool, error) {
 				r.redrew = redrewNothing
 				r.diff.Remember(s)
 				r.pipelines.Remember()
+				r.sweepTransient()
 				return false, nil
 			}
 			part, r.redrew = &r.part, redrewPart
@@ -1072,6 +1074,7 @@ func (r *Renderer) drawFrame(s *scene.Scene) (bool, error) {
 	if err := r.drawBuilt(built, &r.b, r.rtv, part); err != nil {
 		return false, err
 	}
+	r.sweepTransient()
 	if r.ctx1 != 0 {
 		r.diff.Remember(s)
 		r.pipelines.Remember()
@@ -1818,6 +1821,25 @@ func (r *Renderer) FrameInfo() string {
 // animation that changes every other frame could present none of the
 // multiples, and never sweep.
 const sweepEvery = 120
+
+// sweepTransient frees temporary resources once a built frame stops using
+// them. The commands already queued on the immediate context keep their GPU
+// resources alive; ordinary images retain the periodic cache policy.
+func (r *Renderer) sweepTransient() {
+	for id, t := range r.images {
+		if t.transient && t.lastFrame != r.frame {
+			free(&t.srv)
+			free(&t.tex)
+			delete(r.images, id)
+		}
+	}
+	for id, t := range r.canvases {
+		if c := t.canvas.Value(); c == nil || c.Transient && t.lastFrame != r.frame {
+			freeCanvas(t)
+			delete(r.canvases, id)
+		}
+	}
+}
 
 // sweep frees the textures of images no frame drew for a while, and
 // those of canvases gone, or transient and not drawn this frame.

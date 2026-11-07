@@ -1,0 +1,667 @@
+diff --git a/internal/gpu/transform.go b/internal/gpu/transform.go
+--- a/internal/gpu/transform.go
++++ b/internal/gpu/transform.go
+@@ -244,6 +244,7 @@
+ 		return c.maskTexture
+ 	}
+ 	area := image.Rect(int(c.scissor.Left), int(c.scissor.Top), int(c.scissor.Right), int(c.scissor.Bottom))
++	frame := b.stack[0].scissor
+ 	// The mask of the same clip, in this frame or an earlier one; else
+ 	// the one the clip in its place had last frame, which it most likely
+ 	// is, changed; else a new one.
+@@ -252,7 +253,8 @@
+ 		m := &b.maskSlots[i]
+ 		// A mask of more of the frame than the clip's scissor rectangle
+ 		// holds the same coverage there.
+-		if area.In(m.area) && slices.EqualFunc(m.shapes, shapes, func(a, b scene.ClipShape) bool { return a.Same(&b) }) {
++		fits := m.image.W <= int(frame.Right-frame.Left) && m.image.H <= int(frame.Bottom-frame.Top)
++		if fits && area.In(m.area) && slices.EqualFunc(m.shapes, shapes, func(a, b scene.ClipShape) bool { return a.Same(&b) }) {
+ 			found = i
+ 			break
+ 		}
+@@ -261,14 +263,16 @@
+ 		}
+ 	}
+ 	if found < 0 {
+-		found = reuse
++		keepSize := !c.moved && !c.masks
++		found = b.idleMaskFor(area, reuse, keepSize)
+ 		if found < 0 {
+ 			found = len(b.maskSlots)
+ 			b.maskSlots = append(b.maskSlots, clipMaskSlot{})
+ 		}
+ 		m := &b.maskSlots[found]
+-		m.area = maskArea(area, m.image, b.stack[0].scissor)
++		m.area = maskArea(area, m.image, frame, keepSize)
+ 		m.image = raster.ClipMask(m.image, shapes, m.area)
++		m.image.Transient = true
+ 		m.keep(shapes)
+ 	}
+ 	m := &b.maskSlots[found]
+@@ -276,6 +280,37 @@
+ 	c.maskArea = m.area
+ 	c.maskTexture = b.imageTexture(m.image)
+ 	return c.maskTexture
++}
++
++// idleMaskFor reuses an idle buffer when creating or growing a mask would
++// exceed the idle budget. A clip returning as a small cover can then grow
++// into its retained large buffer instead of allocating it again. Keep small
++// cached branches while they fit, and never change a current-frame mask.
++func (b *Builder) idleMaskFor(area image.Rectangle, preferred int, keepSize bool) int {
++	needed := 4 * area.Dx() * area.Dy()
++	if preferred >= 0 {
++		m := b.maskSlots[preferred].image
++		next := maskArea(area, m, b.stack[0].scissor, keepSize)
++		if next.Dx() == m.W && next.Dy() == m.H {
++			return preferred
++		}
++		needed = 4 * next.Dx() * next.Dy()
++	}
++	idle, reuse := 0, -1
++	for i := range b.maskSlots {
++		m := &b.maskSlots[i]
++		if m.frame == b.frame {
++			continue
++		}
++		idle += cap(m.image.Pix)
++		if reuse < 0 || cap(m.image.Pix) > cap(b.maskSlots[reuse].image.Pix) {
++			reuse = i
++		}
++	}
++	if idle+needed > idleMaskBytes {
++		return reuse
++	}
++	return preferred
+ }
+ 
+ // maskArea returns the frame pixels to rasterize a clip's mask into,
+@@ -286,19 +321,20 @@
+ // allocating both again on every frame of its animation. A card growing
+ // out of a cover to fill the window allocated 190 MB in 40 frames
+ // (egoist/mygo-music#55). A side that outgrows it doubles, up to the
+-// frame's size, and a clip that shrinks to less than a quarter of it
+-// takes its own size.
+-func maskArea(area image.Rectangle, had *scene.Image, frame Scissor) image.Rectangle {
++// frame's size. Fixed-coordinate clips keep that size while closing, up to
++// the idle budget; transformed or image/gradient masks still shrink when
++// much smaller, so a turning card does not keep rasterizing a large mask.
++func maskArea(area image.Rectangle, had *scene.Image, frame Scissor, keepSize bool) image.Rectangle {
+ 	if had == nil || had.W <= 0 || had.H <= 0 {
+ 		return area
+ 	}
+ 	w, h := area.Dx(), area.Dy()
+-	if 4*w*h < had.W*had.H {
++	if !keepSize && 4*w*h < had.W*had.H {
+ 		return area
+ 	}
+ 	grow := func(n, was, most int) int {
+ 		if n <= was {
+-			return was
++			return max(n, min(was, most))
+ 		}
+ 		return max(n, min(2*was, most))
+ 	}
+diff --git a/internal/gpu/d3d11/d3d11.go b/internal/gpu/d3d11/d3d11.go
+--- a/internal/gpu/d3d11/d3d11.go
++++ b/internal/gpu/d3d11/d3d11.go
+@@ -265,6 +265,7 @@
+ 	w, h      int
+ 	gen, ver  uint64
+ 	lastFrame uint64
++	transient bool
+ }
+ 
+ // canvasTexture is the texture a canvas (scene.NewCanvas) is drawn into,
+@@ -940,7 +941,7 @@
+ 			img.Uploaded()
+ 		}
+ 	}
+-	t.lastFrame = r.frame
++	t.lastFrame, t.transient = r.frame, img.Transient
+ 	return t.srv
+ }
+ 
+@@ -1063,6 +1064,7 @@
+ 				r.redrew = redrewNothing
+ 				r.diff.Remember(s)
+ 				r.pipelines.Remember()
++				r.sweepTransient()
+ 				return false, nil
+ 			}
+ 			part, r.redrew = &r.part, redrewPart
+@@ -1072,6 +1074,7 @@
+ 	if err := r.drawBuilt(built, &r.b, r.rtv, part); err != nil {
+ 		return false, err
+ 	}
++	r.sweepTransient()
+ 	if r.ctx1 != 0 {
+ 		r.diff.Remember(s)
+ 		r.pipelines.Remember()
+@@ -1819,6 +1822,25 @@
+ // multiples, and never sweep.
+ const sweepEvery = 120
+ 
++// sweepTransient frees temporary resources once a built frame stops using
++// them. The commands already queued on the immediate context keep their GPU
++// resources alive; ordinary images retain the periodic cache policy.
++func (r *Renderer) sweepTransient() {
++	for id, t := range r.images {
++		if t.transient && t.lastFrame != r.frame {
++			free(&t.srv)
++			free(&t.tex)
++			delete(r.images, id)
++		}
++	}
++	for id, t := range r.canvases {
++		if c := t.canvas.Value(); c == nil || c.Transient && t.lastFrame != r.frame {
++			freeCanvas(t)
++			delete(r.canvases, id)
++		}
++	}
++}
++
+ // sweep frees the textures of images no frame drew for a while, and
+ // those of canvases gone, or transient and not drawn this frame.
+ func (r *Renderer) sweep() {
+diff --git a/internal/gpu/gl/gl.go b/internal/gpu/gl/gl.go
+--- a/internal/gpu/gl/gl.go
++++ b/internal/gpu/gl/gl.go
+@@ -99,6 +99,7 @@
+ 	w, h      int
+ 	gen, ver  uint64
+ 	lastFrame uint64
++	transient bool
+ }
+ 
+ // canvasTexture is the texture a canvas (scene.NewCanvas) is drawn into,
+@@ -564,7 +565,7 @@
+ 			img.Uploaded()
+ 		}
+ 	}
+-	t.lastFrame = r.frame
++	t.lastFrame, t.transient = r.frame, img.Transient
+ 	return uintptr(t.tex)
+ }
+ 
+@@ -607,6 +608,9 @@
+ 	}
+ 	if err := r.drawFrame(s); err != nil {
+ 		return err
++	}
++	if r.redrew != redrewNothing {
++		r.sweepTransient()
+ 	}
+ 	if r.frame%120 == 0 {
+ 		r.sweep()
+@@ -1260,6 +1264,23 @@
+ 	return r.b.Summary()
+ }
+ 
++// sweepTransient frees temporary images and canvases a built frame no
++// longer uses. OpenGL keeps resources referenced by queued commands alive.
++func (r *Renderer) sweepTransient() {
++	for key, t := range r.images {
++		if t.transient && t.lastFrame != r.frame {
++			glDeleteTextures(1, &t.tex)
++			delete(r.images, key)
++		}
++	}
++	for key, t := range r.canvases {
++		if c := t.canvas.Value(); c == nil || c.Transient && t.lastFrame != r.frame {
++			r.deleteCanvas(t)
++			delete(r.canvases, key)
++		}
++	}
++}
++
+ // sweep frees the textures of images no frame drew for a while, and
+ // those of canvases gone, or transient and not drawn this frame: render
+ // calls it every 120 frames.
+diff --git a/internal/gpu/metal/metal.go b/internal/gpu/metal/metal.go
+--- a/internal/gpu/metal/metal.go
++++ b/internal/gpu/metal/metal.go
+@@ -345,6 +345,7 @@
+ 	w, h      int
+ 	gen, ver  uint64
+ 	lastFrame uint64
++	transient bool
+ }
+ 
+ // drawState is what drawing scenes into a target keeps from frame to
+@@ -998,7 +999,7 @@
+ 			img.Uploaded()
+ 		}
+ 	}
+-	t.lastFrame = r.frame
++	t.lastFrame, t.transient = r.frame, img.Transient
+ 	return t.tex
+ }
+ 
+@@ -1039,6 +1040,7 @@
+ func (r *Renderer) track(cb id) {
+ 	r.inflight[r.inUse] = send(cb, "retain")
+ 	r.slot = (r.inUse + 1) % ringSize
++	r.sweepTransient()
+ }
+ 
+ // encode encodes drawing s into target, whole, returning the
+@@ -2033,6 +2035,25 @@
+ 	}
+ }
+ 
++// sweepTransient releases the cache's ownership of temporary resources
++// this submitted frame no longer uses. In-flight command buffers retain
++// their resources, so retiring one does not need to wait for the GPU.
++func (r *Renderer) sweepTransient() {
++	for key, t := range r.images {
++		if t.transient && t.lastFrame != r.frame {
++			release(&t.tex)
++			delete(r.images, key)
++		}
++	}
++	for key, t := range r.canvases {
++		if c := t.canvas.Value(); c == nil || c.Transient && t.lastFrame != r.frame {
++			release(&t.tex)
++			t.drawState.release()
++			delete(r.canvases, key)
++		}
++	}
++}
++
+ // sweep frees the textures of images no frame drew for a while, and
+ // those of canvases gone, or transient and not drawn this frame.
+ func (r *Renderer) sweep() {
+diff --git a/internal/gpu/metal/offscreen.go b/internal/gpu/metal/offscreen.go
+--- a/internal/gpu/metal/offscreen.go
++++ b/internal/gpu/metal/offscreen.go
+@@ -92,6 +92,7 @@
+ 			err = fmt.Errorf("metal: the frame failed: %s", describe(send(cb, "error")))
+ 			return
+ 		}
++		r.sweepTransient()
+ 		secs := msgDouble(cb, uintptr(sel("GPUEndTime"))) - msgDouble(cb, uintptr(sel("GPUStartTime")))
+ 		gpu = time.Duration(secs * float64(time.Second))
+ 	})
+diff --git a/internal/scene/scene.go b/internal/scene/scene.go
+--- a/internal/scene/scene.go
++++ b/internal/scene/scene.go
+@@ -464,10 +464,10 @@
+ 	// PixVersion is the version Pix holds.
+ 	Scene      *Scene
+ 	PixVersion uint64
+-	// Transient marks a canvas drawn anew in every frame that shows it,
+-	// as an element's effect layer: renderers free its texture once
+-	// frames stop drawing it, rather than once it is collected, which
+-	// the little memory it takes of Go's heap may put off for minutes.
++	// Transient marks temporary render resources, such as an element's
++	// effect layer or a generated clip mask: renderers free their textures
++	// when a drawn frame stops using them. Retained CPU pixels can upload
++	// the texture again if the image returns in a later frame.
+ 	Transient bool
+ 	// Restore re-creates Pix when a renderer needs the pixels after an
+ 	// owner dropped them, to upload or to draw them again, and Dropped
+diff --git a/internal/gpu/mask_reuse_test.go b/internal/gpu/mask_reuse_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/gpu/mask_reuse_test.go
+@@ -0,0 +1,215 @@
++package gpu
++
++import (
++	"bytes"
++	"image"
++	"testing"
++
++	"github.com/egoist/mygo/internal/raster"
++	"github.com/egoist/mygo/internal/scene"
++)
++
++func reusableMaskScene(width, height int, radius float32) *scene.Scene {
++	return &scene.Scene{Width: width + 20, Height: height + 20, Ops: []scene.Op{
++		{Kind: scene.OpPushClip, Rect: scene.Rect{X: 4, Y: 4, W: float32(width), H: float32(height)}, Radii: [4]float32{radius, radius, radius, radius}, Transform: scene.Rotation(0.01)},
++		{Kind: scene.OpFill, Rect: scene.Rect{X: 10, Y: 10, W: 20, H: 20}, Color: scene.Color{A: 255}},
++		{Kind: scene.OpPopClip},
++	}}
++}
++
++func fixedMaskScene(width, height int, radius float32) *scene.Scene {
++	s := reusableMaskScene(width, height, radius)
++	s.Ops[0].Transform = scene.Affine{}
++	s.Ops[1].Transform = scene.Scaling(1.05, 1.05)
++	// Distinct overlapping rounded corners need their combined coverage;
++	// neither clip is redundant within the other's scissor.
++	s.Ops = append([]scene.Op{{Kind: scene.OpPushClip, Rect: scene.Rect{X: 0.25, Y: 0.25, W: float32(s.Width), H: float32(s.Height)}, Radii: [4]float32{28, 28, 28, 28}}}, s.Ops...)
++	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPopClip})
++	return s
++}
++
++// Reopening an animated clip after idle frames used to allocate another large mask instead of reusing the idle buffer.
++func TestReopenedClipReusesIdleMaskUnderPressure(t *testing.T) {
++	var b Builder
++	defer b.Release()
++	var mask *scene.Image
++	upload := func(m *scene.Image) uintptr { mask = m; return uintptr(m.ID()) }
++	b.Build(reusableMaskScene(3000, 2100, 12), upload)
++	if mask == nil {
++		t.Fatal("transformed clip did not upload a mask")
++	}
++	id, pixels, version := mask.ID(), &mask.Pix[0], mask.Version()
++	for i := range 4 {
++		for range 3 {
++			b.Build(&scene.Scene{Width: 3020, Height: 2120}, upload)
++		}
++		b.Build(reusableMaskScene(3000, 2100, float32(14+i)), upload)
++		if mask.ID() != id || &mask.Pix[0] != pixels || len(b.maskSlots) != 1 {
++			t.Fatalf("reopening %d allocated another mask: id %d, slots %d", i, mask.ID(), len(b.maskSlots))
++		}
++		if mask.Version() == version {
++			t.Fatal("reused mask did not update its coverage")
++		}
++		version = mask.Version()
++	}
++}
++
++// Reusing an idle mask must never overwrite pixels or textures already referenced by an earlier batch of the same frame.
++func TestIdleMaskReusePreservesCurrentFrame(t *testing.T) {
++	var b Builder
++	defer b.Release()
++	upload := func(m *scene.Image) uintptr { return uintptr(m.ID()) }
++	b.Build(reusableMaskScene(3000, 2100, 12), upload)
++	b.Build(&scene.Scene{Width: 3020, Height: 2120}, upload)
++	s := reusableMaskScene(3000, 2100, 18)
++	s.Ops = append(s.Ops, reusableMaskScene(3000, 2100, 40).Ops...)
++	var first *scene.Image
++	var before []byte
++	var ids []uint64
++	b.Build(s, func(m *scene.Image) uintptr {
++		ids = append(ids, m.ID())
++		if first == nil {
++			first, before = m, bytes.Clone(m.Pix)
++		}
++		return uintptr(m.ID())
++	})
++	if len(ids) != 2 || ids[0] == ids[1] {
++		t.Fatalf("independent clips shared a current-frame mask: %v", ids)
++	}
++	if !bytes.Equal(first.Pix, before) {
++		t.Fatal("a later clip overwrote the earlier batch's pixels")
++	}
++	if b.Batches[0].ClipMask != uintptr(ids[0]) || b.Batches[len(b.Batches)-1].ClipMask != uintptr(ids[1]) {
++		t.Fatal("batches lost their independent clip textures")
++	}
++}
++
++// Small clips that alternate between branches keep their cached coverage instead of rasterizing it again on every return.
++func TestIdleMaskReuseRetainsCachedBranches(t *testing.T) {
++	var b Builder
++	defer b.Release()
++	a, other := reusableMaskScene(120, 80, 12), reusableMaskScene(120, 80, 18)
++	versions := map[uint64]uint64{}
++	rasterized := 0
++	upload := func(m *scene.Image) uintptr {
++		if version, ok := versions[m.ID()]; !ok || version != m.Version() {
++			rasterized++
++			versions[m.ID()] = m.Version()
++		}
++		return uintptr(m.ID())
++	}
++	for range 5 {
++		b.Build(a, upload)
++		b.Build(&scene.Scene{Width: 140, Height: 100}, upload)
++		b.Build(other, upload)
++	}
++	if rasterized != 2 {
++		t.Fatalf("returning branches rasterized %d masks, want 2", rasterized)
++	}
++}
++
++// Clip-mask textures must be marked temporary so their GPU storage can be freed as soon as their clips leave the frame.
++func TestClipMaskTextureIsTransient(t *testing.T) {
++	var b Builder
++	defer b.Release()
++	var mask *scene.Image
++	b.Build(reusableMaskScene(120, 80, 12), func(m *scene.Image) uintptr { mask = m; return uintptr(m.ID()) })
++	if mask == nil || !mask.Transient {
++		t.Fatal("clip-mask texture does not have a temporary lifetime")
++	}
++}
++
++// A closing card used to shrink its texture repeatedly and allocate it again on the next opening in the same viewport.
++func TestClipMaskBufferStaysSizedWithinViewport(t *testing.T) {
++	var b Builder
++	defer b.Release()
++	var mask *scene.Image
++	upload := func(m *scene.Image) uintptr { mask = m; return uintptr(m.ID()) }
++	var size [2]int
++	for i, dimensions := range [][2]int{{600, 400}, {160, 100}, {560, 360}, {64, 48}, {600, 400}} {
++		s := fixedMaskScene(dimensions[0], dimensions[1], 12)
++		s.Width, s.Height = 640, 480
++		b.Build(s, upload)
++		if mask == nil {
++			t.Fatal("transformed card did not upload a mask")
++		}
++		if i == 0 {
++			size = [2]int{mask.W, mask.H}
++		} else if [2]int{mask.W, mask.H} != size {
++			t.Fatalf("card size %v resized its reusable texture to %dx%d", dimensions, mask.W, mask.H)
++		}
++		sc := b.Batches[0].Scissor
++		area := image.Rect(int(sc.Left), int(sc.Top), int(sc.Right), int(sc.Bottom))
++		want := raster.ClipMask(nil, b.maskSlots[0].shapes, area)
++		at := b.Instances[0].Clip
++		ox, oy := area.Min.X-int(at[0]), area.Min.Y-int(at[1])
++		for y := range area.Dy() {
++			got := mask.Pix[4*((oy+y)*mask.W+ox):][:4*area.Dx()]
++			if !bytes.Equal(got, want.Pix[4*y*area.Dx():][:4*area.Dx()]) {
++				t.Fatalf("card size %v changed coverage at row %d", dimensions, y)
++			}
++		}
++	}
++	// Only the viewport changes: an exact shape-cache hit must trim too.
++	s := fixedMaskScene(600, 400, 12)
++	s.Width, s.Height = 320, 240
++	b.Build(s, upload)
++	if mask.W > s.Width || mask.H > s.Height {
++		t.Fatalf("resized viewport retained an oversized texture: %dx%d", mask.W, mask.H)
++	}
++}
++
++// Reopening from a small cover must pick up a retained large buffer when the cover grows, rather than growing another full-window mask.
++func TestReopenedGrowingClipUsesIdleBacking(t *testing.T) {
++	var b Builder
++	defer b.Release()
++	var mask *scene.Image
++	upload := func(m *scene.Image) uintptr { mask = m; return uintptr(m.ID()) }
++	build := func(w, h int) {
++		s := fixedMaskScene(w, h, 12)
++		s.Width, s.Height = 3020, 2120
++		b.Build(s, upload)
++	}
++	build(3000, 2100)
++	if mask == nil {
++		t.Fatal("card did not upload a mask")
++	}
++	id, pixels := mask.ID(), &mask.Pix[0]
++	for range 3 {
++		b.Build(&scene.Scene{Width: 3020, Height: 2120}, upload)
++	}
++	build(64, 48)
++	build(2000, 1500)
++	if mask.ID() != id || &mask.Pix[0] != pixels {
++		t.Fatal("growing reopened card allocated another large backing buffer")
++	}
++}
++
++// A perspective or gradient mask that becomes small must still shrink instead of rasterizing its old full-window area.
++func TestMovingAndPaintedClipMasksStillShrink(t *testing.T) {
++	for _, painted := range []bool{false, true} {
++		name := "transformed"
++		if painted {
++			name = "gradient"
++		}
++		t.Run(name, func(t *testing.T) {
++			var b Builder
++			defer b.Release()
++			var mask *scene.Image
++			for _, dimensions := range [][2]int{{600, 400}, {64, 48}} {
++				s := reusableMaskScene(dimensions[0], dimensions[1], 12)
++				s.Width, s.Height = 640, 480
++				if painted {
++					clip := &s.Ops[0]
++					clip.Transform = scene.Affine{}
++					clip.Paint, clip.Color, clip.Color2 = scene.PaintLinear, scene.Color{}, scene.Color{A: 255}
++					clip.Gradient = [4]float32{0, 0, 640, 0}
++				}
++				b.Build(s, func(m *scene.Image) uintptr { mask = m; return uintptr(m.ID()) })
++			}
++			if mask == nil || mask.W > 66 || mask.H > 50 {
++				t.Fatalf("small %s clip kept its full-window mask", name)
++			}
++		})
++	}
++}
+diff --git a/internal/gpu/d3d11/transient_test.go b/internal/gpu/d3d11/transient_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/gpu/d3d11/transient_test.go
+@@ -0,0 +1,139 @@
++//go:build windows
++
++package d3d11
++
++import (
++	"bytes"
++	"runtime"
++	"testing"
++
++	"github.com/egoist/mygo/internal/scene"
++)
++
++// Retired temporary images and canvases used to wait hundreds of frames before freeing their textures.
++func TestTransientResourcesRetireAfterDraw(t *testing.T) {
++	runtime.LockOSThread()
++	defer runtime.UnlockOSThread()
++	r := transientRenderer(t)
++	defer r.Release()
++	mask, cover, layer, kept := transientResources()
++	s := transientResourceScene(mask, cover, layer, kept)
++	if err := r.draw(s); err != nil {
++		t.Fatal(err)
++	}
++	if r.images[mask.ID()] == nil || r.images[cover.ID()] == nil || r.canvases[layer.ID()] == nil || r.canvases[kept.ID()] == nil {
++		t.Fatal("a texture was freed in the frame that used it")
++	}
++	maskTexture, layerTexture := r.images[mask.ID()], r.canvases[layer.ID()]
++	want, stride, err := r.read()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := r.draw(&scene.Scene{Width: 64, Height: 64}); err != nil {
++		t.Fatal(err)
++	}
++	if r.images[mask.ID()] != nil || r.canvases[layer.ID()] != nil {
++		t.Fatal("retired temporary resources kept their textures until the periodic sweep")
++	}
++	if maskTexture.tex != 0 || maskTexture.srv != 0 || layerTexture.tex != 0 || layerTexture.srv != 0 || layerTexture.rtv != 0 {
++		t.Fatal("retired resources left their native texture handles owned by the cache")
++	}
++	if r.images[cover.ID()] == nil || r.canvases[kept.ID()] == nil {
++		t.Fatal("retiring temporary resources also evicted a normal image or kept canvas")
++	}
++	if err := r.draw(s); err != nil {
++		t.Fatal(err)
++	}
++	got, gotStride, err := r.read()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if gotStride != stride || !bytes.Equal(got, want) {
++		t.Fatal("reopening a temporary image or canvas changed its pixels")
++	}
++	runtime.KeepAlive(mask)
++	runtime.KeepAlive(cover)
++	runtime.KeepAlive(layer)
++	runtime.KeepAlive(kept)
++}
++
++// A frame that skips rebuilding an unchanged scene must not evict temporary textures still shown there.
++func TestTransientResourcesSurviveUnchangedFrame(t *testing.T) {
++	runtime.LockOSThread()
++	defer runtime.UnlockOSThread()
++	r := transientRenderer(t)
++	defer r.Release()
++	if r.ctx1 == 0 {
++		t.Skip("no Direct3D 11.1 partial redraw")
++	}
++	mask, cover, layer, kept := transientResources()
++	s := transientResourceScene(mask, cover, layer, kept)
++	if drawn, err := r.drawFrame(s); err != nil || !drawn {
++		t.Fatalf("first frame: drawn=%v error=%v", drawn, err)
++	}
++	r.held = true // the swap chain holds this frame, as after presenting
++	imageTexture, canvasTexture := r.images[mask.ID()], r.canvases[layer.ID()]
++	if imageTexture == nil || canvasTexture == nil {
++		t.Fatal("the first frame did not create its temporary textures")
++	}
++	if drawn, err := r.drawFrame(s); err != nil || drawn {
++		t.Fatalf("unchanged frame: drawn=%v error=%v", drawn, err)
++	}
++	if r.images[mask.ID()] != imageTexture || r.canvases[layer.ID()] != canvasTexture {
++		t.Fatal("an unchanged frame evicted temporary textures still in its scene")
++	}
++	if imageTexture.tex == 0 || canvasTexture.tex == 0 {
++		t.Fatal("an unchanged frame released a current temporary texture")
++	}
++	if drawn, err := r.drawFrame(&scene.Scene{Width: 64, Height: 64}); err != nil || !drawn {
++		t.Fatalf("retirement frame: drawn=%v error=%v", drawn, err)
++	}
++	if r.images[mask.ID()] != nil || r.canvases[layer.ID()] != nil {
++		t.Fatal("temporary textures survived the first changed frame after their removal")
++	}
++	runtime.KeepAlive(mask)
++	runtime.KeepAlive(cover)
++	runtime.KeepAlive(layer)
++	runtime.KeepAlive(kept)
++}
++
++func transientRenderer(t *testing.T) *Renderer {
++	t.Helper()
++	hwnd, err := newHiddenWindow(64, 64)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { destroyWindow(hwnd) })
++	r, err := New(hwnd)
++	if err != nil {
++		t.Skip("Direct3D 11 unavailable:", err)
++	}
++	return r
++}
++
++func transientResources() (mask, cover, layer, kept *scene.Image) {
++	pixels := func(v byte) []byte {
++		p := make([]byte, 8*8*4)
++		for i := 0; i < len(p); i += 4 {
++			p[i], p[i+1], p[i+2], p[i+3] = v, v, v, 255
++		}
++		return p
++	}
++	mask = scene.NewImageRGBA(8, 8, pixels(77))
++	mask.Transient = true
++	cover = scene.NewImageRGBA(8, 8, pixels(133))
++	layer, kept = scene.NewCanvas(8, 8), scene.NewCanvas(8, 8)
++	layer.Transient = true
++	for _, c := range []*scene.Image{layer, kept} {
++		c.Scene.Ops = []scene.Op{{Kind: scene.OpFill, Rect: scene.Rect{W: 8, H: 8}, Color: scene.Color{R: 200, G: 200, B: 200, A: 255}}}
++	}
++	return
++}
++
++func transientResourceScene(images ...*scene.Image) *scene.Scene {
++	s := &scene.Scene{Width: 64, Height: 64}
++	for i, img := range images {
++		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpImage, Image: img, Rect: scene.Rect{X: float32(i * 12), W: 8, H: 8}, Src: scene.Rect{W: 8, H: 8}})
++	}
++	return s
++}

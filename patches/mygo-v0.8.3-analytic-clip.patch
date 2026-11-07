@@ -1,8 +1,7 @@
 diff --git a/internal/gpu/transform.go b/internal/gpu/transform.go
-index 7683f98..3b05a7d 100644
 --- a/internal/gpu/transform.go
 +++ b/internal/gpu/transform.go
-@@ -3,6 +3,7 @@ package gpu
+@@ -3,6 +3,7 @@
  import (
  	"cmp"
  	"image"
@@ -10,14 +9,13 @@ index 7683f98..3b05a7d 100644
  	"slices"
  
  	"github.com/egoist/mygo/internal/raster"
-@@ -51,6 +52,16 @@ func (b *Builder) prepare(in *Instance, m scene.Affine, c *clip) bool {
+@@ -51,6 +52,15 @@
  	if !c.masked {
  		return true
  	}
-+	// The shaders evaluate a stationary rounded clip in frame coordinates,
-+	// even when the content inside it is scaled. Integer hard ancestors and
-+	// descendants are already exact in the batch scissor. Do not rasterize
-+	// a whole-window mask just because an opening card contains transforms.
++	// Stationary clips can often reduce to one rounded rectangle, even
++	// around scaled content or a fractional scrolling viewport. Evaluate
++	// that geometry in the shader instead of rasterizing a window-sized mask.
 +	if !c.moved && !c.masks {
 +		if rounded, ok := b.analyticClip(); ok {
 +			in.Clip, in.ClipRadii = rect(rounded.rect), rounded.radii
@@ -27,34 +25,148 @@ index 7683f98..3b05a7d 100644
  	// A hard clip sharing the drawing's coordinates is cheap to evaluate in
  	// the fragment shader. Keep the rounded ancestor's mask stationary even
  	// when a text input or custom clipped drawing moves within it. Drawing
-@@ -89,6 +100,32 @@ func (b *Builder) prepare(in *Instance, m scene.Affine, c *clip) bool {
+@@ -89,6 +99,146 @@
  	return true
  }
  
-+// analyticClip finds a single rounded clip surrounded only by integer
-+// hard clips. Fractional hard edges need shader antialiasing of their own;
-+// multiple rounded clips still need their combined coverage mask.
++// analyticClip removes clips that cover every pixel of the scissor, then
++// represents the remaining coverage with one rectangle and its corners.
++// Overlapping antialiased edges still need their multiplied pixel mask.
 +func (b *Builder) analyticClip() (clip, bool) {
-+	var rounded *clip
++	var rounded, hard *clip
++	rounds, fractions := 0, 0
++	sc := b.stack[len(b.stack)-1].scissor
++	area := scene.Rect{X: float32(sc.Left), Y: float32(sc.Top), W: float32(sc.Right - sc.Left), H: float32(sc.Bottom - sc.Top)}
 +	for i := range b.stack {
 +		c := &b.stack[i]
++		if c.radii != [4]float32{} {
++			rounds++
++		} else if integerClip(c.rect) {
++			continue // the batch scissor implements these edges exactly
++		} else {
++			fractions++
++		}
++		if clipOpaqueWithin(c, area) {
++			continue
++		}
 +		if c.radii != [4]float32{} {
 +			if rounded != nil {
 +				return clip{}, false
 +			}
 +			rounded = c
 +		} else {
-+			for _, v := range []float32{c.rect.X, c.rect.Y, c.rect.X + c.rect.W, c.rect.Y + c.rect.H} {
-+				if v != float32(math.Floor(float64(v))) {
-+					return clip{}, false
-+				}
++			if hard != nil {
++				return clip{}, false
 +			}
++			hard = c
 +		}
 +	}
 +	if rounded == nil {
++		if hard != nil {
++			return *hard, true
++		}
++		return clip{rect: area}, true
++	}
++	// Keep the existing single-clip path for continuous corners, but do not
++	// extend it: only Metal currently evaluates their curves in the shader.
++	continuous := rounded.radii[0] < 0 || rounded.radii[1] < 0 || rounded.radii[2] < 0 || rounded.radii[3] < 0
++	if continuous && (rounds != 1 || fractions != 0) {
 +		return clip{}, false
 +	}
++	if hard != nil {
++		return intersectAnalyticClip(*rounded, hard.rect)
++	}
 +	return *rounded, true
++}
++
++func integerClip(r scene.Rect) bool {
++	for _, v := range [4]float32{r.X, r.Y, r.X + r.W, r.Y + r.H} {
++		if v != float32(math.Floor(float64(v))) {
++			return false
++		}
++	}
++	return true
++}
++
++// clipCornerBounds conservatively encloses each curve and its antialiasing.
++// Continuous corners reach less than two radii along either edge.
++func clipCornerBounds(c *clip) [4]scene.Rect {
++	r := c.rect
++	var boxes [4]scene.Rect
++	for i, radius := range c.radii {
++		if radius == 0 {
++			continue
++		}
++		reach := radius
++		if reach < 0 {
++			reach *= -2
++		}
++		reach++
++		box := scene.Rect{X: r.X, Y: r.Y, W: reach, H: reach}
++		if i == 1 || i == 2 {
++			box.X = r.X + r.W - reach
++		}
++		if i == 2 || i == 3 {
++			box.Y = r.Y + r.H - reach
++		}
++		boxes[i] = box
++	}
++	return boxes
++}
++
++// clipOpaqueWithin proves that a clip contributes coverage 1 to every
++// integer pixel box in area; merely containing the pixel centers is unsafe.
++func clipOpaqueWithin(c *clip, area scene.Rect) bool {
++	r := c.rect
++	if area.X < r.X || area.Y < r.Y || area.X+area.W > r.X+r.W || area.Y+area.H > r.Y+r.H {
++		return false
++	}
++	for _, box := range clipCornerBounds(c) {
++		if !box.Intersect(area).Empty() {
++			return false
++		}
++	}
++	return true
++}
++
++// intersectAnalyticClip trims away whole corners, as a fractional lyrics
++// viewport trims its player card. Cutting a curve or multiplying partial
++// coverages cannot be represented by a single rounded rectangle.
++func intersectAnalyticClip(c clip, hard scene.Rect) (clip, bool) {
++	r := c.rect.Intersect(hard)
++	if r.W < 1 || r.H < 1 {
++		return clip{}, false
++	}
++	before := [4]float32{c.rect.X, c.rect.Y, c.rect.X + c.rect.W, c.rect.Y + c.rect.H}
++	after := [4]float32{r.X, r.Y, r.X + r.W, r.Y + r.H}
++	edges := [4]float32{hard.X, hard.Y, hard.X + hard.W, hard.Y + hard.H}
++	for i, edge := range edges {
++		old := float64(before[i])
++		if i < 2 {
++			if edge <= before[i] && float64(edge) > math.Floor(old) || edge > before[i] && math.Floor(float64(edge)) < math.Ceil(old) {
++				return clip{}, false
++			}
++		} else if edge >= before[i] && float64(edge) < math.Ceil(old) || edge < before[i] && math.Ceil(float64(edge)) > math.Floor(old) {
++			return clip{}, false
++		}
++	}
++	pixels := scene.Rect{X: float32(math.Floor(float64(r.X))), Y: float32(math.Floor(float64(r.Y)))}
++	pixels.W, pixels.H = float32(math.Ceil(float64(r.X+r.W)))-pixels.X, float32(math.Ceil(float64(r.Y+r.H)))-pixels.Y
++	for i, box := range clipCornerBounds(&c) {
++		sides := [4][2]int{{0, 1}, {2, 1}, {2, 3}, {0, 3}}[i]
++		if after[sides[0]] != before[sides[0]] || after[sides[1]] != before[sides[1]] {
++			if !box.Intersect(pixels).Empty() {
++				return clip{}, false
++			}
++			c.radii[i] = 0
++		} else if box.W > r.W/2 || box.H > r.H/2 {
++			// Moving a surviving curve across the new midpoint would change
++			// which corner the shader evaluates there.
++			return clip{}, false
++		}
++	}
++	c.rect = r
++	return c, true
 +}
 +
  func (b *Builder) clipTexture(c *clip, shapes []scene.ClipShape) uintptr {
@@ -62,10 +174,9 @@ index 7683f98..3b05a7d 100644
  		return c.maskTexture
 diff --git a/internal/gpu/analytic_clip_test.go b/internal/gpu/analytic_clip_test.go
 new file mode 100644
-index 0000000..959d8b1
 --- /dev/null
 +++ b/internal/gpu/analytic_clip_test.go
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,190 @@
 +package gpu
 +
 +import (
@@ -139,7 +250,7 @@ index 0000000..959d8b1
 +			case "fractional-child":
 +				child.Rect.X += 0.25
 +			case "fractional-ancestor":
-+				outer.Rect.X = 0.25
++				outer.Rect.X = 20.25 // this edge actually reaches into the rounded corner
 +			case "multiple-rounded":
 +				child.Radii = [4]float32{8, 8, 8, 8}
 +			case "transformed-clip":
@@ -167,9 +278,97 @@ index 0000000..959d8b1
 +		})
 +	}
 +}
++
++// A fractional lyrics viewport used to turn its rounded player card into two large pixel masks, even after clipping off whole corners.
++func TestStationaryClipReducesCoverageChain(t *testing.T) {
++	for _, name := range []string{"lyrics", "left", "top", "right", "bottom", "asymmetric", "distant-fractional", "opaque-rounded-parent"} {
++		t.Run(name, func(t *testing.T) {
++			card := scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 20, Y: 20, W: 200, H: 160}, Radii: [4]float32{10, 10, 10, 10}}
++			hard := scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{W: 256, H: 224}}
++			want, radii := card.Rect, card.Radii
++			switch name {
++			case "lyrics":
++				hard.Rect = scene.Rect{X: 70, Y: 0.25, W: 180, H: 140}
++				want, radii = scene.Rect{X: 70, Y: 20, W: 150, H: 120.25}, [4]float32{0, 10, 0, 0}
++			case "left":
++				hard.Rect.X, hard.Rect.W = 50.25, 200
++				want, radii = scene.Rect{X: 50.25, Y: 20, W: 169.75, H: 160}, [4]float32{0, 10, 10, 0}
++			case "top":
++				hard.Rect.Y, hard.Rect.H = 50.25, 170
++				want, radii = scene.Rect{X: 20, Y: 50.25, W: 200, H: 129.75}, [4]float32{0, 0, 10, 10}
++			case "right":
++				hard.Rect.W = 180.25
++				want, radii = scene.Rect{X: 20, Y: 20, W: 160.25, H: 160}, [4]float32{10, 0, 0, 10}
++			case "bottom":
++				hard.Rect.H = 140.25
++				want, radii = scene.Rect{X: 20, Y: 20, W: 200, H: 120.25}, [4]float32{10, 10, 0, 0}
++			case "asymmetric":
++				card.Radii, hard.Rect.X, hard.Rect.W = [4]float32{8, 12, 16, 20}, 70.25, 180
++				want, radii = scene.Rect{X: 70.25, Y: 20, W: 149.75, H: 160}, [4]float32{0, 12, 16, 0}
++			case "distant-fractional":
++				hard.Rect.X = 0.25
++			case "opaque-rounded-parent":
++				card.Rect, card.Radii = scene.Rect{W: 256, H: 224}, [4]float32{10, 10, 10, 10}
++				hard.Rect, hard.Radii = scene.Rect{X: 50.25, Y: 50.25, W: 150, H: 100}, [4]float32{8, 8, 8, 8}
++				want, radii = hard.Rect, hard.Radii
++			}
++			s := &scene.Scene{Width: 256, Height: 224, Ops: []scene.Op{card, hard,
++				{Kind: scene.OpFill, Rect: scene.Rect{W: 256, H: 224}, Color: scene.Color{A: 255}, Transform: scene.Scaling(1.01, 1.01)},
++				{Kind: scene.OpPopClip}, {Kind: scene.OpPopClip},
++			}}
++			b := Builder{NoCull: true, NoFold: true}
++			defer b.Release()
++			uploads := 0
++			b.Build(s, func(img *scene.Image) uintptr { uploads++; return uintptr(img.ID()) })
++			if uploads != 0 || len(b.Instances) == 0 {
++				t.Fatalf("reducible clip uploaded %d masks and drew %d instances", uploads, len(b.Instances))
++			}
++			for _, in := range b.Instances {
++				if in.Transform1[3] != 0 || in.Clip != rect(want) || in.ClipRadii != radii {
++					t.Fatalf("wrong reduced clip: rect=%v radii=%v mode=%v, want %v %v", in.Clip, in.ClipRadii, in.Transform1[3], rect(want), radii)
++				}
++			}
++		})
++	}
++}
++
++// Edges whose partial coverages multiply must keep a mask; intersecting their rectangles would brighten their antialiasing.
++func TestOverlappingAntialiasingKeepsClipMask(t *testing.T) {
++	for _, name := range []string{"duplicate-fractional", "near-fractional", "cuts-corner", "duplicate-rounded", "thin-strip", "continuous-cut"} {
++		t.Run(name, func(t *testing.T) {
++			card := scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 20, Y: 20, W: 200, H: 160}, Radii: [4]float32{20, 20, 20, 20}}
++			hard := scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 70.25, Y: 0, W: 180, H: 220}}
++			switch name {
++			case "duplicate-fractional", "near-fractional":
++				card.Rect.X, hard.Rect = 20.25, scene.Rect{X: 20.25, Y: 0, W: 230, H: 220}
++				if name == "near-fractional" {
++					hard.Rect.X = 20.5
++				}
++			case "cuts-corner":
++				hard.Rect.X = 25.25
++			case "duplicate-rounded":
++				hard = card
++			case "thin-strip":
++				card.Rect.W, hard.Rect = 0.75, scene.Rect{X: 20.25, Y: 0, W: 0.5, H: 220}
++			case "continuous-cut":
++				card.Continuous = true
++			}
++			s := &scene.Scene{Width: 256, Height: 224, Ops: []scene.Op{card, hard,
++				{Kind: scene.OpFill, Rect: scene.Rect{W: 256, H: 224}, Color: scene.Color{A: 255}, Transform: scene.Scaling(1.01, 1.01)},
++				{Kind: scene.OpPopClip}, {Kind: scene.OpPopClip},
++			}}
++			b := Builder{NoCull: true, NoFold: true}
++			defer b.Release()
++			uploads := 0
++			b.Build(s, func(img *scene.Image) uintptr { uploads++; return uintptr(img.ID()) })
++			if uploads == 0 || len(b.Instances) == 0 {
++				t.Fatalf("overlapping antialiasing lost its mask: uploads=%d instances=%d", uploads, len(b.Instances))
++			}
++		})
++	}
++}
 diff --git a/internal/gpu/d3d11/analytic_clip_test.go b/internal/gpu/d3d11/analytic_clip_test.go
 new file mode 100644
-index 0000000..48ff935
 --- /dev/null
 +++ b/internal/gpu/d3d11/analytic_clip_test.go
 @@ -0,0 +1,80 @@
@@ -251,5 +450,112 @@ index 0000000..48ff935
 +				}
 +			}
 +		}
++	}
++}
+diff --git a/internal/gpu/d3d11/analytic_clip_reduction_test.go b/internal/gpu/d3d11/analytic_clip_reduction_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/gpu/d3d11/analytic_clip_reduction_test.go
+@@ -0,0 +1,102 @@
++//go:build windows
++
++package d3d11
++
++import (
++	"runtime"
++	"testing"
++
++	"github.com/egoist/mygo/internal/raster"
++	"github.com/egoist/mygo/internal/scene"
++)
++
++// Fractional viewports can remove whole card corners without a mask, while overlapping antialiasing must keep its original pixel coverage.
++func TestReducedClipCoverageMatchesCPU(t *testing.T) {
++	runtime.LockOSThread()
++	defer runtime.UnlockOSThread()
++	hwnd, err := newHiddenWindow(256, 224)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer destroyWindow(hwnd)
++	r, err := New(hwnd)
++	if err != nil {
++		t.Skip("Direct3D 11 unavailable:", err)
++	}
++	defer r.Release()
++	for _, name := range []string{"lyrics", "left", "top", "right", "bottom", "asymmetric", "opaque-rounded-parent", "duplicate-fractional", "near-fractional", "outside-fractional", "cuts-corner", "duplicate-rounded", "continuous-cut", "asymmetric-midpoint"} {
++		t.Run(name, func(t *testing.T) {
++			card := scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 20, Y: 20, W: 200, H: 160}, Radii: [4]float32{10, 10, 10, 10}}
++			hard := scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{W: 256, H: 224}}
++			wantMask := false
++			switch name {
++			case "lyrics":
++				// The measured opening card and lyrics viewport, scaled by 1/8.
++				card.Rect, card.Radii = scene.Rect{X: 26.25, Y: 73.25, W: 175.875, H: 118.125}, [4]float32{0.8283625, 0.8283625, 0.8283625, 0.8283625}
++				hard.Rect = scene.Rect{X: 120.25, Y: 27.189285, W: 153.5, H: 159.25}
++			case "left":
++				hard.Rect.X, hard.Rect.W = 50.25, 200
++			case "top":
++				hard.Rect.Y, hard.Rect.H = 50.25, 170
++			case "right":
++				hard.Rect.W = 180.25
++			case "bottom":
++				hard.Rect.H = 140.25
++			case "asymmetric":
++				card.Radii, hard.Rect.X = [4]float32{8, 12, 16, 20}, 70.25
++			case "opaque-rounded-parent":
++				card.Rect, card.Radii = scene.Rect{W: 256, H: 224}, [4]float32{10, 10, 10, 10}
++				hard.Rect, hard.Radii = scene.Rect{X: 50.25, Y: 50.25, W: 150, H: 100}, [4]float32{8, 8, 8, 8}
++			case "duplicate-fractional", "near-fractional", "outside-fractional":
++				card.Rect.X, hard.Rect.X, wantMask = 20.25, 20.25, true
++				if name == "near-fractional" {
++					hard.Rect.X = 20.5
++				} else if name == "outside-fractional" {
++					hard.Rect.X = 20.125
++				}
++			case "cuts-corner":
++				hard.Rect.X, wantMask = 25.25, true
++			case "duplicate-rounded":
++				hard, wantMask = card, true
++			case "continuous-cut":
++				card.Continuous, hard.Rect.X, wantMask = true, 70.25, true
++			case "asymmetric-midpoint":
++				card.Radii, hard.Rect.W, wantMask = [4]float32{70, 0, 0, 0}, 140.25, true
++			}
++			for _, transform := range []scene.Affine{{}, scene.Scaling(1.01, 1.01), scene.Rotation(11), scene.Projective(1, 0, 0, 1, 0, 0, 0.001, 0.0004)} {
++				s := &scene.Scene{Width: 256, Height: 224, Clear: scene.Color{A: 255}, Ops: []scene.Op{card, hard,
++					{Kind: scene.OpFill, Rect: scene.Rect{X: -200, Y: -200, W: 2000, H: 2000}, Color: scene.Color{R: 255, G: 255, B: 255, A: 255}, Transform: transform},
++					{Kind: scene.OpPopClip}, {Kind: scene.OpPopClip},
++				}}
++				if err := r.draw(s); err != nil {
++					t.Fatal(err)
++				}
++				if (len(r.images) > 0) != wantMask {
++					t.Fatalf("transform=%v: mask textures=%d, want mask=%t", transform, len(r.images), wantMask)
++				}
++				pix, stride, err := r.read()
++				if err != nil {
++					t.Fatal(err)
++				}
++				ref := raster.NewImage(s.Width, s.Height)
++				raster.Render(ref, s)
++				maxDiff, total := 0, 0
++				for y := range s.Height {
++					for x := range s.Width {
++						diff := int(pix[y*stride+4*x]) - int(ref.Pix[y*ref.Stride+4*x])
++						if diff < 0 {
++							diff = -diff
++						}
++						maxDiff, total = max(maxDiff, diff), total+diff
++					}
++				}
++				if maxDiff > 2 || float64(total)/float64(s.Width*s.Height) > 0.03 {
++					t.Fatalf("transform=%v: clip coverage differs from CPU: max=%d mean=%f", transform, maxDiff, float64(total)/float64(s.Width*s.Height))
++				}
++				if err := r.present(0); err != nil {
++					t.Fatal(err)
++				}
++			}
++		})
 +	}
 +}
