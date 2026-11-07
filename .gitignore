@@ -1,4 +1,7 @@
 /build/
+# Local AlmaLinux packaging scripts and notes
+/scripts/almalinux10/
+/docs/almalinux10.md
 /.mygo/
 mygo_windows_*.syso
 /netease-music-mygo
