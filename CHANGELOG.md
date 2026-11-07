@@ -1,5 +1,21 @@
 # 更新日志
 
+## 0.4.1
+
+- 降低音频播放的内存占用，未写入歌曲缓存的音频优先使用临时文件，播放结束后自动清理
+- 优化封面加载与复用，按需生成主题色和模糊背景，减少重复下载、解码及内存占用
+- 降低正在播放页面及展开、收起动画的渲染内存占用，复用裁剪缓冲并及时释放不再使用的 GPU 资源
+- 升级 MyGo 至 v0.8.3，合入上游内存管理与渲染优化
+
+### 下载指南
+
+| 处理器架构 | Windows | macOS | Linux |
+| :--- | :--- | :--- | :--- |
+| amd64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.1/lilt-setup-0.4.1-amd64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.1/lilt-0.4.1-amd64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.1/lilt_0.4.1_amd64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.1/lilt-0.4.1-linux-amd64.tar.gz) |
+| arm64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.1/lilt-setup-0.4.1-arm64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.1/lilt-0.4.1-arm64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.1/lilt_0.4.1_arm64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.1/lilt-0.4.1-linux-arm64.tar.gz) |
+
+> Linux：Ubuntu / Debian 等支持 deb 的发行版选 `.deb`，其他发行版选 `.tar.gz`。
+
 ## 0.4.0
 
 - Linux 新增实验性桌面歌词(仅部分桌面环境测试)
