@@ -27,6 +27,7 @@ package gpu
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"slices"
 	"strings"
@@ -398,6 +399,7 @@ type clip struct {
 	masked       bool
 	maskSlot     int
 	maskTexture  uintptr
+	maskArea     image.Rectangle
 }
 
 // pushed returns the clip that op (an OpPushClip) of s makes within top,

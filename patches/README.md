@@ -11,6 +11,7 @@
 | `mygo-v0.8.1-macos-dev-icon.patch` | 开发包优先选择 `macos.icon` 的 `-dev` 兄弟文件，正确读取和缓存 ICNS，并监听文件或资产目录变化。 |
 | `mygo-v0.8.1-windows-state-compat.patch` | 将旧版本地补丁保存的 `windowsBounds` 读入上游 `pixel*` 字段；已有 `pixel*` 优先，下次保存使用上游格式。 |
 | `mygo-v0.8.1-tester-label-target.patch` | Tester 点击同名目标时逐个验证实际命中，避免 RichText 父文本误挡内联链接；仍拒绝被遮挡的目标。 |
+| `mygo-v0.8.1-clip-mask-memory.patch` | 单个未变换圆角直接由 GPU 裁剪；复杂遮罩复用分块缓冲与纹理、按实际容量计费，并及时释放闲置临时纹理，修复播放页过渡内存上涨。 |
 
 重新生成 vendor 后，在项目根目录应用全部补丁：
 
@@ -50,3 +51,22 @@ go run ./scripts/check-window-state -cycles 20
 
 Linux 目标机可运行 `go test github.com/egoist/mygo/internal/linux -run TestLayerDrag`。
 实际 Wayland 桌面拖动、macOS 图标及 GPU 渲染仍需在对应平台验收。
+
+## 播放页裁剪内存
+
+单个圆角裁剪在帧坐标直接计算覆盖率，允许内部内容缩放、旋转或透视；
+裁剪链自身无变换、无图片/渐变遮罩，且其余硬矩形边界必须是整数像素。
+多圆角、变换裁剪及分数硬边界继续使用像素遮罩。
+
+复杂遮罩按块复用尺寸，增长时预留容量、缩小时保留纹理尺寸；采样使用实际
+遮罩区域，精确 scissor 不变。空闲预算按底层容量计量，受压时复用未被本帧
+使用的槽。D3D11、GL 和 Metal 在提交帧后释放未使用的临时遮罩纹理，普通封面
+沿用原缓存策略。
+
+```powershell
+go test github.com/egoist/mygo/internal/gpu -count=5
+go test github.com/egoist/mygo/internal/gpu/d3d11 -count=5
+```
+
+Windows 原生离线十次开关已确认占用趋于稳定；Direct3D 像素覆盖与纹理释放
+回归通过。GL / Metal 已交叉编译，尚未做对应平台真机 GPU 验收。

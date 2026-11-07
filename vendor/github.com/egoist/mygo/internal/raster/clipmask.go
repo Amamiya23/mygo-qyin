@@ -19,7 +19,14 @@ func ClipMask(dst *scene.Image, clips []scene.ClipShape, area image.Rectangle) *
 	w, h := area.Dx(), area.Dy()
 	if dst == nil {
 		dst = scene.NewImageRGBA(w, h, make([]byte, 4*w*h))
+		dst.Transient = true
 	} else if dst.W != w || dst.H != h {
+		// The clip grows throughout an opening animation. Grow its storage
+		// geometrically instead of allocating another full buffer each frame;
+		// every pixel is painted below, so the old contents need no copy.
+		if n := 4 * w * h; cap(dst.Pix) < n {
+			dst.Pix = make([]byte, 0, max(n, cap(dst.Pix)*3/2))
+		}
 		dst.Resize(w, h)
 	}
 	m := &clipMasker{dst: dst, area: area, clips: make([]maskClip, len(clips))}

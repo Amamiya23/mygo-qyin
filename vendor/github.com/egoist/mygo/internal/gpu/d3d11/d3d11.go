@@ -265,6 +265,7 @@ type texture struct {
 	w, h      int
 	gen, ver  uint64
 	lastFrame uint64
+	transient bool
 }
 
 // canvasTexture is the texture a canvas (scene.NewCanvas) is drawn into,
@@ -917,7 +918,7 @@ func (r *Renderer) imageView(img *scene.Image) uintptr {
 		if pix == nil {
 			return 0
 		}
-		t = &texture{}
+		t = &texture{transient: img.Transient}
 		if err := r.newTexture(t, img.W, img.H, formatR8G8B8A8Unorm, pix, 4); err != nil {
 			return 0
 		}
@@ -1792,11 +1793,25 @@ func (r *Renderer) show(sync uintptr) error {
 	// window made hidden, may not be what the window shows once it does:
 	// the next frame draws whole.
 	r.held = r.ctx1 != 0 && uint32(hr) != dxgiStatusOccluded
+	r.sweepTransientImages()
 	if r.frame%120 == 0 {
 		r.sweep()
 		r.cost.readPeriod()
 	}
 	return nil
+}
+
+// sweepTransientImages frees cached masks as soon as the frame no longer
+// samples them. Waiting hundreds of frames kept whole-window textures
+// resident after an opening animation had already stopped drawing them.
+func (r *Renderer) sweepTransientImages() {
+	for id, t := range r.images {
+		if t.transient && t.lastFrame != r.frame {
+			free(&t.srv)
+			free(&t.tex)
+			delete(r.images, id)
+		}
+	}
 }
 
 // FrameInfo describes the last frame for MYGO_FRAME_STATS.
