@@ -8,11 +8,14 @@ import (
 // A memSource reads a sound's samples.
 type memSource struct {
 	samples    []float32
+	rate       int
 	channels   int
 	pos        int // sample
 	loop       bool
 	start, end int64 // the frames looped, end 0 for all
 }
+
+func (s *memSource) sampleRate() int { return s.rate }
 
 func (s *memSource) read(dst []float32) (int, bool) {
 	n := 0
@@ -54,6 +57,7 @@ func (s *memSource) close() {}
 // the voice reads without waiting.
 type stream struct {
 	d        Decoder
+	rate     int // immutable Decoder.SampleRate metadata; safe while decode calls Read
 	channels int // of d
 	keep     int // channels kept: 1 or 2
 
@@ -74,14 +78,16 @@ type stream struct {
 
 func newStream(d Decoder) *stream {
 	ch := max(d.Channels(), 1)
-	s := &stream{d: d, channels: ch, keep: min(ch, 2), seekTo: -1}
+	s := &stream{d: d, rate: d.SampleRate(), channels: ch, keep: min(ch, 2), seekTo: -1}
 	s.cond.L = &s.mu
 	// About a second ahead.
-	frames := max(d.SampleRate(), 4096)
+	frames := max(s.rate, 4096)
 	s.ring = make([]float32, frames*s.keep)
 	go s.decode()
 	return s
 }
+
+func (s *stream) sampleRate() int { return s.rate }
 
 func (s *stream) decode() {
 	buf := make([]float32, 2048*s.channels)

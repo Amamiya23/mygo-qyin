@@ -30,11 +30,11 @@ import (
 	"time"
 )
 
-// The output's format: every player is resampled to it.
-const (
-	sampleRate = 48000
-	channels   = 2
-)
+const channels = 2
+
+// outputRate is the target device rate, guarded by mu. Backends receive
+// an immutable snapshot so opening/writing never races with Play.
+var outputRate = 48000
 
 // mu guards the voices playing and the state of every player.
 var mu sync.Mutex
@@ -189,7 +189,7 @@ func (s *Sound) Duration() time.Duration {
 
 // NewPlayer returns a paused player of the sound.
 func (s *Sound) NewPlayer() *Player {
-	src := &memSource{samples: s.samples, channels: s.channels}
+	src := &memSource{samples: s.samples, rate: s.rate, channels: s.channels}
 	return newPlayer(src, s.rate, s.channels, int64(len(s.samples)/s.channels))
 }
 
@@ -224,9 +224,9 @@ type closingDecoder struct {
 // ahead. d is used by one goroutine at a time. Closing the player closes d
 // if d is an io.Closer.
 func NewPlayer(d Decoder) *Player {
-	ch := min(d.Channels(), 2)
+	ch, length := min(d.Channels(), 2), d.Len()
 	s := newStream(d)
-	p := newPlayer(s, d.SampleRate(), ch, d.Len())
+	p := newPlayer(s, s.sampleRate(), ch, length)
 	// A player dropped while paused would leave its decoder waiting; one
 	// dropped while playing plays to its end, as a sound's do.
 	runtime.AddCleanup(p, func(v *voice) {
@@ -261,7 +261,7 @@ type Player struct {
 }
 
 func newPlayer(src source, rate, ch int, length int64) *Player {
-	v := &voice{src: src, rate: float64(rate), mono: ch == 1, length: length, volume: 1, speed: 1}
+	v := &voice{src: src, rate: float64(rate), mono: ch == 1, length: length, volume: 1, speed: 1, fresh: true}
 	v.reset(0)
 	return &Player{v}
 }
@@ -274,9 +274,25 @@ func (p *Player) Play() {
 	if v.closed || v.playing {
 		return
 	}
+	// Read source metadata on every start/resume. Stream metadata is captured
+	// from Decoder.SampleRate before its worker starts: calling the decoder
+	// directly here could race with Read. Output resets never change it.
+	v.rate = float64(v.src.sampleRate())
 	if v.ended() {
 		v.src.seek(0)
 		v.reset(0)
+	}
+	// A primary music player takes priority over effects and old fade-outs.
+	other := slices.ContainsFunc(voices, func(other *voice) bool {
+		return other != v && other.playing && !other.closed
+	})
+	if (v.primary || !other) && int(v.rate) > 0 && outputRate != int(v.rate) {
+		outputRate = int(v.rate)
+		warmupFrames = outputRate / 5
+	}
+	if v.fresh || v.at() == 0 || outputState != outputReady || deviceRate != outputRate {
+		warmupFrames = outputRate / 5
+		v.fresh = false
 	}
 	v.playing = true
 	if !v.active {
@@ -289,6 +305,15 @@ func (p *Player) Play() {
 		voices = append(voices, v)
 		wakeOutput()
 	}
+}
+
+// SetPrimary lets this music player select the output rate even while
+// effects or a previous track's fade-out are still active.
+func (p *Player) SetPrimary(primary bool) *Player {
+	mu.Lock()
+	defer mu.Unlock()
+	p.v.primary = primary
+	return p
 }
 
 // Pause pauses the player where it is.

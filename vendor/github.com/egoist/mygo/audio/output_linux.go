@@ -18,8 +18,6 @@ import (
 // well, or else ALSA's default device. Both block while the device holds
 // enough, from the output's goroutine.
 
-const linuxFrames = sampleRate / 100 // per write: 10 ms
-
 var (
 	pulseLoad sync.Once
 	pulseErr  error
@@ -71,21 +69,21 @@ func appName() string {
 	return "mygo"
 }
 
-func openDevice(ahead time.Duration) (device, int, error) {
-	d, perr := openPulse(ahead)
+func openDevice(ahead time.Duration, rate int) (device, int, error) {
+	d, perr := openPulse(ahead, rate)
 	if perr == nil {
-		return d, linuxFrames, nil
+		return d, max(rate/100, 1), nil
 	}
-	d, aerr := openALSA(ahead)
+	d, aerr := openALSA(ahead, rate)
 	if aerr == nil {
-		return d, linuxFrames, nil
+		return d, max(rate/100, 1), nil
 	}
 	return nil, 0, errors.Join(perr, aerr)
 }
 
 type pulseDevice struct{ s uintptr }
 
-func openPulse(ahead time.Duration) (device, error) {
+func openPulse(ahead time.Duration, rate int) (device, error) {
 	pulseLoad.Do(func() {
 		lib, err := purego.Dlopen("libpulse-simple.so.0", purego.RTLD_NOW|purego.RTLD_GLOBAL)
 		if err != nil {
@@ -100,14 +98,14 @@ func openPulse(ahead time.Duration) (device, error) {
 	if pulseErr != nil {
 		return nil, pulseErr
 	}
-	spec := paSampleSpec{format: paSampleFloat32LE, rate: sampleRate, channels: channels}
+	spec := paSampleSpec{format: paSampleFloat32LE, rate: uint32(rate), channels: channels}
 	// ahead, asking for more every 10 ms.
 	const frame = channels * 4
 	attr := paBufferAttr{
 		maxLength: ^uint32(0),
-		tLength:   uint32(int64(ahead) * sampleRate / int64(time.Second) * frame),
+		tLength:   uint32(int64(ahead) * int64(rate) / int64(time.Second) * frame),
 		preBuf:    ^uint32(0),
-		minReq:    linuxFrames * frame,
+		minReq:    uint32(rate / 100 * frame),
 		fragSize:  ^uint32(0),
 	}
 	var code int32
@@ -131,7 +129,7 @@ func (d *pulseDevice) close() { paSimpleFree(d.s) }
 
 type alsaDevice struct{ pcm uintptr }
 
-func openALSA(ahead time.Duration) (device, error) {
+func openALSA(ahead time.Duration, rate int) (device, error) {
 	alsaLoad.Do(func() {
 		lib, err := purego.Dlopen("libasound.so.2", purego.RTLD_NOW|purego.RTLD_GLOBAL)
 		if err != nil {
@@ -152,7 +150,7 @@ func openALSA(ahead time.Duration) (device, error) {
 	if e := sndPcmOpen(&pcm, cstr("default"), sndPcmStreamPlayback, 0); e < 0 {
 		return nil, fmt.Errorf("audio: ALSA: %s", sndStrerror(e))
 	}
-	if e := sndPcmSetParams(pcm, sndPcmFormatFloatLE, sndPcmAccessRWInterleaved, channels, sampleRate, 1, uint32(ahead.Microseconds())); e < 0 {
+	if e := sndPcmSetParams(pcm, sndPcmFormatFloatLE, sndPcmAccessRWInterleaved, channels, uint32(rate), 0, uint32(ahead.Microseconds())); e < 0 {
 		sndPcmClose(pcm)
 		return nil, fmt.Errorf("audio: ALSA: %s", sndStrerror(e))
 	}

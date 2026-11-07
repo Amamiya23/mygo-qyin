@@ -92,12 +92,12 @@ type aqDevice struct {
 	started bool
 }
 
-func openDevice(ahead time.Duration) (device, int, error) {
+func openDevice(ahead time.Duration, rate int) (device, int, error) {
 	if err := loadAudioToolbox(); err != nil {
 		return nil, 0, err
 	}
 	desc := audioStreamBasicDescription{
-		sampleRate:       sampleRate,
+		sampleRate:       float64(rate),
 		formatID:         kAudioFormatLinearPCM,
 		formatFlags:      kAudioFormatFlagIsFloat,
 		bytesPerPacket:   channels * 4,
@@ -106,7 +106,7 @@ func openDevice(ahead time.Duration) (device, int, error) {
 		channelsPerFrame: channels,
 		bitsPerChannel:   32,
 	}
-	n := max(2, int((int64(ahead)*sampleRate/int64(time.Second)+aqFrames-1)/aqFrames))
+	n := max(2, int((int64(ahead)*int64(rate)/int64(time.Second)+aqFrames-1)/aqFrames))
 	d := &aqDevice{free: make(chan *audioQueueBuffer, n), buffers: n}
 	if st := audioQueueNewOutput(&desc, aqCallback, 0, 0, 0, 0, &d.q); st != 0 {
 		return nil, 0, fmt.Errorf("audio: AudioQueueNewOutput failed (OSStatus %d)", st)

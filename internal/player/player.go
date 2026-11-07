@@ -732,7 +732,7 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 				return
 			}
 			p.stream, p.info = s, info
-			p.out = audio.NewPlayer(s)
+			p.out = audio.NewPlayer(s).SetPrimary(true)
 			// From its middle, as a session picked up again, it fades in.
 			level := 1.0
 			if p.pending > 0 && (p.PlaybackFade == nil || p.PlaybackFade()) {
