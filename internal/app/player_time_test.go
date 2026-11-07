@@ -10,8 +10,8 @@ import (
 	"lilt/internal/qqmusic"
 )
 
-// Once Now Playing covers the page, the hidden player bar no longer builds.
-// Its clock must keep updating without input or notifications from the player.
+// Now Playing keeps its clock updating after it covers the player bar,
+// without input or notifications from the player.
 func TestNowPlayingTimesWithoutInput(t *testing.T) {
 	for name, pane := range map[string]int{"lyrics": paneLyrics, "queue": paneQueue, "stage": paneStage, "wall": paneWall} {
 		t.Run(name, func(t *testing.T) {
