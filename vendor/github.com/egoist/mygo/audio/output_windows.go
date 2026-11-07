@@ -67,7 +67,6 @@ const (
 	audclntStreamFlagsAutoConvert = 0x80000000
 	audclntStreamFlagsSRCQuality  = 0x08000000
 	waitObject0                   = 0
-	windowsFrames                 = sampleRate / 100 // per write: 10 ms
 )
 
 // comCall calls method i of the COM interface obj. Pointers converted to
@@ -129,7 +128,7 @@ func defaultID(enumerator uintptr) (string, error) {
 	return syscall.UTF16ToString(unsafe.Slice(p, n)), nil
 }
 
-func openDevice(ahead time.Duration) (device, int, error) {
+func openDevice(ahead time.Duration, rate int) (device, int, error) {
 	if !comInitialized {
 		// S_FALSE, already initialized, succeeds as well.
 		if hr, _, _ := procCoInitializeEx.Call(0, coinitMultithreaded); failed(hr) {
@@ -138,14 +137,14 @@ func openDevice(ahead time.Duration) (device, int, error) {
 		comInitialized = true
 	}
 	d := &wasapiDevice{}
-	if err := d.open(ahead); err != nil {
+	if err := d.open(ahead, rate); err != nil {
 		d.close()
 		return nil, 0, err
 	}
-	return d, windowsFrames, nil
+	return d, rate / 100, nil
 }
 
-func (d *wasapiDevice) open(ahead time.Duration) error {
+func (d *wasapiDevice) open(ahead time.Duration, rate int) error {
 	if hr, _, _ := procCoCreateInstance.Call(uintptr(unsafe.Pointer(&clsidMMDeviceEnumerator)), 0, clsctxAll,
 		uintptr(unsafe.Pointer(&iidIMMDeviceEnumerator)), uintptr(unsafe.Pointer(&d.enumerator))); failed(hr) {
 		return hresult("CoCreateInstance(MMDeviceEnumerator)", hr)
@@ -169,8 +168,8 @@ func (d *wasapiDevice) open(ahead time.Duration) error {
 	f := waveFormatExtensible{
 		formatTag:      waveFormatExtensibleTag,
 		channels:       channels,
-		samplesPerSec:  sampleRate,
-		avgBytesPerSec: sampleRate * channels * 4,
+		samplesPerSec:  uint32(rate),
+		avgBytesPerSec: uint32(rate * channels * 4),
 		blockAlign:     channels * 4,
 		bitsPerSample:  32,
 		size:           22,
@@ -251,5 +250,23 @@ func (d *wasapiDevice) close() {
 	if d.event != 0 {
 		procCloseHandle.Call(d.event)
 		d.event = 0
+	}
+}
+
+// drain preserves the final queued frames before a natural track transition.
+func (d *wasapiDevice) drain() (bool, error) {
+	deadline := time.Now().Add(time.Second)
+	for {
+		var padding uint32
+		if hr := comCall(d.client, 6, uintptr(unsafe.Pointer(&padding))); failed(hr) {
+			return false, hresult("IAudioClient.GetCurrentPadding", hr)
+		}
+		if padding == 0 {
+			return false, nil
+		}
+		if time.Now().After(deadline) {
+			return false, errAudioClientUnresponded
+		}
+		procWaitForSingleObject.Call(d.event, 100)
 	}
 }

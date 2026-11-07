@@ -4,4 +4,4 @@ package audio
 
 import "time"
 
-func openDevice(ahead time.Duration) (device, int, error) { return nil, 0, errUnsupported }
+func openDevice(ahead time.Duration, rate int) (device, int, error) { return nil, 0, errUnsupported }

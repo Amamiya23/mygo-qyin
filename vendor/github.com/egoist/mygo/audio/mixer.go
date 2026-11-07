@@ -31,11 +31,16 @@ func setHeld(n int64) {
 func heard() int64 { return mixed - unheard }
 
 // rampFrames is how long volume changes, fades in and fades out take: 5 ms.
-const rampFrames = sampleRate / 200
+func rampFrames() int { return max(outputRate/200, 1) }
+
+// Silence is part of the output clock, but never advances source cursors.
+var warmupFrames int
 
 // A source gives a voice its frames. Its methods run under mu and never
 // block.
 type source interface {
+	// sampleRate returns the source's immutable native rate, not device state.
+	sampleRate() int
 	// read reads frames into dst, interleaved, and returns how many it
 	// read: fewer than fit only at the end, where ended is true, or while
 	// a stream decodes, where it is false. It goes on from the start when
@@ -56,6 +61,8 @@ type voice struct {
 	mono   bool
 	length int64 // frames, or -1
 
+	preRoll bool // explicitly requests hardware warm-up on supported desktops
+	primary bool // selects the output rate ahead of other voices
 	playing bool // as the API sees it
 	active  bool // in voices, which it stays in while fading out
 	snap    bool // starts at its start: no fade in
@@ -89,7 +96,9 @@ type voice struct {
 
 	// Where the voice was in its source as the output mixed its frames,
 	// oldest first, for Position to say where it is heard.
-	marks []mark
+	marks     []mark
+	finishing bool  // natural EOF rendered, waiting for the device to play its tail
+	finishOut int64 // output frame after the final source frame
 }
 
 // A mark is the voice at output frame out: at frame pos of its source,
@@ -103,6 +112,7 @@ type mark struct {
 // reset starts the voice over at frame f of its source, which the caller
 // has moved there.
 func (v *voice) reset(f int64) {
+	v.finishing = false
 	v.hist = [4][2]float32{}
 	// Three frames come in before the first output: the second is f.
 	v.idx = f - 3
@@ -238,6 +248,9 @@ func (v *voice) gains(master float64) [4]float32 {
 		x := (v.pan + 1) / 2 * math.Pi / 2
 		return [4]float32{float32(g * math.Sqrt2 * math.Cos(x)), 0, 0, float32(g * math.Sqrt2 * math.Sin(x))}
 	}
+	if v.pan == 0 {
+		return [4]float32{float32(g), 0, 0, float32(g)}
+	}
 	// Web Audio's StereoPannerNode for stereo input.
 	if v.pan <= 0 {
 		x := (v.pan + 1) * math.Pi / 2
@@ -262,18 +275,36 @@ func (v *voice) retarget(t [4]float32) {
 	}
 	v.target = t
 	for i := range t {
-		v.step[i] = (t[i] - v.gain[i]) / rampFrames
+		v.step[i] = (t[i] - v.gain[i]) / float32(rampFrames())
 	}
-	v.rampLeft = rampFrames
+	v.rampLeft = rampFrames()
 }
 
 // mix adds the voice's next frames to out, which the output mixes from
 // its frame at, and reports whether it is still active: false once at its
 // end, or faded out.
 func (v *voice) mix(out []float32, master float64, at, heard int64) bool {
+	if v.finishing {
+		if !v.playing {
+			v.finishing = false
+			return false
+		}
+		if heard >= v.finishOut {
+			v.finishing, v.playing, v.atEnd = false, false, true
+			return false
+		}
+		return true
+	}
 	v.mark(at, heard)
 	n, ok := v.play(out, master)
 	v.mark(at+int64(n), heard)
+	if desktopAudioFeatures && !ok && v.atEnd {
+		// Keep Playing true and postpone OnEnd until the queued tail is heard.
+		// User Pause/Stop/Close can still cancel this natural finish.
+		v.atEnd, v.playing, v.finishing = false, true, true
+		v.finishOut = at + int64(n)
+		return true
+	}
 	return ok
 }
 
@@ -281,7 +312,7 @@ func (v *voice) mix(out []float32, master float64, at, heard int64) bool {
 // through its source for, and whether it is still active.
 func (v *voice) play(out []float32, master float64) (int, bool) {
 	v.retarget(v.gains(master))
-	step := v.rate / sampleRate * v.speed
+	step := v.rate / float64(outputRate) * v.speed
 	for i := 0; i < len(out); i += 2 {
 		for v.phase >= 1 {
 			if !v.next() {
@@ -318,6 +349,9 @@ func (v *voice) play(out []float32, master float64) (int, bool) {
 // sample interpolates between the second and third frames with a
 // Catmull-Rom spline.
 func (v *voice) sample() (l, r float32) {
+	if v.phase == 0 {
+		return v.hist[1][0], v.hist[1][1]
+	}
 	t := float32(v.phase)
 	h := &v.hist
 	cr := func(p0, p1, p2, p3 float32) float32 {
@@ -338,9 +372,21 @@ func mix(out []float32) bool {
 func mixLocked(out []float32) bool {
 	clear(out)
 	at, h := mixed, heard()
+	// Split even a buffer straddling the end of pre-roll exactly. Marks
+	// on both sides of the silence keep Position fixed until music is heard.
+	if !preRollRequestedLocked() {
+		warmupFrames = 0
+	}
+	silent := min(warmupFrames, len(out)/channels)
+	warmupFrames -= silent
+	for _, v := range voices {
+		v.mark(at, h)
+		v.mark(at+int64(silent), h)
+	}
+	music := out[silent*channels:]
 	n := 0
 	for _, v := range voices {
-		if v.closed || !v.mix(out, volume, at, h) {
+		if v.closed || !v.mix(music, volume, at+int64(silent), h) {
 			if v.atEnd {
 				v.atEnd = false
 				for _, l := range v.onEnd {

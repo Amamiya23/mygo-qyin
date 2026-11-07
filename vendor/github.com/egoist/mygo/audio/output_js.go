@@ -85,7 +85,7 @@ func jsSetup(ahead time.Duration) error {
 	if ahead >= LatencyPlayback.ahead() {
 		hint = "playback"
 	}
-	ctx := class.New(map[string]any{"sampleRate": sampleRate, "latencyHint": hint})
+	ctx := class.New(map[string]any{"sampleRate": defaultOutputRate, "latencyHint": hint})
 	if !ctx.Get("audioWorklet").Truthy() {
 		jsErr = errors.New("audio: this browser has no AudioWorklet")
 		return jsErr
@@ -143,11 +143,11 @@ var jsOpen bool
 
 type jsDevice struct{}
 
-func openDevice(ahead time.Duration) (device, int, error) {
+func openDevice(ahead time.Duration, _ int) (device, int, error) {
 	if err := jsSetup(ahead); err != nil {
 		return nil, 0, err
 	}
-	want := max(jsChunks, int((int64(ahead)*sampleRate/int64(time.Second)+jsFrames-1)/jsFrames))
+	want := max(jsChunks, int((int64(ahead)*defaultOutputRate/int64(time.Second)+jsFrames-1)/jsFrames))
 	if more := want - jsAhead; more > 0 {
 		// Asks the owed ones answer first.
 		cancel := min(jsOwed, more)
