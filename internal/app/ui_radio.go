@@ -250,7 +250,7 @@ func (a *app) fmCard(c *ui.Context) {
 	}
 	var art *artwork
 	if tr != nil {
-		art = a.art.get(qqmusic.Sized(tr.Album.PicURL, 600), true)
+		art = a.art.get(qqmusic.Sized(tr.Album.PicURL, 600), artBackdrop)
 	}
 	card := ui.Box(c.Key("fm-card")).Height(320).Radius(24).Background(radixSage(true, 3)).TextColor(white).
 		Shadow(0, 18, 44, -16, a.pal.cardShade)

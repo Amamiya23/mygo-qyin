@@ -284,8 +284,8 @@ func TestLyricsWakeAfterGap(t *testing.T) {
 // go, so that the backdrop stops asking for frames.
 func TestBackdropFadeEnds(t *testing.T) {
 	a, tt, _ := coverApp(t)
-	a.art.art[qqmusic.Sized("a", 600)+"#backdrop"] = &artwork{tint: ui.RGB(200, 40, 40)}
-	a.art.art[qqmusic.Sized("b", 600)+"#backdrop"] = &artwork{tint: ui.RGB(40, 40, 200)}
+	a.art.art[qqmusic.Sized("a", 600)] = &artwork{tint: ui.RGB(200, 40, 40), ready: artBackdrop}
+	a.art.art[qqmusic.Sized("b", 600)] = &artwork{tint: ui.RGB(40, 40, 200), ready: artBackdrop}
 	q := a.pl.Queue()
 	q[1].Album.PicURL, q[2].Album.PicURL = "a", "b"
 	tt.Frame()

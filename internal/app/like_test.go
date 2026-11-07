@@ -278,7 +278,8 @@ func TestBackdropFrame(t *testing.T) {
 		if size == 600 {
 			bd := *art
 			bd.backdrop = ui.NewBitmap(blurImage(img))
-			a.art.art[qqmusic.Sized(tr.Album.PicURL, size)+"#backdrop"] = &bd
+			bd.ready = artBackdrop
+			a.art.art[qqmusic.Sized(tr.Album.PicURL, size)] = &bd
 		}
 	}
 	a.pl.Cue([]qqmusic.Track{tr})
@@ -319,7 +320,8 @@ func TestSmokeFrames(t *testing.T) {
 		if size == 600 {
 			bd := *art
 			bd.backdrop = ui.NewBitmap(blurImage(img))
-			a.art.art[qqmusic.Sized(tr.Album.PicURL, size)+"#backdrop"] = &bd
+			bd.ready = artBackdrop
+			a.art.art[qqmusic.Sized(tr.Album.PicURL, size)] = &bd
 		}
 	}
 	a.pl.Cue([]qqmusic.Track{tr})

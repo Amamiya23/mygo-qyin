@@ -251,7 +251,7 @@ func (a *app) loginDialog(c *ui.Context) {
 						a.openLoginChannel(l.wechat)
 					}
 				case l.finished || l.status == qqmusic.QRScanned:
-					if bmp := bitmap(a.art.get(qqmusic.Sized(l.avatar, 160), false)); bmp != nil {
+					if bmp := bitmap(a.art.get(qqmusic.Sized(l.avatar, 160), artCover)); bmp != nil {
 						pic := ui.Box(c).Size(72, 72).Radius(36).Shadow(0, 6, 16, -4, radixInk.Alpha(0.3))
 						in := artIn(pic, bmp)
 						pic.Children(func() { artImage(c, bmp, 36, in) })

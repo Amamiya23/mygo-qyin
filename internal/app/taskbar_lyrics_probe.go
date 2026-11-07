@@ -38,12 +38,13 @@ func RunTaskbarLyricsCheck(dir string, duration time.Duration, coverPath string)
 		if err != nil {
 			return err
 		}
-		bmp, _, err := decodeArt(data)
+		cover, err := decodeArt(data, artCover)
 		if err != nil {
 			return err
 		}
 		coverURL = "taskbar-cover-fixture"
-		a.art.add(qqmusic.Sized(coverURL, 96), &artwork{bmp: bmp, size: len(data), used: a.art.now()})
+		cover.used = a.art.now()
+		a.art.add(qqmusic.Sized(coverURL, 96), cover)
 	}
 	a.pl = player.New(a.post)
 	a.pl.Changed = a.redraw

@@ -42,7 +42,7 @@ func (d *taskbarLyrics) controlsView(c *ui.Context) {
 	ui.Column(c.Key(identity)).Fill().Padding(12).Gap(8).TextColor(text).Children(func() {
 		ui.Row(c).Height(64).Gap(12).AlignItems(ui.Center).Children(func() {
 			cover := ui.Box(c.Key("artwork")).Size(64, 64).Shrink(0).Radius(7).Background(radixGray(dark, 4)).Center()
-			bmp := bitmap(a.art.get(qqmusic.Sized(tr.Album.PicURL, 120), false))
+			bmp := bitmap(a.art.get(qqmusic.Sized(tr.Album.PicURL, 120), artCover))
 			cover.Children(func() {
 				if bmp != nil {
 					ui.Image(c, bmp).Size(64, 64).Fit(ui.Cover).Radius(7)

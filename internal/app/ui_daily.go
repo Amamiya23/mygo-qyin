@@ -17,7 +17,7 @@ import (
 func (a *app) dailyArt(c *ui.Context, now time.Time, size float32) {
 	var art *artwork
 	if len(a.daily) > 0 {
-		art = a.art.get(qqmusic.Sized(a.daily[0].Album.PicURL, 600), true)
+		art = a.art.get(qqmusic.Sized(a.daily[0].Album.PicURL, 600), artBackdrop)
 	}
 	radius := size * 0.07
 	box := ui.Box(c).Size(size, size).Radius(radius).Background(radixSage(true, 6)).
@@ -51,7 +51,7 @@ func (a *app) dailyCard(c *ui.Context, now time.Time) {
 	w, _ := c.Size()
 	inner := w - sidebarWidth - 2*pagePad
 	still := c.Preferences().ReduceMotion
-	art := a.art.get(qqmusic.Sized(songs[0].Album.PicURL, 600), true)
+	art := a.art.get(qqmusic.Sized(songs[0].Album.PicURL, 600), artBackdrop)
 	card := ui.ButtonBase(c.Key("daily")).Height(dailyHeight).Radius(dailyRadius).FocusRing(false).Label("每日推荐").TextColor(white)
 	hovered := card.Hovered()
 	ours, playing := a.dailyPlaying()
@@ -406,7 +406,7 @@ func (a *app) dailyStack(c *ui.Context, songs []qqmusic.Track, fanned bool, out 
 		ui.Box(c.Key("record")).Absolute().Left(mid+recordOut(out)-recordSize/2).Top((sleeveSize-recordSize)/2).
 			Size(recordSize, recordSize).Radius(recordSize/2).Shadow(0, 8, 20, -4, radixInk.Alpha(0.5)).
 			Draw(func(p *ui.Painter, r ui.Rect) {
-				drawRecord(p, r, bitmap(a.art.get(qqmusic.Sized(songs[0].Album.PicURL, 240), false)), float32(a.dailySpin.angle))
+				drawRecord(p, r, bitmap(a.art.get(qqmusic.Sized(songs[0].Album.PicURL, 240), artCover)), float32(a.dailySpin.angle))
 			})
 		// The sleeve.
 		sleeve := ui.Box(c.Key("sleeve")).Absolute().Left(sleeveLeft).Top(0).Size(sleeveSize, sleeveSize).Radius(12).

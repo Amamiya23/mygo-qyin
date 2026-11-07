@@ -130,7 +130,7 @@ func (a *app) nowPlayingView(c *ui.Context) {
 	// keep our time labels ticking independently of paint-only animations.
 	a.tickTimes(c)
 	w, h := c.Size()
-	art := a.art.get(qqmusic.Sized(tr.Album.PicURL, 600), true)
+	art := a.art.get(qqmusic.Sized(tr.Album.PicURL, 600), artBackdrop)
 	// The colors stay the last song's while its cover loads, rather than
 	// going gray between the two.
 	shown := art

@@ -280,11 +280,10 @@ func TestNowPlayingFrames(t *testing.T) {
 			}
 			a.comments = commentState{track: tr.ID, loaded: true, total: 12345678}
 			a.nowPlaying, a.npPane = true, scene.pane
-			art := &artwork{bmp: solidBitmap(radixSage(true, 9)), tint: radixSage(true, 9)}
+			art := &artwork{bmp: solidBitmap(radixSage(true, 9)), tint: radixSage(true, 9), ready: artBackdrop}
 			for _, size := range []int{96, 120, 240, 600} {
 				a.art.art[qqmusic.Sized(tr.Album.PicURL, size)] = art
 			}
-			a.art.art[qqmusic.Sized(tr.Album.PicURL, 600)+"#backdrop"] = art
 			tt := ui.NewTester(a.view, scene.w, scene.h)
 			tt.SetDark(scene.dark)
 			tt.Frame()

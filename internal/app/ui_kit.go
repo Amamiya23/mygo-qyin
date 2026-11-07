@@ -196,7 +196,7 @@ func pillButton(c *ui.Context, icon *ui.SVG, label string, bg, fg ui.Color) ui.E
 func (a *app) cover(c *ui.Context, url string, px int, size, radius float32) ui.Element {
 	p := a.pal
 	box := ui.Box(c).Size(size, size).Radius(radius).Center()
-	bmp := bitmap(a.art.get(qqmusic.Sized(url, px), false))
+	bmp := bitmap(a.art.get(qqmusic.Sized(url, px), artCover))
 	in := artIn(box, bmp)
 	if in < 1 {
 		box.Background(p.hover)

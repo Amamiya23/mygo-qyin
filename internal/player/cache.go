@@ -83,11 +83,13 @@ func (c *Cache) lookup(id int64, level string) (*download, *qqmusic.Stream, bool
 }
 
 // download fetches the song of the stream st into a file, to keep once it
-// has all come in; or into memory, if the cache would not keep it.
+// has all come in, or a temporary file if the cache would not keep it.
+// Memory is only the fallback when no file can be made or written.
 func (c *Cache) download(id int64, st *qqmusic.Stream) *download {
 	part := c.part(st)
 	if part == nil {
-		return startDownload(st.URL, st.Size, nil, nil)
+		part, _ = temporaryDownloadFile()
+		return startDownload(st.URL, st.Size, part, nil)
 	}
 	return startDownload(st.URL, st.Size, part, func(path string, n int64) (string, bool) {
 		return c.keep(id, st, path, n)

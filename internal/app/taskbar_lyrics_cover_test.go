@@ -18,7 +18,7 @@ func TestTaskbarLyricsCoverFollowsCurrentTrack(t *testing.T) {
 	redURL, blueURL := "https://example.invalid/taskbar-red.jpg", "https://example.invalid/taskbar-blue.jpg"
 	redKey, blueKey := qqmusic.Sized(redURL, 96), qqmusic.Sized(blueURL, 96)
 	a.art.add(redKey, &artwork{bmp: taskbarCoverBitmap(color.RGBA{R: 255, A: 255})})
-	a.art.busy[blueKey] = true // Keep the pending cover offline until this test supplies it.
+	a.art.busy[blueKey] = &artRequest{} // Keep the pending cover offline until this test supplies it.
 	track := *a.pl.Current()
 	track.Album.PicURL = redURL
 	a.pl.Cue([]qqmusic.Track{track})

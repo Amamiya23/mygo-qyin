@@ -129,11 +129,10 @@ func TestNowPlayingClosingCoverDoesNotBlink(t *testing.T) {
 	a := newTestApp()
 	a.settings = defaultSettings()
 	tr := qqmusic.Track{ID: 7, Name: "宝船", Album: qqmusic.Album{PicURL: "transition-cover"}, Duration: 200000}
-	art := &artwork{bmp: solidBitmap(radixAmber(false, 9)), tint: radixAmber(false, 9)}
+	art := &artwork{bmp: solidBitmap(radixAmber(false, 9)), tint: radixAmber(false, 9), ready: artBackdrop}
 	for _, size := range []int{120, 600} {
 		a.art.art[qqmusic.Sized(tr.Album.PicURL, size)] = art
 	}
-	a.art.art[qqmusic.Sized(tr.Album.PicURL, 600)+"#backdrop"] = art
 	a.pl.Cue([]qqmusic.Track{tr})
 	a.pl.SetLyrics(nil)
 	a.npPane = paneQueue
@@ -209,11 +208,10 @@ func TestNowPlayingTransitionFrames(t *testing.T) {
 			a := newTestApp()
 			a.settings = defaultSettings()
 			tr := qqmusic.Track{ID: 7, Name: "宝船", Album: qqmusic.Album{PicURL: "transition-frames"}, Duration: 200000}
-			art := &artwork{bmp: solidBitmap(radixAmber(false, 9)), tint: radixAmber(false, 9)}
+			art := &artwork{bmp: solidBitmap(radixAmber(false, 9)), tint: radixAmber(false, 9), ready: artBackdrop}
 			for _, size := range []int{120, 600} {
 				a.art.art[qqmusic.Sized(tr.Album.PicURL, size)] = art
 			}
-			a.art.art[qqmusic.Sized(tr.Album.PicURL, 600)+"#backdrop"] = art
 			a.pl.Cue([]qqmusic.Track{tr})
 			a.pl.SetLyrics(nil)
 			a.npPane = scene.pane

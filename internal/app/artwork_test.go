@@ -16,15 +16,21 @@ func TestAnimatedWebPCover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bmp, img, err := decodeArt(b)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r := img.Bounds(); r.Dx() != 24 || r.Dy() != 24 {
-		t.Errorf("first frame is %v, want 24×24", r)
-	}
-	if w, h := bmp.Size(); w != 24 || h != 24 {
-		t.Errorf("bitmap is %d×%d, want 24×24", w, h)
+	for _, need := range []artNeeds{artCover, artTint, artBackdrop} {
+		art, err := decodeArt(b, need)
+		if err != nil {
+			t.Fatal(err)
+		}
+		img, err := decodeImage(art.data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r := img.Bounds(); r.Dx() != 24 || r.Dy() != 24 {
+			t.Errorf("first frame is %v, want 24×24", r)
+		}
+		if w, h := art.bmp.Size(); w != 24 || h != 24 {
+			t.Errorf("bitmap is %d×%d, want 24×24", w, h)
+		}
 	}
 }
 
@@ -42,7 +48,7 @@ func TestArtCacheDropsLeastRecentCovers(t *testing.T) {
 	if len(c.art) != 3 || c.size != 90 {
 		t.Fatalf("evicted covers under the budget: %d covers, %d bytes", len(c.art), c.size)
 	}
-	c.get("first", false)
+	c.get("first", artCover)
 	c.add("fourth", &artwork{used: now, size: 30})
 	if _, ok := c.art["second"]; ok {
 		t.Error("kept the cover asked for least recently over the limit")
@@ -69,9 +75,9 @@ func TestArtCacheKeepsCoversUnderLimit(t *testing.T) {
 	c.add("other", &artwork{used: now, size: 100 << 10})
 	for range 60 {
 		now = now.Add(time.Minute)
-		c.get("other", false)
+		c.get("other", artCover)
 	}
-	if c.get("page", false) != page {
+	if c.get("page", artCover) != page {
 		t.Error("dropped a cover not asked for in an hour, under the limit")
 	}
 }
@@ -93,7 +99,7 @@ func TestArtCacheKeepsHeldCovers(t *testing.T) {
 		t.Fatal("kept a cover over the limit")
 	}
 	runtime.GC()
-	if got := c.get("now playing", false); got != held {
+	if got := c.get("now playing", artCover); got != held {
 		t.Error("loaded again a cover something still held")
 	}
 	if c.size != 60 || len(c.art) != 2 {
@@ -112,27 +118,27 @@ func TestArtCacheCountsLoadedCovers(t *testing.T) {
 		_, _ = w.Write(data)
 	}))
 	defer server.Close()
-	for _, backdrop := range []bool{false, true} {
+	for _, need := range []artNeeds{artCover, artBackdrop} {
 		name := "cover"
-		if backdrop {
+		if need == artBackdrop {
 			name = "backdrop"
 		}
 		t.Run(name, func(t *testing.T) {
 			posted := make(chan func(), 1)
 			c := newArtCache(func(fn func()) { posted <- fn })
-			c.get(server.URL, backdrop)
+			c.get(server.URL, need)
 			select {
 			case fn := <-posted:
 				fn()
 			case <-time.After(2 * time.Second):
 				t.Fatal("cover did not finish loading")
 			}
-			a := c.get(server.URL, backdrop)
+			a := c.get(server.URL, need)
 			if a == nil || a.failed || a.bmp == nil {
 				t.Fatal("cover did not load")
 			}
 			want := len(data)
-			if backdrop {
+			if need == artBackdrop {
 				if a.backdrop == nil {
 					t.Fatal("backdrop did not load")
 				}
@@ -163,11 +169,11 @@ func TestArtCacheRetriesFailedCover(t *testing.T) {
 	failed := &artwork{failed: true, used: now}
 	c.add(server.URL, failed)
 	now = now.Add(artRetry - time.Second)
-	if c.get(server.URL, false) != failed || c.busy[server.URL] {
+	if c.get(server.URL, artCover) != failed || c.busy[server.URL] != nil {
 		t.Fatal("retried the failed cover before its cooldown elapsed")
 	}
 	now = now.Add(time.Second)
-	if c.get(server.URL, false) != nil || !c.busy[server.URL] {
+	if c.get(server.URL, artCover) != nil || c.busy[server.URL] == nil {
 		t.Fatal("did not retry the failed cover after its cooldown elapsed")
 	}
 	select {
@@ -176,7 +182,7 @@ func TestArtCacheRetriesFailedCover(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("cover retry did not finish loading")
 	}
-	if a := c.get(server.URL, false); a == nil || a.failed || a.bmp == nil {
+	if a := c.get(server.URL, artCover); a == nil || a.failed || a.bmp == nil {
 		t.Fatal("successful retry did not replace the failed cover")
 	}
 	if c.size != len(data) {

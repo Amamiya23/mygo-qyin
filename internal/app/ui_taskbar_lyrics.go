@@ -119,7 +119,7 @@ func (d *taskbarLyrics) coverButton(c *ui.Context, cover ui.Element, url string,
 }
 
 func (d *taskbarLyrics) coverImage(c *ui.Context, url string, size float32) {
-	bmp := bitmap(d.a.art.get(qqmusic.Sized(url, 96), false))
+	bmp := bitmap(d.a.art.get(qqmusic.Sized(url, 96), artCover))
 	if bmp != nil {
 		ui.Image(c, bmp).Fill().Fit(ui.Cover).Radius(min(6, size/2))
 	} else {

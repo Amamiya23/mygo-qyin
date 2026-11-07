@@ -24,7 +24,7 @@ import (
 // of the cache, which keeps it once it has all come in, and is read from
 // there: the system holds what of it was read lately, rather than the
 // app's memory, as much again as the song. Songs the cache would not keep
-// come into memory.
+// use temporary files; memory is the fallback when a file cannot be used.
 type download struct {
 	mu     sync.Mutex
 	cond   sync.Cond
@@ -118,7 +118,7 @@ func (d *download) run(ctx context.Context, url string) {
 		}
 		if err == io.EOF {
 			// Whole if as long as promised: the cache's.
-			if d.part != "" && (d.size <= 0 || d.n == d.size) {
+			if d.keep != nil && d.part != "" && (d.size <= 0 || d.n == d.size) {
 				d.hand()
 			}
 			finish(nil)
