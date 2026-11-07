@@ -1,5 +1,5 @@
 diff --git a/ui/colorpicker.go b/ui/colorpicker.go
-index 039a445..5536379 100644
+index 3b295e2..0a7615f 100644
 --- a/ui/colorpicker.go
 +++ b/ui/colorpicker.go
 @@ -84,9 +84,10 @@ var swatches = []struct {

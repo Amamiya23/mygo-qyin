@@ -1,0 +1,76 @@
+diff --git a/window_state_compat.go b/window_state_compat.go
+new file mode 100644
+index 0000000..07dc342
+--- /dev/null
++++ b/window_state_compat.go
+@@ -0,0 +1,22 @@
++package mygo
++
++import "encoding/json"
++
++// UnmarshalJSON also reads the physical bounds saved by Lilt's earlier
++// mixed-DPI fix. Subsequent saves use MyGo's pixel fields.
++func (st *WindowState) UnmarshalJSON(data []byte) error {
++	type state WindowState
++	var saved struct {
++		state
++		WindowsBounds *Rectangle `json:"windowsBounds"`
++	}
++	if err := json.Unmarshal(data, &saved); err != nil {
++		return err
++	}
++	if b := saved.WindowsBounds; b != nil && saved.PixelWidth <= 0 && saved.PixelHeight <= 0 {
++		saved.PixelX, saved.PixelY = b.X, b.Y
++		saved.PixelWidth, saved.PixelHeight = b.Width, b.Height
++	}
++	*st = WindowState(saved.state)
++	return nil
++}
+diff --git a/window_state_compat_test.go b/window_state_compat_test.go
+new file mode 100644
+index 0000000..082d2a3
+--- /dev/null
++++ b/window_state_compat_test.go
+@@ -0,0 +1,42 @@
++package mygo
++
++import (
++	"encoding/json"
++	"testing"
++)
++
++// The upstream pixel fields must retain the saved physical placement from Lilt's old windowsBounds format.
++func TestWindowStateLegacyPixels(t *testing.T) {
++	for _, pixels := range []string{"", `,"pixelX":4001,"pixelY":101,"pixelWidth":1575,"pixelHeight":1050`} {
++		data := `{"x":2286,"y":57,"width":900,"height":600,"maximized":true,"windowsBounds":{"x":4000,"y":100,"width":1575,"height":1050}` + pixels + `}`
++		var st WindowState
++		if err := json.Unmarshal([]byte(data), &st); err != nil {
++			t.Fatal(err)
++		}
++		wantX, wantY := 4000, 100
++		if pixels != "" {
++			wantX, wantY = 4001, 101
++		}
++		if st.PixelX != wantX || st.PixelY != wantY || st.PixelWidth != 1575 || st.PixelHeight != 1050 || st.Width != 900 || st.Height != 600 || !st.Maximized {
++			t.Fatalf("decoded state = %+v", st)
++		}
++		saved, err := json.Marshal(st)
++		if err != nil {
++			t.Fatal(err)
++		}
++		var fields map[string]json.RawMessage
++		if err := json.Unmarshal(saved, &fields); err != nil {
++			t.Fatal(err)
++		}
++		if _, legacy := fields["windowsBounds"]; legacy {
++			t.Fatalf("saved legacy format: %s", saved)
++		}
++		var restored WindowState
++		if err := json.Unmarshal(saved, &restored); err != nil {
++			t.Fatal(err)
++		}
++		if restored != st {
++			t.Fatalf("round trip changed placement: %+v", restored)
++		}
++	}
++}

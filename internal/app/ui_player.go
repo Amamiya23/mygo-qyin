@@ -48,6 +48,10 @@ func (a *app) scrubber(c *ui.Context, st *scrubState, track, fill ui.Color, heig
 	})
 	pressed := st.held
 	switch {
+	case s.PressCanceled():
+		// Losing capture ends the preview without committing a seek.
+		st.held, st.active = false, false
+		st.v = pl.Position().Seconds()
 	case pressed:
 		st.active = true
 	case st.active:

@@ -1,8 +1,8 @@
 diff --git a/cmd/mygo/config.go b/cmd/mygo/config.go
-index 5db19da..1efa12f 100644
+index 97f2f44..381a911 100644
 --- a/cmd/mygo/config.go
 +++ b/cmd/mygo/config.go
-@@ -557,10 +557,15 @@ func (c *Config) devIcon() string {
+@@ -575,10 +575,15 @@ func (c *Config) devIcon() string {
  	if c.Icon == "" {
  		return ""
  	}
@@ -21,7 +21,7 @@ index 5db19da..1efa12f 100644
 +	return strings.TrimSuffix(icon, ext) + "-dev" + ext
 +}
 diff --git a/cmd/mygo/dev.go b/cmd/mygo/dev.go
-index 12f5c8c..ef12c6a 100644
+index 37b8877..29c223e 100644
 --- a/cmd/mygo/dev.go
 +++ b/cmd/mygo/dev.go
 @@ -499,8 +499,8 @@ func devHelp() string {
@@ -73,7 +73,7 @@ index 12f5c8c..ef12c6a 100644
  			return nil, err
  		}
 diff --git a/cmd/mygo/watch.go b/cmd/mygo/watch.go
-index 66c28e7..71bd445 100644
+index ecc97c8..2437fb7 100644
 --- a/cmd/mygo/watch.go
 +++ b/cmd/mygo/watch.go
 @@ -27,7 +27,7 @@ import (
@@ -85,7 +85,7 @@ index 66c28e7..71bd445 100644
  	// resources is the resources directory: everything in it but the
  	// platform directories of other platforms.
  	resources string
-@@ -61,6 +61,15 @@ func listBuildInputs(c *Config) (*buildInputs, error) {
+@@ -72,6 +72,15 @@ func listBuildInputs(c *Config) (*buildInputs, error) {
  	if c.Icon != "" {
  		in.files = append(in.files, c.path(c.Icon))
  	}

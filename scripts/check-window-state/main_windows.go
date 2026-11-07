@@ -45,10 +45,6 @@ type memoryStore struct{ states map[string]mygo.WindowState }
 func copyStates(states map[string]mygo.WindowState) map[string]mygo.WindowState {
 	out := make(map[string]mygo.WindowState, len(states))
 	for key, state := range states {
-		if state.WindowsBounds != nil {
-			bounds := *state.WindowsBounds
-			state.WindowsBounds = &bounds
-		}
 		out[key] = state
 	}
 	return out
@@ -119,7 +115,7 @@ func makeTargets(displays []display, store *memoryStore) []target {
 		key := fmt.Sprintf("window-state-regression-%d", i)
 		store.states[key] = mygo.WindowState{
 			Width: width, Height: height,
-			WindowsBounds: &mygo.Rectangle{X: x, Y: y, Width: pixelW, Height: pixelH},
+			PixelX: x, PixelY: y, PixelWidth: pixelW, PixelHeight: pixelH,
 		}
 		targets = append(targets, target{index: i, display: d, key: key, want: want, width: width, height: height})
 	}
@@ -160,9 +156,10 @@ func checkCycle(t target, store *memoryStore, cycle, cycles int) error {
 		X: int(t.want.left), Y: int(t.want.top),
 		Width: int(t.want.right - t.want.left), Height: int(t.want.bottom - t.want.top),
 	}
-	if !exists || saved.Width != t.width || saved.Height != t.height || saved.WindowsBounds == nil || *saved.WindowsBounds != wantPixels {
+	savedPixels := mygo.Rectangle{X: saved.PixelX, Y: saved.PixelY, Width: saved.PixelWidth, Height: saved.PixelHeight}
+	if !exists || saved.Width != t.width || saved.Height != t.height || savedPixels != wantPixels {
 		return fmt.Errorf("cycle=%d display=%d: savedDIP=%dx%d savedPixels=%+v exists=%v; wantDIP=%dx%d wantPixels=%+v",
-			cycle, t.index, saved.Width, saved.Height, saved.WindowsBounds, exists, t.width, t.height, wantPixels)
+			cycle, t.index, saved.Width, saved.Height, savedPixels, exists, t.width, t.height, wantPixels)
 	}
 	if cycle == 1 || cycle == cycles {
 		fmt.Printf("PASS cycle=%d/%d display=%d pixels=%s dpi=%d savedDIP=%dx%d\n",

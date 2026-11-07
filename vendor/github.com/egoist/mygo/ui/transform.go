@@ -11,10 +11,11 @@ import (
 // Transform is a visual transform, in 2D, or in 3D seen in perspective.
 // Its zero value is identity. It changes drawing and interaction, leaving
 // the space reserved by layout unchanged. Build one with Translation,
-// Scaling, Rotation and Skewing, and in 3D RotationX, RotationY and
-// Perspective, and compose them with Then. Elements inherit their
-// ancestors' transforms; each flattens what its 3D transform makes of it
-// into its parent's plane, as CSS's flat transform-style.
+// Scaling, Rotation and Skewing, and in 3D TranslationZ, Translation3D,
+// RotationX, RotationY and Perspective, and compose them with Then.
+// Elements inherit their ancestors' transforms; each flattens what its 3D
+// transform makes of it into its parent's plane, as CSS's flat
+// transform-style.
 type Transform struct {
 	m  scene.Affine
 	d3 *mat4 // a transform in 3D, which m is not
@@ -48,11 +49,22 @@ func (t Transform) flat() scene.Affine {
 		return t.m
 	}
 	m := t.d3
+	// k is the origin's divisor. Not positive, the origin is at or behind
+	// the viewer, where a Z translation as far as Perspective's distance
+	// puts it, and nothing shows: as in CSS, where all of a plane not
+	// turned is then behind the viewer. scene.Affine, whose divisor is 1
+	// at the origin, has no form for such a map.
 	k := m[15]
-	if k == 0 || math.IsNaN(float64(k)) {
+	if !(k > 0) {
 		return scene.Affine{Set: true} // singular: nothing shows
 	}
-	return scene.Projective(m[0]/k, m[4]/k, m[1]/k, m[5]/k, m[3]/k, m[7]/k, m[12]/k, m[13]/k)
+	v := [8]float32{m[0] / k, m[4] / k, m[1] / k, m[5] / k, m[3] / k, m[7] / k, m[12] / k, m[13] / k}
+	for _, n := range v {
+		if math.IsInf(float64(n), 0) || math.IsNaN(float64(n)) {
+			return scene.Affine{Set: true}
+		}
+	}
+	return scene.Projective(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7])
 }
 
 // in3D returns m as a Transform.
@@ -63,6 +75,33 @@ func Translation(x, y float32) Transform {
 	finiteTransform(x, y)
 	scene.FoldTranslations() // renderers draw them as untransformed content
 	return Transform{m: scene.Translation(x, y)}
+}
+
+// TranslationZ moves content z DIPs along the axis toward the viewer, as
+// CSS's translateZ(): with Perspective after it, nearer for positive z,
+// looking larger, and farther for negative z, looking smaller, by
+// distance/(distance-z) around the transform's origin. Without
+// Perspective it changes nothing that shows, as in CSS. Content moved as
+// far as Perspective's distance, or past it, is behind the viewer and
+// shows nothing.
+//
+//	// 120 DIPs behind the plane, seen from 800 DIPs: 800/920 its size.
+//	ui.Box(c).Size(240, 160).Transform(ui.TranslationZ(-120).Then(ui.Perspective(800)))
+func TranslationZ(z float32) Transform { return Translation3D(0, 0, z) }
+
+// Translation3D moves content by x and y DIPs in its plane and z toward
+// the viewer, as CSS's translate3d(): Translation and TranslationZ.
+func Translation3D(x, y, z float32) Transform {
+	finiteTransform(x, y, z)
+	if z == 0 {
+		return Translation(x, y)
+	}
+	if x != 0 || y != 0 {
+		scene.FoldTranslations() // without Perspective, it only moves
+	}
+	m := identity4()
+	m[3], m[7], m[11] = x, y, z
+	return in3D(m)
 }
 
 // Scaling scales each axis; zero collapses it and negative values reflect it.
@@ -140,13 +179,31 @@ func (t Transform) Then(next Transform) Transform {
 	return in3D(p)
 }
 
-// Transform sets the element's visual transform. Its origin is the center
-// of its border box unless TransformOrigin changes it.
-func (e *node) Transform(t Transform) *node { e.transform = t; return e }
+// Transform sets the element's visual transform, in place of the one it
+// had, TranslatePercent's included. Its origin is the center of its
+// border box unless TransformOrigin changes it.
+func (e *node) Transform(t Transform) *node { e.transform, e.translatePct = t, [2]float32{}; return e }
 
 // Translate moves the element after its existing transform.
 func (e *node) Translate(x, y float32) *node {
 	e.transform = e.transform.Then(Translation(x, y))
+	return e
+}
+
+// TranslatePercent moves the element by x and y percent of its own width
+// and height, as CSS's translate(-50%, -50%) does: of its border box as
+// the frame lays it out, so that it is in place from its first frame and
+// follows its size as it changes. It acts after the element's other
+// transforms, wherever it is called among them, and before its pose
+// (AnimatePose), and adds to a TranslatePercent before it. A callout
+// centered above a point:
+//
+//	ui.Box(c).Absolute().Left(p.X).Top(p.Y).TranslatePercent(-50, -100)
+func (e *node) TranslatePercent(x, y float32) *node {
+	finiteTransform(x, y)
+	scene.FoldTranslations() // renderers draw them as untransformed content
+	e.translatePct[0] += x
+	e.translatePct[1] += y
 	return e
 }
 
@@ -169,6 +226,16 @@ func (e *node) TransformOrigin(x, y float32) *node {
 // origin, by x degrees along the horizontal axis and y along the vertical.
 func (e *node) Skew(x, y float32) *node {
 	e.transform = e.transform.Then(Skewing(x, y))
+	return e
+}
+
+// TranslateZ moves the element z DIPs toward the viewer after its
+// existing transform, as TranslationZ: follow it with Perspective to see
+// it nearer or farther. A card lifting toward the viewer as it turns over:
+//
+//	card.RotateY(turn).TranslateZ(lift).Perspective(800)
+func (e *node) TranslateZ(z float32) *node {
+	e.transform = e.transform.Then(TranslationZ(z))
 	return e
 }
 
@@ -209,18 +276,32 @@ func (e *node) Perspective(distance float32) *node {
 func (e *node) BackfaceHidden() *node { e.backface = true; return e }
 
 // facesAway reports whether t turns the front of its plane, which faces
-// the viewer, away: whether its normal points away.
+// the viewer, away: whether its normal, by the inverse transpose of t,
+// points away. The inverse holds t's perspective, so that a plane moved
+// off its origin, as by TranslationZ before a turn, faces where the viewer
+// sees it from, as Chromium's IsBackFaceVisible has it: the item at the
+// side of a carousel turns its back as it passes the viewer's line.
 func (t Transform) facesAway() bool {
 	if t.d3 == nil {
 		return false
 	}
-	m := t.d3
-	det := m[0]*(m[5]*m[10]-m[6]*m[9]) - m[1]*(m[4]*m[10]-m[6]*m[8]) + m[2]*(m[4]*m[9]-m[5]*m[8])
+	var m [16]float64
+	for i, v := range t.d3 {
+		m[i] = float64(v)
+	}
+	det3 := func(r0, r1, r2, c0, c1, c2 int) float64 {
+		a := func(r, c int) float64 { return m[4*r+c] }
+		return a(r0, c0)*(a(r1, c1)*a(r2, c2)-a(r1, c2)*a(r2, c1)) -
+			a(r0, c1)*(a(r1, c0)*a(r2, c2)-a(r1, c2)*a(r2, c0)) +
+			a(r0, c2)*(a(r1, c0)*a(r2, c1)-a(r1, c1)*a(r2, c0))
+	}
+	// The determinant, along the last column; the inverse's entry at row
+	// and column 2 is the cofactor there over it.
+	det := -m[3]*det3(1, 2, 3, 0, 1, 2) + m[7]*det3(0, 2, 3, 0, 1, 2) - m[11]*det3(0, 1, 3, 0, 1, 2) + m[15]*det3(0, 1, 2, 0, 1, 2)
 	if det == 0 {
 		return false
 	}
-	// The normal's z, by the inverse transpose of the linear part.
-	return (m[0]*m[5]-m[1]*m[4])/det < 0
+	return det3(0, 1, 3, 0, 1, 3)*det < 0
 }
 
 func finiteTransform(v ...float32) {
@@ -232,8 +313,13 @@ func finiteTransform(v ...float32) {
 }
 
 func (e *node) transformAt(x, y float32) scene.Affine {
-	// Its pose (AnimatePose) acts after its own transform.
-	m := e.poseM.Mul(e.transform.flat())
+	// Its pose (AnimatePose) acts after its own transform, which ends
+	// with its TranslatePercent.
+	m := e.transform.flat()
+	if p := e.translatePct; p != [2]float32{} {
+		m = scene.Translation(p[0]/100*e.w, p[1]/100*e.h).Mul(m)
+	}
+	m = e.poseM.Mul(m)
 	if !m.Set {
 		return scene.Affine{}
 	}
@@ -302,35 +388,42 @@ func (s *state) vector(x, y, dx, dy float32) (float32, float32) {
 	return m.VectorAt(x, y, dx, dy)
 }
 
-// contains tests the actual transformed box and every ancestor's clip,
-// rather than the conservative rectangles used for accessibility and culling.
+// contains tests the actual transformed box, where it takes the pointer
+// (HitTest) and every ancestor's clip, rather than the conservative
+// rectangles used for accessibility and culling.
 func (rt *engine) contains(s *state, r Rect, x, y float32) bool {
 	m, ok := s.world.Inverse()
 	if !ok {
 		return false
 	}
 	lx, ly := m.Point(x, y)
-	if !r.Contains(lx, ly) {
+	if !r.Contains(lx, ly) || s.selfClips && !roundedContains(s.selfClip, uniformRadii(s.selfRadius), lx, ly) ||
+		s.hitFn != nil && !s.hitFn(lx, ly, Rect{s.x, s.y, s.w, s.h}) {
 		return false
 	}
-	for p := rt.states[s.parent]; p != nil; p = rt.states[p.parent] {
-		if p.clips {
+	// The clips around an element flying stop at it, as it paints out of
+	// them.
+	for p := rt.states[s.parent]; p != nil && !s.lifted; p = rt.states[p.parent] {
+		if p.clips || p.selfClips {
 			m, ok := p.world.Inverse()
 			if !ok {
 				return false
 			}
 			px, py := m.Point(x, y)
-			if !roundedContains(p.clipRect, p.clipRadii, px, py) {
+			if p.clips && !roundedContains(p.clipRect, p.clipRadii, px, py) ||
+				p.selfClips && !roundedContains(p.selfClip, uniformRadii(p.selfRadius), px, py) {
 				return false
 			}
 		}
-		if p.parent == 0 {
+		if p.lifted || p.parent == 0 {
 			break
 		}
 	}
 	w, h, _ := rt.size()
 	return x >= 0 && y >= 0 && x < w && y < h
 }
+
+func uniformRadii(r float32) [4]float32 { return [4]float32{r, r, r, r} }
 
 func roundedContains(r Rect, radii [4]float32, x, y float32) bool {
 	if !r.Contains(x, y) {
@@ -377,7 +470,7 @@ func (p *Painter) inlineTransforms() bool {
 	var walk func(*node) bool
 	walk = func(e *node) bool {
 		for ch := e.first; ch != nil; ch = ch.next {
-			if ch.transform.set() || walk(ch) {
+			if ch.transform.set() || ch.translatePct != [2]float32{} || walk(ch) {
 				return true
 			}
 		}

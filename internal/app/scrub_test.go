@@ -98,3 +98,41 @@ func TestSquigglyPausedSeek(t *testing.T) {
 		t.Fatalf("keyboard seek: playing %v, position %v", a.pl.Playing(), a.pl.Position())
 	}
 }
+
+// Canceling a progress drag used to seek on capture loss; discard it and allow the next drag to commit.
+func TestScrubCanceledDrag(t *testing.T) {
+	for _, effect := range progressEffects {
+		t.Run(effect.id, func(t *testing.T) {
+			a := newTestApp()
+			a.settings.setProgressEffect(effect.id)
+			a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "宝船", Duration: 200000}})
+			a.pl.Seek(40 * time.Second)
+			tt := ui.NewTester(func(c *ui.Context) {
+				a.scrubber(c, &a.barScrub, radixSage(false, 5), radixGreen(false, 9), 16, ui.Color{}).Width(400)
+			}, 400, 48)
+			tt.Frame()
+			bar, ok := tt.Find("播放进度")
+			if !ok {
+				t.Fatal("no progress bar")
+			}
+			y := bar.Y + bar.H/2
+			x := bar.X + bar.W*0.75
+			tt.Press(bar.X+bar.W*0.2, y)
+			tt.Move(x, y+30)
+			tt.Frame()
+			tt.CancelPress()
+			tt.Frame()
+			tt.Frame()
+			if a.pl.Position() != 40*time.Second || a.barScrub.held || a.barScrub.active || a.barScrub.v != 40 {
+				t.Fatalf("canceled drag: position %v, scrub %+v", a.pl.Position(), a.barScrub)
+			}
+			tt.Press(bar.X+bar.W*0.2, y)
+			tt.Move(x, y+30)
+			tt.Release(x, y+30)
+			tt.Frame()
+			if a.pl.Playing() || a.pl.Position() != 150*time.Second {
+				t.Fatalf("next drag: playing %v, position %v", a.pl.Playing(), a.pl.Position())
+			}
+		})
+	}
+}
