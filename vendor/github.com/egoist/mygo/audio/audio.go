@@ -31,10 +31,11 @@ import (
 )
 
 const channels = 2
+const defaultOutputRate = 48000
 
 // outputRate is the target device rate, guarded by mu. Backends receive
 // an immutable snapshot so opening/writing never races with Play.
-var outputRate = 48000
+var outputRate = defaultOutputRate
 
 // mu guards the voices playing and the state of every player.
 var mu sync.Mutex
@@ -282,18 +283,19 @@ func (p *Player) Play() {
 		v.src.seek(0)
 		v.reset(0)
 	}
-	// A primary music player takes priority over effects and old fade-outs.
-	other := slices.ContainsFunc(voices, func(other *voice) bool {
-		return other != v && other.playing && !other.closed
-	})
-	if (v.primary || !other) && int(v.rate) > 0 && outputRate != int(v.rate) {
-		outputRate = int(v.rate)
-		warmupFrames = outputRate / 5
+	if desktopAudioFeatures {
+		// A primary music player takes priority over effects and old fade-outs.
+		other := slices.ContainsFunc(voices, func(other *voice) bool {
+			return other != v && other.playing && !other.closed
+		})
+		if (v.primary || !other) && int(v.rate) > 0 {
+			outputRate = int(v.rate)
+		}
+		if v.preRoll && (v.fresh || v.at() == 0 || outputState != outputReady || deviceRate != outputRate) {
+			warmupFrames = outputRate / 5
+		}
 	}
-	if v.fresh || v.at() == 0 || outputState != outputReady || deviceRate != outputRate {
-		warmupFrames = outputRate / 5
-		v.fresh = false
-	}
+	v.fresh = false
 	v.playing = true
 	if !v.active {
 		// A sound starting at its start starts at once; one resuming in
@@ -308,11 +310,26 @@ func (p *Player) Play() {
 }
 
 // SetPrimary lets this music player select the output rate even while
-// effects or a previous track's fade-out are still active.
+// effects or a previous track's fade-out are still active. It has no effect
+// on Web, Android, iOS or unsupported backends.
 func (p *Player) SetPrimary(primary bool) *Player {
 	mu.Lock()
 	defer mu.Unlock()
 	p.v.primary = primary
+	return p
+}
+
+// SetPreRoll enables 200 ms of output silence before this player starts
+// a new song, restarts from the beginning or needs its output reopened.
+// It defaults to false; short mid-song resumes on an open output add no silence.
+// The output is shared: while warming up, all mixed sources stand still.
+// Changing this option takes effect on the next Play or device open;
+// disabling it cancels pending silence once no playing player requests it.
+// It has no effect on Web, Android, iOS or unsupported backends.
+func (p *Player) SetPreRoll(enabled bool) *Player {
+	mu.Lock()
+	defer mu.Unlock()
+	p.v.preRoll = enabled && desktopAudioFeatures
 	return p
 }
 

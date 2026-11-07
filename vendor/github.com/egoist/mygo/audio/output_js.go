@@ -9,8 +9,8 @@ import (
 )
 
 // Browsers play through an AudioWorklet, which asks the page for a chunk
-// whenever it used one up. The AudioContext is recreated when its rate
-// changes; closing the output otherwise suspends it. Pages may start audio only after the
+// whenever it used one up. One AudioContext serves the page for its life:
+// closing the output suspends it. Pages may start audio only after the
 // user interacted with them, so it resumes on the first input too.
 
 const (
@@ -57,12 +57,10 @@ registerProcessor("mygo-output", MyGoOutput);
 `
 
 var (
-	jsContext         js.Value
-	jsPort            js.Value
-	jsCredits         = make(chan struct{}, 32)
-	jsErr             error
-	jsInputRegistered bool
-	jsMessageHandler  js.Func
+	jsContext js.Value
+	jsPort    js.Value
+	jsCredits = make(chan struct{}, 32)
+	jsErr     error
 
 	// jsAhead is how many chunks are queued in the worklet or asked for,
 	// and jsOwed how many it asks for that are to go unanswered, as the
@@ -71,19 +69,10 @@ var (
 	jsOwed  int
 )
 
-// jsSetup creates an AudioContext at the requested rate. The worklet's
-// queue follows latency changes without recreating the context.
-func jsSetup(ahead time.Duration, rate int) error {
-	if !jsContext.IsUndefined() && jsContext.Get("sampleRate").Int() != rate {
-		jsPort.Set("onmessage", js.Null())
-		jsMessageHandler.Release()
-		jsContext.Call("close")
-		jsContext = js.Undefined()
-		jsAhead, jsOwed = jsChunks, 0
-		for len(jsCredits) > 0 {
-			<-jsCredits
-		}
-	}
+// jsSetup creates the page's AudioContext and its worklet, once: the
+// context keeps the latency it began with, the worklet's queue follows
+// the latency set since.
+func jsSetup(ahead time.Duration) error {
 	if !jsContext.IsUndefined() || jsErr != nil {
 		return jsErr
 	}
@@ -96,7 +85,7 @@ func jsSetup(ahead time.Duration, rate int) error {
 	if ahead >= LatencyPlayback.ahead() {
 		hint = "playback"
 	}
-	ctx := class.New(map[string]any{"sampleRate": rate, "latencyHint": hint})
+	ctx := class.New(map[string]any{"sampleRate": defaultOutputRate, "latencyHint": hint})
 	if !ctx.Get("audioWorklet").Truthy() {
 		jsErr = errors.New("audio: this browser has no AudioWorklet")
 		return jsErr
@@ -128,26 +117,22 @@ func jsSetup(ahead time.Duration, rate int) error {
 	})
 	node.Call("connect", ctx.Get("destination"))
 	jsPort = node.Get("port")
-	jsMessageHandler = js.FuncOf(func(this js.Value, args []js.Value) any {
+	jsPort.Set("onmessage", js.FuncOf(func(this js.Value, args []js.Value) any {
 		select {
 		case jsCredits <- struct{}{}:
 		default:
 		}
 		return nil
-	})
-	jsPort.Set("onmessage", jsMessageHandler)
+	}))
 	// The first input lets a page start audio.
-	if !jsInputRegistered {
-		jsInputRegistered = true
-		resume := js.FuncOf(func(this js.Value, args []js.Value) any {
-			if !jsContext.IsUndefined() && jsContext.Get("state").String() == "suspended" && jsOpen {
-				jsContext.Call("resume")
-			}
-			return nil
-		})
-		for _, ev := range []string{"pointerdown", "keydown", "touchend"} {
-			js.Global().Call("addEventListener", ev, resume, map[string]any{"capture": true})
+	resume := js.FuncOf(func(this js.Value, args []js.Value) any {
+		if jsContext.Get("state").String() == "suspended" && jsOpen {
+			jsContext.Call("resume")
 		}
+		return nil
+	})
+	for _, ev := range []string{"pointerdown", "keydown", "touchend"} {
+		js.Global().Call("addEventListener", ev, resume, map[string]any{"capture": true})
 	}
 	jsContext = ctx
 	return nil
@@ -158,11 +143,11 @@ var jsOpen bool
 
 type jsDevice struct{}
 
-func openDevice(ahead time.Duration, rate int) (device, int, error) {
-	if err := jsSetup(ahead, rate); err != nil {
+func openDevice(ahead time.Duration, _ int) (device, int, error) {
+	if err := jsSetup(ahead); err != nil {
 		return nil, 0, err
 	}
-	want := max(jsChunks, int((int64(ahead)*int64(rate)/int64(time.Second)+jsFrames-1)/jsFrames))
+	want := max(jsChunks, int((int64(ahead)*defaultOutputRate/int64(time.Second)+jsFrames-1)/jsFrames))
 	if more := want - jsAhead; more > 0 {
 		// Asks the owed ones answer first.
 		cancel := min(jsOwed, more)

@@ -40,6 +40,9 @@ var (
 // every open, including reopening after idle close, error or system wake.
 // The most recently started primary music voice wins over sound effects.
 func playbackRateLocked() int {
+	if !desktopAudioFeatures {
+		return defaultOutputRate
+	}
 	rate := 0
 	for i := len(voices) - 1; i >= 0; i-- {
 		v := voices[i]
@@ -57,6 +60,20 @@ func playbackRateLocked() int {
 		return rate
 	}
 	return outputRate
+}
+
+// preRollRequestedLocked excludes ordinary effects and platforms which do
+// not support hardware pre-roll. The caller holds mu.
+func preRollRequestedLocked() bool {
+	if !desktopAudioFeatures {
+		return false
+	}
+	for _, v := range voices {
+		if v.playing && !v.closed && v.preRoll {
+			return true
+		}
+	}
+	return false
 }
 
 var (
@@ -132,7 +149,10 @@ func playOutput() {
 			// Null output holds nothing.
 			held = 0
 		}
-		warmupFrames = rate / 5
+		warmupFrames = 0
+		if preRollRequestedLocked() {
+			warmupFrames = rate / 5
+		}
 		for _, v := range voices {
 			v.marks = v.marks[:0]
 			// Recalculate any running gain ramp at the new output rate.

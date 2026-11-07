@@ -1,3 +1,5 @@
+//go:build (darwin && !ios) || (((linux && !android) || windows) && (amd64 || arm64))
+
 package audio
 
 import (
@@ -6,45 +8,6 @@ import (
 	"testing"
 	"time"
 )
-
-// All tests drive frames explicitly; no device, decoder worker or clock sleeps.
-func resetOutputTest(t *testing.T) {
-	t.Helper()
-	mu.Lock()
-	testMode = true
-	voices = nil
-	outputRate, warmupFrames = 48000, 0
-	outputState, deviceRate = outputClosed, 0
-	mixed, held, unheard = 0, 0, 0
-	volume, latency = 1, LatencyInteractive
-	mu.Unlock()
-	original := openOutput
-	t.Cleanup(func() {
-		mu.Lock()
-		for _, v := range voices {
-			v.close()
-		}
-		voices = nil
-		testMode = true
-		openOutput = original
-		mu.Unlock()
-	})
-}
-
-func mixTest(buf []float32) bool {
-	mu.Lock()
-	outputState, deviceRate = outputReady, outputRate
-	mu.Unlock()
-	return mix(buf)
-}
-
-func testSong(rate int) *Player {
-	samples := make([]float32, rate*2)
-	for i := range samples {
-		samples[i] = float32(i%97-48) / 64
-	}
-	return NewSound(rate, 2, samples).NewPlayer()
-}
 
 func TestNativeRatePreroll(t *testing.T) {
 	for _, rate := range []int{44100, 48000, 88200, 96000, 192000} {
@@ -424,7 +387,7 @@ func (d rateTestDecoder) Read(buf []float32) (int, error) { clear(buf); return l
 
 func TestStreamPlayRestoresDecoderRate(t *testing.T) {
 	resetOutputTest(t)
-	p := NewPlayer(rateTestDecoder{96000})
+	p := NewPlayer(rateTestDecoder{96000}).SetPreRoll(true)
 	defer p.Close()
 	p.v.rate = 48000
 	p.Play()

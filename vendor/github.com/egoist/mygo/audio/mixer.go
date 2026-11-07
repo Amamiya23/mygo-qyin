@@ -62,6 +62,7 @@ type voice struct {
 	length int64 // frames, or -1
 
 	fresh   bool // has never started, including a player initially seeked into a song
+	preRoll bool // explicitly requests hardware warm-up on supported desktops
 	primary bool // selects the output rate ahead of other voices
 	playing bool // as the API sees it
 	active  bool // in voices, which it stays in while fading out
@@ -353,6 +354,9 @@ func mixLocked(out []float32) bool {
 	at, h := mixed, heard()
 	// Split even a buffer straddling the end of pre-roll exactly. Marks
 	// on both sides of the silence keep Position fixed until music is heard.
+	if !preRollRequestedLocked() {
+		warmupFrames = 0
+	}
 	silent := min(warmupFrames, len(out)/channels)
 	warmupFrames -= silent
 	for _, v := range voices {

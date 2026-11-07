@@ -20,7 +20,10 @@ Lilt 是基于 MyGo 云音乐改造的第三方 QQ 音乐客户端，使用 Go �
 
 动态跟随音源采样率输出，以及切歌、设备切频与唤醒时的 200ms 静音预热，
 仅适用于 **Desktop（Windows、macOS、Linux）**，不适用于 **Web 和 Mobile（Android、iOS）**。
-具体行为、验证范围与 Bit-Perfect 限制见[桌面音频输出说明](docs/desktop-audio.md)。
+代码通过平台构建约束隔离这两项功能；预热默认关闭，由 Lilt 的主音乐播放器显式开启，
+普通音效不会默认新增 200ms 延迟。
+具体 API、验证范围与 Bit-Perfect 限制见[桌面音频输出说明](docs/desktop-audio.md)，
+提交上游时可参考 [PR 说明草稿](docs/desktop-audio-pr.md)。
 
 ## 构建
 
