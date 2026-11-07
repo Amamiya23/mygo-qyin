@@ -1,0 +1,53 @@
+name: Manual release build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS, os: macos-latest, platform: "darwin/arm64,darwin/amd64" }
+          - { name: Windows, os: ubuntu-latest, platform: "windows/amd64,windows/arm64" }
+          - { name: Linux, os: ubuntu-latest, platform: "linux/amd64,linux/arm64" }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install NSIS
+        if: matrix.name == 'Windows'
+        run: sudo apt-get update && sudo apt-get install -y nsis
+      - name: Build signed packages
+        env:
+          CGO_ENABLED: "0"
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+        run: |
+          test -n "$MYGO_UPDATER_PRIVATE_KEY" || { echo "Missing update signing key" >&2; exit 1; }
+          go tool mygo build -platform "${{ matrix.platform }}"
+          for target in $(echo "${{ matrix.platform }}" | tr "," " " | tr "/" "-"); do
+            test -f "build/$target/update-$target.json" || { echo "Missing signed update manifest for $target" >&2; exit 1; }
+          done
+      - name: Save build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: |
+            build/SHA256SUMS
+            build/*/*.dmg
+            build/*/*-setup-*.exe
+            build/*/*.deb
+            build/*/*.tar.gz
+            build/*/*.delta
+            build/*/update-*.json
+            build/*/install.sh
+            build/*/install.ps1
+          if-no-files-found: error
+          retention-days: 7

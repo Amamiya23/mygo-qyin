@@ -1,6 +1,6 @@
 # 更新日志
 
-## 0.3.1
+## 0.4.0
 
 - Linux 新增实验性桌面歌词(仅部分桌面环境测试)
 - 桌面歌词支持自定义颜色和透明度
@@ -10,13 +10,17 @@
 - 打磨优化部分细节及体验
 - 优化 Windows 任务栏歌词
 - 调整应用图标样式和 macOS 图标尺寸，修复 macOS 刘海播放器展开时出现白边的问题
+- 桌面端音频输出支持跟随音源采样率，设备冷启动、切换采样率或唤醒时进行短暂静音预热
+- 正在播放页面新增从播放器封面展开的过渡动画，降低过渡时的内存占用
+- 修复正在播放页面的播放时间可能停止更新的问题
+- 修复部分音频后端在歌曲自然结束后可能无法继续播放的问题
 
 ### 下载指南
 
 | 处理器架构 | Windows | macOS | Linux |
 | :--- | :--- | :--- | :--- |
-| amd64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt-setup-0.3.1-amd64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt-0.3.1-amd64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt_0.3.1_amd64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt-0.3.1-linux-amd64.tar.gz) |
-| arm64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt-setup-0.3.1-arm64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt-0.3.1-arm64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt_0.3.1_arm64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.3.1/lilt-0.3.1-linux-arm64.tar.gz) |
+| amd64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.0/lilt-setup-0.4.0-amd64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.0/lilt-0.4.0-amd64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.0/lilt_0.4.0_amd64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.0/lilt-0.4.0-linux-amd64.tar.gz) |
+| arm64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.0/lilt-setup-0.4.0-arm64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.0/lilt-0.4.0-arm64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.0/lilt_0.4.0_arm64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.0/lilt-0.4.0-linux-arm64.tar.gz) |
 
 > Linux：Ubuntu / Debian 等支持 deb 的发行版选 `.deb`，其他发行版选 `.tar.gz`。
 
