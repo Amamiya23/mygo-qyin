@@ -388,6 +388,12 @@ func (a *app) dailyPicks(c *ui.Context, songs []qqmusic.Track) {
 // far as out, the two covers after it behind; fanned, they spread.
 func (a *app) dailyStack(c *ui.Context, songs []qqmusic.Track, fanned bool, out float32) {
 	spring := ui.Animation{Spring: ui.SpringOptions{Duration: 600 * time.Millisecond, Bounce: 0.3}}
+	cover := songs[0].Album.PicURL
+	if tr := a.pl.Current(); tr != nil && tr.Album.PicURL != "" {
+		cover = tr.Album.PicURL
+	}
+	// The small label shares the player bar's cover, without another image size.
+	label := bitmap(a.art.get(qqmusic.Sized(cover, 120), artCover))
 	ui.Box(c.Key("stack")).Size(stackWidth, sleeveSize).Shrink(0).Children(func() {
 		// The covers behind, the farthest first.
 		for i := min(2, len(songs)-1); i >= 1; i-- {
@@ -406,7 +412,12 @@ func (a *app) dailyStack(c *ui.Context, songs []qqmusic.Track, fanned bool, out 
 		ui.Box(c.Key("record")).Absolute().Left(mid+recordOut(out)-recordSize/2).Top((sleeveSize-recordSize)/2).
 			Size(recordSize, recordSize).Radius(recordSize/2).Shadow(0, 8, 20, -4, radixInk.Alpha(0.5)).
 			Draw(func(p *ui.Painter, r ui.Rect) {
-				drawRecord(p, r, bitmap(a.art.get(qqmusic.Sized(songs[0].Album.PicURL, 240), artCover)), float32(a.dailySpin.angle))
+				drawRecord(p, r, label, float32(a.dailySpin.angle))
+				// Each moving Draw must request its own repaint; the backdrop's
+				// request alone leaves this record cached between view updates.
+				if a.dailySpin.speed > 0 {
+					p.AnimationFrameRate(dailyRate)
+				}
 			})
 		// The sleeve.
 		sleeve := ui.Box(c.Key("sleeve")).Absolute().Left(sleeveLeft).Top(0).Size(sleeveSize, sleeveSize).Radius(12).
