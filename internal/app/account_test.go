@@ -86,10 +86,16 @@ func fakeSubscriptions(t *testing.T) chan struct{} {
 	asked := make(chan struct{}, 8)
 	ars, pods := followedArtists, subscribedPodcasts
 	membership := userMembership
-	t.Cleanup(func() { followedArtists, subscribedPodcasts, userMembership = ars, pods, membership })
+	expiry := userMembershipExpiry
+	dates := userMembershipDates
+	t.Cleanup(func() {
+		followedArtists, subscribedPodcasts, userMembership, userMembershipExpiry, userMembershipDates = ars, pods, membership, expiry, dates
+	})
 	followedArtists = func() ([]qqmusic.ArtistProfile, error) { asked <- struct{}{}; return nil, nil }
 	subscribedPodcasts = func() ([]qqmusic.Podcast, error) { return nil, nil }
 	userMembership = func() (qqmusic.Membership, error) { return qqmusic.MembershipGreen, nil }
+	userMembershipExpiry = func(qqmusic.Membership) (string, error) { return "2027-06-30", nil }
+	userMembershipDates = func() (string, string, error) { return "2027-06-30", "", nil }
 	return asked
 }
 
@@ -108,7 +114,8 @@ func ownPageApp() *app {
 			{ID: 6, Name: "通勤十分钟", ProgramCount: 48},
 		},
 		artistsShown: true, podcastsShown: true,
-		membership: qqmusic.MembershipGreen,
+		membership:   qqmusic.MembershipGreen,
+		memberExpiry: "2027-06-30",
 	}
 	return a
 }

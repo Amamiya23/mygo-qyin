@@ -10,11 +10,13 @@ import (
 // NetEase, and followedArtists and subscribedPodcasts what the listener
 // follows; tests replace them.
 var (
-	userDetail         = qqmusic.UserDetail
-	userPlaylists      = qqmusic.UserPlaylists
-	followedArtists    = qqmusic.FollowedArtists
-	subscribedPodcasts = qqmusic.SubscribedPodcasts
-	userMembership     = qqmusic.UserMembership
+	userDetail           = qqmusic.UserDetail
+	userPlaylists        = qqmusic.UserPlaylists
+	followedArtists      = qqmusic.FollowedArtists
+	subscribedPodcasts   = qqmusic.SubscribedPodcasts
+	userMembership       = qqmusic.UserMembership
+	userMembershipExpiry = qqmusic.UserMembershipExpiry
+	userMembershipDates  = qqmusic.UserMembershipDates
 )
 
 // userData is what the app has of a user: who they are, and the playlists
@@ -35,6 +37,11 @@ type userData struct {
 	membership    qqmusic.Membership
 	memberLoading bool
 	memberErr     bool
+	memberExpiry  string
+	expiryLoading bool
+	expiryErr     bool
+	greenExpiry   string
+	superExpiry   string
 }
 
 func (a *app) loadUser(id int64) {
@@ -90,8 +97,75 @@ func (a *app) acceptMembership(id int64, d *userData, level qqmusic.Membership, 
 		return
 	}
 	d.memberLoading, d.memberErr = false, err != nil
+	if err != nil {
+		a.loadMembershipDates(id, d)
+	}
 	if err == nil {
+		if d.membership != level {
+			d.memberExpiry = ""
+		}
 		d.membership = level
+		d.expiryErr = false
+		if level == qqmusic.MembershipGreen || level == qqmusic.MembershipSuper {
+			a.loadMembershipExpiry(id, d, level)
+		}
+	}
+}
+
+func (a *app) loadMembershipDates(id int64, d *userData) {
+	if d.expiryLoading {
+		return
+	}
+	d.expiryLoading, d.expiryErr = true, false
+	fetch := userMembershipDates
+	go func() {
+		green, super, err := fetch()
+		a.post(func() {
+			if a.profile == nil || a.profile.UserID != id || a.users[id] != d {
+				return
+			}
+			d.expiryLoading, d.expiryErr = false, err != nil
+			if !d.memberErr && (d.membership == qqmusic.MembershipGreen || d.membership == qqmusic.MembershipSuper) {
+				a.loadMembershipExpiry(id, d, d.membership)
+				return
+			}
+			if err == nil {
+				d.greenExpiry, d.superExpiry = green, super
+			}
+		})
+	}()
+}
+
+func (a *app) loadMembershipExpiry(id int64, d *userData, level qqmusic.Membership) {
+	if d.expiryLoading {
+		return
+	}
+	d.expiryLoading, d.expiryErr = true, false
+	fetch := userMembershipExpiry
+	go func() {
+		expiry, err := fetch(level)
+		a.post(func() { a.acceptMembershipExpiry(id, d, level, expiry, err) })
+	}()
+}
+
+func (a *app) acceptMembershipExpiry(id int64, d *userData, level qqmusic.Membership, expiry string, err error) {
+	if a.profile == nil || a.profile.UserID != id || a.users[id] != d {
+		return
+	}
+	d.expiryLoading = false
+	if d.memberErr {
+		a.loadMembershipDates(id, d)
+		return
+	}
+	if d.membership != level {
+		if d.membership == qqmusic.MembershipGreen || d.membership == qqmusic.MembershipSuper {
+			a.loadMembershipExpiry(id, d, d.membership)
+		}
+		return
+	}
+	d.expiryErr = err != nil
+	if err == nil {
+		d.memberExpiry = expiry
 	}
 }
 
@@ -111,14 +185,30 @@ func (a *app) membershipBadge(c *ui.Context, id int64, d *userData) {
 	} else if d.memberLoading && d.membership == "" {
 		label = "正在查询会员状态"
 	}
-	ui.Row(c).Shrink(0).AlignItems(ui.Center).Gap(8).Children(func() {
+	ui.Row(c).Shrink(1).Wrap().AlignItems(ui.Center).Gap(8).Children(func() {
 		ui.Box(c).Padding(3, 8).Radius(4).Background(background).Children(func() {
 			ui.Text(c, label).FontSize(11).FontWeight(500).TextColor(ink).SingleLine()
 		})
+		if !d.memberErr && !d.expiryErr && d.memberExpiry != "" {
+			ui.Text(c, d.memberExpiry+" 到期").FontSize(12).TextColor(p.muted).SingleLine()
+		}
 		if d.memberErr && ui.ButtonBase(c).Label("重试会员状态").Padding(4, 6).Children(func() {
 			ui.Text(c, "重试").FontSize(12).TextColor(p.accent)
 		}).Clicked() {
 			a.loadMembership(id, d)
+		}
+		if d.memberErr && !d.expiryErr {
+			if d.greenExpiry != "" {
+				ui.Text(c, "绿钻有效期至 "+d.greenExpiry).FontSize(12).TextColor(p.muted).SingleLine()
+			}
+			if d.superExpiry != "" {
+				ui.Text(c, "超级会员有效期至 "+d.superExpiry).FontSize(12).TextColor(p.muted).SingleLine()
+			}
+		}
+		if !d.memberErr && d.expiryErr && ui.ButtonBase(c).Label("重试到期时间").Padding(4, 6).Children(func() {
+			ui.Text(c, "到期时间获取失败，重试").FontSize(12).TextColor(p.accent)
+		}).Clicked() {
+			a.loadMembershipExpiry(id, d, d.membership)
 		}
 	})
 }
