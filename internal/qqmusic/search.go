@@ -82,13 +82,16 @@ func SearchPageContext(ctx context.Context, query string, kind SearchType, limit
 		return SearchResult{}, ErrUnsupported
 	}
 	limit, offset = min(max(limit, 1), 20), max(offset, 0)
-	session := sessionSnapshot()
+	// Include credential renewal in the same cancellation and timeout budget as search.
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	session, err := activeSessionContext(ctx)
+	if err != nil {
+		return SearchResult{}, err
+	}
 	if !session.valid() {
 		session = Session{}
 	}
-	// Match the existing network timeout across both sources, including pacing.
-	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
-	defer cancel()
 	scope := searchSessionScope(session)
 	engine := searches
 	return engine.search(ctx, source, query, kind, limit, offset, session, scope)

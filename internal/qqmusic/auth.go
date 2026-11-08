@@ -2,6 +2,7 @@ package qqmusic
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -77,7 +78,7 @@ func (s Session) valid() bool {
 
 func (s Session) canRefresh() bool {
 	id, err := strconv.ParseInt(s.MusicID, 10, 64)
-	return s.LoginType == 1 && err == nil && id > 0 && s.MusicKey != "" && (s.RefreshKey != "" || s.RefreshToken != "")
+	return (s.LoginType == 1 || s.LoginType == 2) && err == nil && id > 0 && s.MusicKey != "" && (s.RefreshKey != "" || s.RefreshToken != "")
 }
 
 const qqSessionSecret = "qqmusic-session"
@@ -105,7 +106,7 @@ var readPersistedSession = func() ([]byte, error) {
 	return b, err
 }
 
-// RestoreSession also retains an expired WeChat credential when it can refresh.
+// RestoreSession retains expired QQ and WeChat credentials when they can refresh.
 func RestoreSession() bool {
 	b, err := readPersistedSession()
 	var s Session
@@ -161,39 +162,29 @@ func Logout() { ClearSession() }
 
 // Account uses the credential's ID: GetLoginUserInfo does not return one.
 func Account() (*Profile, error) {
-	s := sessionSnapshot()
+	prior := sessionSnapshot()
+	s, err := activeSession()
+	if err != nil {
+		return nil, err
+	}
 	if !s.valid() {
-		if !s.canRefresh() {
-			return nil, nil
-		}
-		var err error
-		s, err = refreshWechatSession(s)
-		if err != nil {
-			return nil, err
-		}
-		setSession(s)
-		if err = SaveSession(); err != nil {
-			return nil, err
-		}
+		return nil, nil
 	}
 	var data struct {
 		Info map[string]json.RawMessage `json:"info"`
 	}
-	err := rpc("music.UserInfo.userInfoServer", "GetLoginUserInfo", map[string]any{}, &data)
-	var rejected *ProtocolError
-	if s.LoginType == 1 && errors.As(err, &rejected) && rejected.GlobalCode == 0 && (rejected.Code == 1000 || rejected.Code == 104400 || rejected.Code == 104401) {
-		s, err = refreshWechatSession(s)
+	err = rpc("music.UserInfo.userInfoServer", "GetLoginUserInfo", map[string]any{}, &data)
+	if s == prior && s.canRefresh() && isCredentialRejection(err) {
+		s, err = renewSession(s)
 		if err == nil {
-			setSession(s)
-			if err = SaveSession(); err != nil {
-				return nil, err
+			if !s.valid() {
+				return nil, nil
 			}
 			err = rpc("music.UserInfo.userInfoServer", "GetLoginUserInfo", map[string]any{}, &data)
 		}
 	}
 	if err != nil {
-		var rejected *ProtocolError
-		if errors.As(err, &rejected) && rejected.GlobalCode == 0 && (rejected.Code == 1000 || rejected.Code == 104400 || rejected.Code == 104401) {
+		if !s.canRefresh() && isCredentialRejection(err) {
 			ClearSession()
 			return nil, nil
 		}
@@ -231,8 +222,12 @@ const (
 const loginJump = "https://graph.qq.com/oauth2.0/login_jump"
 
 func authSend(method, raw string, body io.Reader, headers http.Header) (*http.Response, error) {
+	return authSendContext(context.Background(), method, raw, body, headers)
+}
+
+func authSendContext(ctx context.Context, method, raw string, body io.Reader, headers http.Header) (*http.Response, error) {
 	step := loginStep(raw)
-	req, err := http.NewRequest(method, raw, body)
+	req, err := http.NewRequestWithContext(ctx, method, raw, body)
 	if err != nil {
 		return nil, loginFailure(step, err)
 	}

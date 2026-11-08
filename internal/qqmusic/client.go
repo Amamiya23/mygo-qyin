@@ -108,6 +108,11 @@ func rpcWithComm(module, method string, param any, out any, comm map[string]any,
 func rpcWithCommContext(ctx context.Context, module, method string, param any, out any, comm map[string]any, headers map[string]string) error {
 	s := sessionSnapshot()
 	if comm == nil {
+		var err error
+		s, err = activeSessionContext(ctx)
+		if err != nil {
+			return err
+		}
 		comm = map[string]any{"ct": 24, "cv": 0}
 		if s.MusicKey != "" {
 			comm = authenticatedComm(s)
@@ -190,7 +195,10 @@ func cgi(path string, q url.Values, out any) error {
 	}
 	req.Header.Set("Referer", "https://y.qq.com/")
 	req.Header.Set("User-Agent", UserAgent)
-	s := sessionSnapshot()
+	s, err := activeSession()
+	if err != nil {
+		return err
+	}
 	if s.MusicKey != "" {
 		req.Header.Set("Cookie", "uin="+s.MusicID+"; qqmusic_uin="+s.MusicID+"; qm_keyst="+s.MusicKey+"; qqmusic_key="+s.MusicKey)
 	}

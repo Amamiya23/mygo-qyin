@@ -152,7 +152,7 @@ func checkWechatQR(key string, login qrLogin) (code int, msg, nickname, avatar s
 		if len(match[2]) == 0 {
 			return 0, "", "", "", errors.New("qqmusic: missing WeChat authorization code")
 		}
-		s, err := exchangeWechatSession(map[string]any{"code": string(match[2]), "strAppid": wechatAppID}, nil, qr.device)
+		s, err := exchangeSession(context.Background(), map[string]any{"code": string(match[2]), "strAppid": wechatAppID}, nil, qr.device)
 		if err != nil {
 			return 0, "", "", "", err
 		}
@@ -166,13 +166,15 @@ func checkWechatQR(key string, login qrLogin) (code int, msg, nickname, avatar s
 	}
 }
 
-func exchangeWechatSession(param map[string]any, prior *Session, device *wechatDevice) (session Session, err error) {
+func exchangeSession(ctx context.Context, param map[string]any, prior *Session, device *wechatDevice) (session Session, err error) {
 	defer func() { err = loginFailure("qq-login", err) }()
 	comm := device.comm()
-	comm["tmeLoginType"] = 1
+	loginType := 1
 	if prior != nil {
+		loginType = prior.LoginType
 		comm["qq"], comm["authst"] = prior.MusicID, prior.MusicKey
 	}
+	comm["tmeLoginType"] = loginType
 	body, err := json.Marshal(map[string]any{"comm": comm, "req": map[string]any{"module": "music.login.LoginServer", "method": "Login", "param": param}})
 	if err != nil {
 		return Session{}, err
@@ -181,7 +183,7 @@ func exchangeWechatSession(param map[string]any, prior *Session, device *wechatD
 	if prior != nil {
 		headers.Set("Cookie", "uin="+prior.MusicID+"; qqmusic_uin="+prior.MusicID+"; qm_keyst="+prior.MusicKey+"; qqmusic_key="+prior.MusicKey)
 	}
-	res, err := authSend(http.MethodPost, musicuURL, bytes.NewReader(body), headers)
+	res, err := authSendContext(ctx, http.MethodPost, musicuURL, bytes.NewReader(body), headers)
 	if err != nil {
 		return Session{}, err
 	}
@@ -189,21 +191,25 @@ func exchangeWechatSession(param map[string]any, prior *Session, device *wechatD
 	if err != nil {
 		return Session{}, err
 	}
-	s, err := decodeLoginResponse(b, 1)
+	s, err := decodeLoginResponse(b, loginType)
 	s.Device = device
 	return s, err
 }
 
-func refreshWechatSession(s Session) (Session, error) {
+func refreshSession(ctx context.Context, s Session) (Session, error) {
 	device := s.Device
 	if device == nil {
 		var err error
-		device, err = bootstrapWechatDevice()
+		device, err = bootstrapWechatDeviceContext(ctx)
 		if err != nil {
 			return Session{}, err
 		}
 	}
-	refreshed, err := exchangeWechatSession(map[string]any{"openid": s.OpenID, "refresh_token": s.RefreshToken, "str_musicid": s.MusicID, "musickey": s.MusicKey, "unionid": s.UnionID, "refresh_key": s.RefreshKey, "loginMode": 2}, &s, device)
+	param := map[string]any{"openid": s.OpenID, "refresh_token": s.RefreshToken, "str_musicid": s.MusicID, "musickey": s.MusicKey, "unionid": s.UnionID, "refresh_key": s.RefreshKey, "loginMode": 2}
+	if s.LoginType == 2 {
+		param["musicid"] = s.MusicID
+	}
+	refreshed, err := exchangeSession(ctx, param, &s, device)
 	if err != nil {
 		return Session{}, err
 	}

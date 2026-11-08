@@ -74,7 +74,7 @@ func TestWechatQRLogin(t *testing.T) {
 			if body.Req.Module != "music.login.LoginServer" || body.Req.Method != "Login" || body.Req.Param["strAppid"] != wechatAppID || body.Req.Param["code"] != "private-code" || body.Comm["tmeLoginType"] != float64(1) || body.Comm["uid"] != "123" || body.Comm["sid"] != "session-sid" {
 				t.Error("invalid WeChat credential exchange")
 			}
-			io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":0,"str_musicid":"1152921504606846976","musickey":"wechat-key","openid":"open","refresh_key":"refresh","nick":"Listener"}}}`)
+			io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":0,"str_musicid":"1152921504606846976","musickey":"wechat-key","openid":"open","refresh_key":"","refresh_token":"token","loginType":1,"nick":"Listener"}}}`)
 		default:
 			t.Errorf("unexpected request %s%s", r.Host, r.URL.Path)
 			w.WriteHeader(500)
@@ -95,7 +95,7 @@ func TestWechatQRLogin(t *testing.T) {
 		}
 	}
 	s := sessionSnapshot()
-	if exchanges != 1 || !s.valid() || s.MusicID != "1152921504606846976" || s.LoginType != 1 || s.Device == nil || s.RefreshKey != "refresh" {
+	if exchanges != 1 || !s.valid() || s.MusicID != "1152921504606846976" || s.LoginType != 1 || s.Device == nil || s.RefreshToken != "token" || s.RefreshKey != "" {
 		t.Fatal("WeChat session lost its account or refresh data")
 	}
 	encoded, _ := json.Marshal(s)
@@ -163,7 +163,7 @@ func TestWechatAccountRefreshesCredential(t *testing.T) {
 			t.Error("refresh lost credential cookie")
 		}
 		p := body.Req.Param
-		if p["openid"] != "open" || p["refresh_token"] != "token" || p["str_musicid"] != "10001" || p["musickey"] != "old-key" || p["unionid"] != "union" || p["refresh_key"] != "refresh" || p["loginMode"] != float64(2) {
+		if body.Comm["tmeLoginType"] != float64(1) || p["openid"] != "open" || p["refresh_token"] != "token" || p["str_musicid"] != "10001" || p["musickey"] != "old-key" || p["unionid"] != "union" || p["refresh_key"] != "" || p["loginMode"] != float64(2) {
 			t.Error("incomplete refresh credential")
 		}
 		io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"str_musicid":"10001","musickey":"new-key"}}}`)
@@ -171,12 +171,12 @@ func TestWechatAccountRefreshesCredential(t *testing.T) {
 	old := httpClient
 	httpClient = authHTTP
 	t.Cleanup(func() { httpClient = old })
-	setSession(Session{MusicID: "10001", MusicKey: "old-key", LoginType: 1, OpenID: "open", RefreshToken: "token", UnionID: "union", RefreshKey: "refresh", Device: &wechatDevice{Qimei: "q16", Qimei36: "q36"}})
+	setSession(Session{MusicID: "10001", MusicKey: "old-key", LoginType: 1, OpenID: "open", RefreshToken: "token", UnionID: "union", Device: &wechatDevice{Qimei: "q16", Qimei36: "q36"}})
 	p, err := Account()
 	if err != nil || p == nil || p.UserID != 10001 || reads != 2 || refreshes != 1 || sessionSnapshot().MusicKey != "new-key" {
 		t.Fatalf("refresh failed: profile=%v err=%v reads=%d refreshes=%d", p, err, reads, refreshes)
 	}
-	if persisted.MusicKey != "new-key" || persisted.RefreshKey != "refresh" {
+	if persisted.MusicKey != "new-key" || persisted.RefreshToken != "token" {
 		t.Fatal("refreshed credential was not persisted")
 	}
 }
@@ -196,13 +196,13 @@ func TestExpiredWechatSessionRestoresAndRefreshes(t *testing.T) {
 		if body.Req.Param["loginMode"] != float64(2) {
 			t.Error("expired key was not refreshed")
 		}
-		io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"str_musicid":"10001","musickey":"renewed-key","refresh_key":"rotated-refresh"}}}`)
+		io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"str_musicid":"10001","musickey":"renewed-key","refresh_token":"rotated-token"}}}`)
 	})
 	oldHTTP := httpClient
 	httpClient = authHTTP
 	t.Cleanup(func() { httpClient = oldHTTP })
 	oldRead, oldWrite := readPersistedSession, writePersistedSession
-	stored, _ := json.Marshal(Session{MusicID: "10001", MusicKey: "expired-key", LoginType: 1, CreatedAt: 1, ExpiresIn: 1, RefreshKey: "refresh", Device: &wechatDevice{Qimei: "q16", Qimei36: "q36"}})
+	stored, _ := json.Marshal(Session{MusicID: "10001", MusicKey: "expired-key", LoginType: 1, CreatedAt: 1, ExpiresIn: 1, OpenID: "open", RefreshToken: "token", Device: &wechatDevice{Qimei: "q16", Qimei36: "q36"}})
 	readPersistedSession = func() ([]byte, error) { return stored, nil }
 	writePersistedSession = func(b []byte) error { stored = bytes.Clone(b); return nil }
 	t.Cleanup(func() { readPersistedSession, writePersistedSession = oldRead, oldWrite })
@@ -215,13 +215,13 @@ func TestExpiredWechatSessionRestoresAndRefreshes(t *testing.T) {
 	}
 	var renewed Session
 	_ = json.Unmarshal(stored, &renewed)
-	if !renewed.valid() || renewed.MusicKey != "renewed-key" || renewed.RefreshKey != "rotated-refresh" {
+	if !renewed.valid() || renewed.MusicKey != "renewed-key" || renewed.RefreshToken != "rotated-token" || renewed.RefreshKey != "" {
 		t.Fatal("rotated credential was not saved")
 	}
 	readPersistedSession = func() ([]byte, error) {
-		return []byte(`{"musicid":"10001","musickey":"old","loginType":2,"musickeyCreateTime":1,"keyExpiresIn":1,"refresh_key":"ignored"}`), nil
+		return []byte(`{"musicid":"10001","musickey":"old","loginType":3,"musickeyCreateTime":1,"keyExpiresIn":1,"refresh_key":"ignored"}`), nil
 	}
 	if RestoreSession() {
-		t.Fatal("QQ restore behavior unexpectedly changed")
+		t.Fatal("restored an unsupported credential family")
 	}
 }

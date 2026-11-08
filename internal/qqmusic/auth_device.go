@@ -2,6 +2,7 @@ package qqmusic
 
 import (
 	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/md5"
@@ -161,6 +162,10 @@ func embeddedObject(raw json.RawMessage) object {
 }
 
 func bootstrapWechatDevice() (*wechatDevice, error) {
+	return bootstrapWechatDeviceContext(context.Background())
+}
+
+func bootstrapWechatDeviceContext(ctx context.Context) (*wechatDevice, error) {
 	d, err := newWechatDevice()
 	if err != nil {
 		return nil, err
@@ -171,7 +176,7 @@ func bootstrapWechatDevice() (*wechatDevice, error) {
 		if err != nil {
 			return nil, err
 		}
-		res, err := authSend(http.MethodPost, "https://api.tencentmusic.com/tme/trpc/proxy", bytes.NewReader(body), headers)
+		res, err := authSendContext(ctx, http.MethodPost, "https://api.tencentmusic.com/tme/trpc/proxy", bytes.NewReader(body), headers)
 		if err != nil {
 			return nil, err
 		}
@@ -199,7 +204,7 @@ func bootstrapWechatDevice() (*wechatDevice, error) {
 			SID json.RawMessage `json:"sid"`
 		} `json:"session"`
 	}
-	if err := rpcWithComm("music.getSession.session", "GetSession", map[string]any{"uid": "", "vkey": 0, "caller": 0}, &data, d.comm(), map[string]string{"Cookie": ""}); err != nil {
+	if err := rpcWithCommContext(ctx, "music.getSession.session", "GetSession", map[string]any{"uid": "", "vkey": 0, "caller": 0}, &data, d.comm(), map[string]string{"Cookie": ""}); err != nil {
 		return nil, loginFailure("device-bootstrap", err)
 	}
 	value := func(b json.RawMessage) string {

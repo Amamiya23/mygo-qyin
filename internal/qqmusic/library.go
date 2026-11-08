@@ -14,7 +14,10 @@ import (
 var ErrInPlaylist = errors.New("歌曲已在歌单中")
 
 func signedSession() (Session, error) {
-	s := sessionSnapshot()
+	s, err := activeSession()
+	if err != nil {
+		return s, err
+	}
 	if !s.valid() {
 		return s, errors.New("请先登录 QQ 音乐")
 	}
