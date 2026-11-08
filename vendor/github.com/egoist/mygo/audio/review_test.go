@@ -70,7 +70,7 @@ func TestNaturalRateSwitchKeepsTail(t *testing.T) {
 	}
 }
 
-func TestManualRateSwitchDoesNotDrain(t *testing.T) {
+func TestManualRateSwitchDuringPrerollDoesNotDrain(t *testing.T) {
 	resetOutputTest(t)
 	old := testSong(44100).SetPrimary(true)
 	next := testSong(96000).SetPrimary(true)
@@ -175,7 +175,7 @@ func TestPrimaryNaturalEndDrainsWithLoopingEffect(t *testing.T) {
 	}
 }
 
-func TestManualSkipCancelsPendingNaturalEnd(t *testing.T) {
+func TestManualSkipReplacesPendingNaturalEndWithOutputFade(t *testing.T) {
 	resetOutputTest(t)
 	old := testSong(44100).SetPrimary(true)
 	next := testSong(96000).SetPrimary(true)
@@ -194,7 +194,7 @@ func TestManualSkipCancelsPendingNaturalEnd(t *testing.T) {
 		return nil
 	}
 	playOutput()
-	if !skipped || d.drains != 0 || !d.closed {
-		t.Fatal("manual skip could not cancel queued natural finish")
+	if !skipped || d.drains != 1 || !d.closed || old.Playing() || next.v.at() != 0 {
+		t.Fatal("manual skip did not replace the pending natural finish with a short output fade")
 	}
 }

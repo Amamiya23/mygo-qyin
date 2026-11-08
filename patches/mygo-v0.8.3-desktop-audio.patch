@@ -395,7 +395,7 @@ index 1bcfc80..5aca3f6 100644
  				v.atEnd = false
  				for _, l := range v.onEnd {
 diff --git a/audio/output.go b/audio/output.go
-index 210b42d..e4fceec 100644
+index 210b42d..c450c1d 100644
 --- a/audio/output.go
 +++ b/audio/output.go
 @@ -17,9 +17,93 @@ type device interface {
@@ -492,22 +492,31 @@ index 210b42d..e4fceec 100644
  var (
  	openOutput = openDevice // tests replace it
  
-@@ -49,11 +133,11 @@ func active() bool {
+@@ -49,14 +133,18 @@ func active() bool {
  
  // mixFor mixes into buf for an output open at latency lat, and reports
  // whether anything plays; ok is false, and it mixes nothing, once tests
 -// mix by hand or the latency changed.
 -func mixFor(buf []float32, lat Latency) (busy, ok bool) {
-+// mix by hand or the latency/rate changed.
-+func mixFor(buf []float32, lat Latency, rate int) (busy, ok bool) {
++// mix by hand or the latency/rate changed. primary reports a primary voice
++// rendering audio rather than waiting for a previously rendered natural tail.
++func mixFor(buf []float32, lat Latency, rate int) (busy, ok, primary bool) {
  	mu.Lock()
  	defer mu.Unlock()
 -	if testMode || latency != lat {
+-		return false, false
 +	if testMode || latency != lat || outputRate != rate {
- 		return false, false
++		return false, false, false
  	}
- 	return mixLocked(buf), true
-@@ -67,48 +151,103 @@ func run() {
+-	return mixLocked(buf), true
++	for _, v := range voices {
++		primary = primary || v.primary && v.playing && !v.closed && !v.finishing
++	}
++	return mixLocked(buf), true, primary
+ }
+ 
+ // run opens the device while anything plays, and mixes into it.
+@@ -67,48 +155,187 @@ func run() {
  		for !active() {
  			<-wake
  		}
@@ -534,6 +543,7 @@ index 210b42d..e4fceec 100644
 +	mu.Lock()
 +	outputState, deviceRate = outputReady, rate
 +	if !testMode && outputRate == rate && latency == lat {
++		retirePausedFadesLocked()
 +		held, unheard = int64(lat.ahead())*int64(rate)/int64(time.Second), 0
  		if err != nil {
 -			setErr(err)
@@ -543,9 +553,7 @@ index 210b42d..e4fceec 100644
 -		} else {
 -			setErr(nil)
 -			setHeld(int64(lat.ahead() * sampleRate / time.Second))
-+			// Null output holds nothing.
-+			held = 0
- 		}
+-		}
 -		buf := make([]float32, n*channels)
 -		idle := time.Duration(0)
 -		per := frames(int64(n), sampleRate)
@@ -553,10 +561,9 @@ index 210b42d..e4fceec 100644
 -			busy, ok := mixFor(buf, lat)
 -			if !ok {
 -				break
--			}
--			if err := dev.write(buf); err != nil {
--				// Lost, or a null device trying the real one again.
--				break
++			// Null output holds nothing.
++			held = 0
++		}
 +		warmupFrames = 0
 +		if preRollRequestedLocked() {
 +			warmupFrames = rate / 5
@@ -569,25 +576,44 @@ index 210b42d..e4fceec 100644
 +				for i := range v.step {
 +					v.step[i] = (v.target[i] - v.gain[i]) / float32(v.rampLeft)
 +				}
- 			}
--			if busy {
--				idle = 0
--			} else if idle += per; idle >= idleClose {
--				break
++			}
 +		}
 +	}
 +	mu.Unlock()
 +	buf := make([]float32, n*channels)
++	var last [channels]float32
++	naturalTailPlayed := false
++	hasAudio := false
 +	idle := time.Duration(0)
 +	per := frames(int64(n), rate)
 +	for {
-+		busy, ok := mixFor(buf, lat, rate)
++		busy, ok, primary := mixFor(buf, lat, rate)
 +		if !ok {
++			if hasAudio && !naturalTailPlayed {
++				if err := finishRateTransition(dev, lat, rate, n, last); err != nil {
++					setErr(err)
++				}
++			}
 +			break
++		}
++		if primary {
++			naturalTailPlayed = false
 +		}
 +		if err := dev.write(buf); err != nil {
 +			// Lost, or a null device trying the real one again.
 +			break
++		}
++		copy(last[:], buf[len(buf)-channels:])
++		if !hasAudio {
++			for _, s := range buf {
++				if s != 0 {
++					hasAudio = true
++					break
++				}
+ 			}
+-			if err := dev.write(buf); err != nil {
+-				// Lost, or a null device trying the real one again.
+-				break
 +		}
 +		if naturalDrain() {
 +			if d, ok := dev.(drainingDevice); ok {
@@ -598,6 +624,9 @@ index 210b42d..e4fceec 100644
 +				}
 +				mu.Lock()
 +				unheard = 0
++				// The natural tail was heard already; do not append a manual fade.
++				naturalTailPlayed = true
++				hasAudio = false
 +				if reopen {
 +					// Publish the heard tail before retiring the stopped backend.
 +					// An empty mix completes EOF without consuming the next song.
@@ -608,14 +637,17 @@ index 210b42d..e4fceec 100644
 +					break
 +				}
  			}
- 		}
--		dev.close()
+-			if busy {
+-				idle = 0
+-			} else if idle += per; idle >= idleClose {
+-				break
++		}
 +		if busy {
 +			idle = 0
 +		} else if idle += per; idle >= idleClose {
 +			break
 +		}
- 	}
++	}
 +	mu.Lock()
 +	outputState = outputClosing
 +	mu.Unlock()
@@ -624,6 +656,67 @@ index 210b42d..e4fceec 100644
 +	outputState, deviceRate = outputClosed, 0
 +	held, unheard = 0, 0
 +	mu.Unlock()
++}
++
++// finishRateTransition gently brings the old output to zero before changing
++// its rate. The source cursors are deliberately untouched: the old player may
++// already be closed, and the new player must only run on its own output.
++// This waits for the short output queue, not for the old song's natural EOF.
++func finishRateTransition(dev device, lat Latency, rate, block int, last [channels]float32) error {
++	mu.Lock()
++	changing := desktopAudioFeatures && !testMode && latency == lat && outputRate != rate
++	mu.Unlock()
++	d, canDrain := dev.(drainingDevice)
++	if !changing || !canDrain {
++		return nil
++	}
++	frames := max(rate/200, 1)
++	tail := make([]float32, frames*channels)
++	for i := range frames {
++		gain := float32(frames-1-i) / float32(frames)
++		for ch := range channels {
++			tail[i*channels+ch] = last[ch] * gain
++		}
++	}
++	// AudioQueue buffers have a fixed capacity, including at high rates.
++	for len(tail) > 0 {
++		n := min(len(tail), block*channels)
++		if err := dev.write(tail[:n]); err != nil {
++			return err
++		}
++		tail = tail[n:]
++	}
++	_, err := d.drain()
++	return err
++}
++
++// A paused voice may still be fading out on the old output. That fade belongs
++// to that session: replaying it after a new session's silence brings back a
++// fragment of the previous song. Retire it without closing or seeking its
++// source, so a later Play can still resume with the usual fade-in. Voices
++// which are playing (including effects and natural EOF tails) stay intact.
++// The caller holds mu; same-session pauses never pass through here.
++func retirePausedFadesLocked() {
++	if !desktopAudioFeatures {
++		return
++	}
++	n := 0
++	for _, v := range voices {
++		if !v.playing && !v.closed {
++			v.active, v.finishing = false, false
++			v.gain, v.target, v.step = [4]float32{}, [4]float32{}, [4]float32{}
++			v.rampLeft = 0
++			if v.orphan {
++				v.close()
+ 			}
++			continue
+ 		}
+-		dev.close()
++		voices[n] = v
++		n++
+ 	}
++	clear(voices[n:])
++	voices = voices[:n]
  }
  
  var errUnsupported = errors.New("audio: no audio output on this platform")
@@ -639,7 +732,7 @@ index 210b42d..e4fceec 100644
  	next  time.Time
  	retry time.Time
  	// now and sleep are its clock, which tests replace.
-@@ -116,8 +255,8 @@ type nullDevice struct {
+@@ -116,8 +343,8 @@ type nullDevice struct {
  	sleep func(time.Duration)
  }
  
@@ -650,7 +743,7 @@ index 210b42d..e4fceec 100644
  	if retry {
  		d.retry = d.next.Add(2 * time.Second)
  	}
-@@ -135,7 +274,7 @@ func (d *nullDevice) write(samples []float32) error {
+@@ -135,7 +362,7 @@ func (d *nullDevice) write(samples []float32) error {
  		// Behind, as after a sleep: don't hurry to catch up.
  		d.next = now
  	}
@@ -1537,6 +1630,221 @@ index 0000000..6540ee9
 +		}
 +	}
 +}
+diff --git a/audio/output_transition_test.go b/audio/output_transition_test.go
+new file mode 100644
+index 0000000..f9c2e91
+--- /dev/null
++++ b/audio/output_transition_test.go
+@@ -0,0 +1,209 @@
++//go:build (darwin && !ios) || (((linux && !android) || windows) && (amd64 || arm64))
++
++package audio
++
++import (
++	"fmt"
++	"testing"
++	"time"
++)
++
++// Model the application's Pause followed by delayed Close without relying on
++// a timer: the old player stays alive until the new session has played music.
++// Distinct channels identify stale old-track frames even during a gain ramp.
++func TestManualRateSwitchDoesNotReplayPausedTail(t *testing.T) {
++	for _, rates := range [][2]int{{48000, 44100}, {44100, 48000}, {88200, 96000}, {96000, 44100}} {
++		for _, lat := range []Latency{LatencyInteractive, LatencyPlayback} {
++			for _, preRoll := range []bool{false, true} {
++				t.Run(fmt.Sprintf("%d-%d/%d/preroll=%t", rates[0], rates[1], lat, preRoll), func(t *testing.T) {
++					resetOutputTest(t)
++					latency = lat
++					left, right := make([]float32, rates[0]*channels), make([]float32, rates[1]*channels)
++					for i := 0; i < len(left); i += channels {
++						left[i] = .5
++					}
++					for i := 1; i < len(right); i += channels {
++						right[i] = .25
++					}
++					old := NewSound(rates[0], channels, left).NewPlayer().SetPrimary(true).SetPreRoll(preRoll)
++					next := NewSound(rates[1], channels, right).NewPlayer().SetPrimary(true).SetPreRoll(preRoll)
++					old.Play()
++					runOnce.Do(func() {})
++					testMode = false
++					first, second := &reviewDrainingDevice{}, &reviewDrainingDevice{}
++					opens := 0
++					openOutput = func(_ time.Duration, rate int) (device, int, error) {
++						opens++
++						if rate != rates[opens-1] {
++							t.Fatalf("session %d opened at %d", opens, rate)
++						}
++						n := 7
++						if preRoll {
++							n += rate / 5
++						}
++						if opens == 1 {
++							return first, n, nil
++						}
++						if !first.closed {
++							t.Fatal("new session opened before the old one closed")
++						}
++						return second, n, nil
++					}
++					oldWrites, tailFrames := 0, 0
++					first.writeFn = func(out []float32) error {
++						oldWrites++
++						if oldWrites == 1 {
++							old.Pause()
++							next.Play()
++							return nil
++						}
++						if old.v.at() != 7 || next.v.at() != 0 {
++							t.Fatal("output fade advanced a song's cursor")
++						}
++						for i := 0; i < len(out); i += channels {
++							want := float32(.5) * float32(rates[0]/200-1-tailFrames) / float32(rates[0]/200)
++							if out[i] != want || out[i+1] != 0 {
++								t.Fatalf("old output fade frame %d = %v, want %v", tailFrames, out[i:i+channels], want)
++							}
++							tailFrames++
++						}
++						return nil
++					}
++					playOutput()
++					oldAt := old.v.at()
++					if first.drains != 1 || tailFrames != rates[0]/200 || next.v.at() != 0 {
++						t.Fatal("manual skip did not finish its output envelope or consumed the next song on the old output")
++					}
++					second.writeFn = func(out []float32) error {
++						silent := 0
++						if preRoll {
++							silent = rates[1] / 5 * channels
++						}
++						for i, sample := range out {
++							want := float32(0)
++							if i >= silent && i%channels == 1 {
++								want = .25
++							}
++							if sample != want {
++								t.Fatalf("new output sample %d = %v, want %v (old track leaked across rate change)", i, sample, want)
++							}
++						}
++						if old.v.at() != oldAt || next.v.at() != 7 {
++							t.Fatal("paused source advanced or next song's first frames were skipped")
++						}
++						mu.Lock()
++						testMode = true
++						mu.Unlock()
++						return nil
++					}
++					playOutput()
++					// A retired player is still reusable until its owner closes it.
++					old.Play()
++					if !old.v.active || !old.Playing() || old.v.at() != oldAt {
++						t.Fatal("retired paused player could not resume")
++					}
++					resumed := make([]float32, (warmupFrames+1)*channels)
++					mixTest(resumed)
++					if got, want := resumed[len(resumed)-channels], float32(.5)/float32(rampFrames()); got != want {
++						t.Fatalf("resume first sample %v, want ramped sample %v", got, want)
++					}
++					old.Close()
++				})
++			}
++		}
++	}
++}
++
++func TestRateTransitionEnvelopeFitsBackendBuffers(t *testing.T) {
++	for _, rate := range []int{44100, 48000, 88200, 96000, 192000, 384000} {
++		t.Run(fmt.Sprint(rate), func(t *testing.T) {
++			resetOutputTest(t)
++			testMode = false
++			outputRate = rate + 1
++			const block = 512 // AudioQueue's buffer capacity, even at 384 kHz.
++			last := [channels]float32{.75, -.5}
++			d := &reviewDrainingDevice{}
++			frames := 0
++			previous := last
++			d.writeFn = func(out []float32) error {
++				if len(out) == 0 || len(out) > block*channels {
++					t.Fatal("transition overflows backend buffer")
++				}
++				for i := 0; i < len(out); i += channels {
++					if out[i] > previous[0] || out[i] < 0 || out[i+1] < previous[1] || out[i+1] > 0 {
++						t.Fatal("transition envelope is not monotonic towards silence")
++					}
++					copy(previous[:], out[i:i+channels])
++					frames++
++				}
++				return nil
++			}
++			if err := finishRateTransition(d, latency, rate, block, last); err != nil {
++				t.Fatal(err)
++			}
++			if frames != rate/200 || previous != [channels]float32{} || d.drains != 1 {
++				t.Fatal("transition did not end at zero after exactly 5ms of old-rate frames")
++			}
++		})
++	}
++}
++
++func TestManualTransitionAfterSameRateNaturalEndStillFades(t *testing.T) {
++	resetOutputTest(t)
++	old := testSong(48000).SetPrimary(true)
++	next := testSong(48000).SetPrimary(true)
++	third := testSong(44100).SetPrimary(true)
++	ended := make(chan struct{})
++	old.OnEnd(func() { close(ended) })
++	old.Play()
++	runOnce.Do(func() {})
++	testMode = false
++	d := &reviewDrainingDevice{}
++	openOutput = func(_ time.Duration, rate int) (device, int, error) { return d, rate / 100, nil }
++	stage := 0
++	d.writeFn = func([]float32) error {
++		if stage == 0 && !old.Playing() {
++			<-ended
++			stage = 1
++			next.Play()
++		} else if stage == 1 {
++			stage = 2
++			next.Pause()
++			third.Play()
++		}
++		return nil
++	}
++	playOutput()
++	if stage != 2 || !d.closed || d.drains != 2 || third.v.at() != 0 {
++		t.Fatal("natural completion suppressed the following manual output fade")
++	}
++}
++
++func TestManualSameRateSwitchKeepsPauseRamp(t *testing.T) {
++	resetOutputTest(t)
++	const rate = 48000
++	samples := make([]float32, rate*channels)
++	for i := 0; i < len(samples); i += channels {
++		samples[i] = .5
++	}
++	old := NewSound(rate, channels, samples).NewPlayer().SetPrimary(true)
++	next := NewSound(rate, channels, make([]float32, rate*channels)).NewPlayer().SetPrimary(true).SetPreRoll(true)
++	old.Play()
++	mixTest(make([]float32, 7*channels))
++	old.Pause()
++	next.Play()
++	if warmupFrames != 0 {
++		t.Fatal("same-rate switch added pre-roll")
++	}
++	// A pause on the same running output must keep its short anti-click ramp.
++	out := make([]float32, (rampFrames()+1)*channels)
++	mixTest(out)
++	if out[0] <= 0 || out[0] >= .5 || out[len(out)-channels] != 0 || old.v.active {
++		t.Fatal("same-session fade did not run to silence")
++	}
++	for i := channels; i < len(out); i += channels {
++		if out[i] > out[i-channels] || out[i] < 0 {
++			t.Fatal("pause ramp was not monotonic")
++		}
++	}
++}
 diff --git a/audio/output_windows.go b/audio/output_windows.go
 index 9e82230..dd7da57 100644
 --- a/audio/output_windows.go
@@ -1813,7 +2121,7 @@ index 0000000..d8285ab
 +}
 diff --git a/audio/review_test.go b/audio/review_test.go
 new file mode 100644
-index 0000000..26d0f17
+index 0000000..d82f802
 --- /dev/null
 +++ b/audio/review_test.go
 @@ -0,0 +1,200 @@
@@ -1889,7 +2197,7 @@ index 0000000..26d0f17
 +	}
 +}
 +
-+func TestManualRateSwitchDoesNotDrain(t *testing.T) {
++func TestManualRateSwitchDuringPrerollDoesNotDrain(t *testing.T) {
 +	resetOutputTest(t)
 +	old := testSong(44100).SetPrimary(true)
 +	next := testSong(96000).SetPrimary(true)
@@ -1994,7 +2302,7 @@ index 0000000..26d0f17
 +	}
 +}
 +
-+func TestManualSkipCancelsPendingNaturalEnd(t *testing.T) {
++func TestManualSkipReplacesPendingNaturalEndWithOutputFade(t *testing.T) {
 +	resetOutputTest(t)
 +	old := testSong(44100).SetPrimary(true)
 +	next := testSong(96000).SetPrimary(true)
@@ -2013,8 +2321,8 @@ index 0000000..26d0f17
 +		return nil
 +	}
 +	playOutput()
-+	if !skipped || d.drains != 0 || !d.closed {
-+		t.Fatal("manual skip could not cancel queued natural finish")
++	if !skipped || d.drains != 1 || !d.closed || old.Playing() || next.v.at() != 0 {
++		t.Fatal("manual skip did not replace the pending natural finish with a short output fade")
 +	}
 +}
 diff --git a/audio/source.go b/audio/source.go
