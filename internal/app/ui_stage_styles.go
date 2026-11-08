@@ -34,8 +34,11 @@ func (a *app) stageStyleButton(c *ui.Context) {
 		}
 	}
 	m := ui.MenuBase(c.Key("stage-style"), &a.stageStyleOpen)
-	b := m.Trigger.Padding(6, 10, 6, 14).Radius(999).Gap(4).AlignItems(ui.Center).
+	b := m.Trigger.Padding(6, 10, 6, 14).Shrink(0).Radius(999).Gap(4).AlignItems(ui.Center).
 		FocusRing(false).Label("律动效果").Tooltip("律动效果")
+	if w, _ := c.Size(); w < 1000 {
+		b.Padding(6, 8)
+	}
 	mediaFeedback(b, radixWhite(8))
 	angle := float32(0)
 	if a.stageStyleOpen {

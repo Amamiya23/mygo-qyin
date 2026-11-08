@@ -143,12 +143,16 @@ type app struct {
 	lyricGlide  lyricGlide
 	lyricAt     int
 	lyricTrack  int64
+	lyricSize   float32   // size used for the preceding lyrics layout
+	lyricSizeAt time.Time // frame in which the lyrics changed size
 	queueList   ui.ListState
 	queueAt     int // the row of the queue pane last scrolled to, -1 while it is hidden
 	comments    commentState
 	tabCount    rollState // the count on the comments' tab, as it rolls
 
-	stageStyleOpen bool // the stage's effect menu shows
+	stageStyleOpen    bool // the stage's effect menu shows
+	lyricsSizeOpen    bool // the scrolling lyrics' size popover shows
+	lyricsSizeTrigger ui.Handle
 
 	queueOpen    bool // the player bar's floating queue shows
 	queuePopup   ui.ListState

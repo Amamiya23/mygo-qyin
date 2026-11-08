@@ -20,9 +20,9 @@ func TestStageStyleMenuFrames(t *testing.T) {
 		t.Skip("NM_FRAMES not set")
 	}
 	for _, scene := range []struct {
-		name, style, hover string
-		w, h               int
-		dark, sparks       bool
+		name, style, hover    string
+		w, h                  int
+		dark, sparks, crowded bool
 	}{
 		{name: "light", w: 1200, h: 800},
 		{name: "light-hover", w: 1200, h: 800, style: "partita", hover: "倾诉"},
@@ -30,6 +30,7 @@ func TestStageStyleMenuFrames(t *testing.T) {
 		{name: "sparks-on", w: 1200, h: 800, style: "tilt", hover: "火花", dark: true, sparks: true},
 		{name: "narrow-light", w: 860, h: 560, hover: "云阶"},
 		{name: "narrow-dark", w: 860, h: 560, style: "tilt", hover: "火花", dark: true, sparks: true},
+		{name: "narrow-tall", w: 880, h: 800, dark: true, crowded: true},
 	} {
 		t.Run(scene.name, func(t *testing.T) {
 			a := newTestApp()
@@ -39,6 +40,9 @@ func TestStageStyleMenuFrames(t *testing.T) {
 			a.pl.Cue([]qqmusic.Track{tr})
 			a.pl.SetLyrics(lyrics.Build("[00:00.00]一二三四五六", "", ""))
 			a.pl.Hold(2 * time.Second)
+			if scene.crowded {
+				a.comments = commentState{track: tr.ID, loaded: true, total: 12345678}
+			}
 			a.nowPlaying, a.npPane = true, paneStage
 			tt := ui.NewTester(a.view, scene.w, scene.h)
 			tt.SetDark(scene.dark)

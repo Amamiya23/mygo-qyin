@@ -33,7 +33,7 @@ func (a *app) view(c *ui.Context) {
 	}
 	root := ui.Box(c).Fill()
 	settingsFocused := a.route.page == pageSettings && !a.nowPlaying && a.settingsPane.FocusWithin(c)
-	if !c.Focused(a.searchBox) && !settingsFocused {
+	if !c.Focused(a.searchBox) && !settingsFocused && !a.lyricsSizeOpen && !a.lyricsSizeTrigger.Focused(c) {
 		// Space plays and pauses wherever the focus is, as in Music. On
 		// the container around everything, it comes before a button the
 		// pointer focused, which would take Space as a click; on the
@@ -49,6 +49,9 @@ func (a *app) view(c *ui.Context) {
 	}
 	if !a.nowPlaying || a.npPane != paneStage {
 		a.stageStyleOpen = false
+	}
+	if !npOpen || a.npPane != paneLyrics {
+		a.lyricsSizeOpen = false
 	}
 	root.Children(func() {
 		page := ui.Row(c).Fill().AlignItems(ui.Stretch)

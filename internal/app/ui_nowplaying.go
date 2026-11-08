@@ -151,7 +151,7 @@ func (a *app) nowPlayingView(c *ui.Context) {
 	root := ui.Box(c.Key("now-playing")).Absolute().Top(0).Left(0).Right(0).Bottom(0).
 		Background(bg).TextColor(white)
 	// Keep the controls visible while the pointer is in their detached effect menu.
-	pointerIn := root.Hovered() || a.stageStyleOpen
+	pointerIn := root.Hovered() || a.stageStyleOpen || a.lyricsSizeOpen || a.lyricsSizeTrigger.Focused(c)
 	root.Children(func() {
 		bloom := ui.Box(c.Key("bloom")).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough()
 		if t := a.npT; t < 1 && !a.npStill {
@@ -206,6 +206,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 			// controls a slim bar at the foot.
 			a.npRise(reveal(npTabsRow(c, w, h), pointerIn), 0).Children(func() {
 				a.paneTabs(c)
+				ui.Spacer(c)
 				a.stageStyleButton(c)
 			})
 			a.stage(c, tr, accent)
@@ -223,7 +224,13 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 		// wide enough for the controls even when the cover is small.
 		side := max(coverSize, 280)
 		padX := npSideX(w)
-		a.npRise(reveal(npTabsRow(c, w, h), pointerIn), 0).Children(func() { a.paneTabs(c) })
+		a.npRise(reveal(npTabsRow(c, w, h), pointerIn), 0).Children(func() {
+			a.paneTabs(c)
+			if a.npPane == paneLyrics {
+				ui.Spacer(c)
+				a.lyricsSizeButton(c)
+			}
+		})
 		ui.Row(c).Grow(1).Padding(0, padX, 44, padX).Gap(72).AlignItems(ui.Stretch).Children(func() {
 			var coverTop float32
 			ui.Column(c).Width(side).Justify(ui.Center).Gap(0).Children(func() {
@@ -331,7 +338,11 @@ func npCollapseButton(c *ui.Context) ui.Element {
 // still as the comments' count changes or the stage's style button appears.
 func npTabsRow(c *ui.Context, w, h float32) ui.Element {
 	left := npSideX(w) + max(npCoverSize(w, h), 280) + 72
-	return ui.Row(c.Key("tabs")).Absolute().Top(topBar(c)).Left(left).Height(npTabsHeight).Gap(6).AlignItems(ui.Center)
+	gap := float32(6)
+	if w < 1000 {
+		gap = 4
+	}
+	return ui.Row(c.Key("tabs")).Absolute().Top(topBar(c)).Left(left).Right(npSideX(w)).Height(npTabsHeight).Gap(gap).AlignItems(ui.Center)
 }
 
 // reveal fades e in while the pointer is in the window, and out when it
@@ -398,6 +409,9 @@ func (a *app) paneTabs(c *ui.Context) {
 // whichever was chosen, for the next song.
 func (a *app) choosePane(i int) {
 	a.npPane = i
+	if i != paneLyrics {
+		a.lyricsSizeOpen = false
+	}
 	if (i == paneLyrics || i == paneStage) && a.settings.LyricsStage != (i == paneStage) {
 		a.settings.LyricsStage = i == paneStage
 		a.settings.save()
@@ -477,7 +491,11 @@ func (a *app) stageBar(c *ui.Context, tr *qqmusic.Track, art *artwork, accent ui
 }
 
 func (a *app) paneTab(c *ui.Context, i int, label string) {
-	b := ui.ButtonBase(c.Key(i)).Padding(6, 14).Radius(999).FocusRing(false).Label(label)
+	pad := float32(14)
+	if w, _ := c.Size(); w < 1000 {
+		pad = 6
+	}
+	b := ui.ButtonBase(c.Key(i)).Padding(6, pad).Radius(999).FocusRing(false).Label(label)
 	bg, fg := ui.Transparent, white.Alpha(0.55)
 	if a.npPane == i {
 		bg, fg = radixWhite(3), white
@@ -551,16 +569,28 @@ func (a *app) lyricsPane(c *ui.Context, tr *qqmusic.Track, h float32) {
 		scroll.Invisible()
 	}
 	defer a.quietCard(c, dim, h*0.18)
-	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: 30, weight: 800, lineHeight: 1.25, quiet: quiet}, nil)
+	size := float32(a.settings.lyricsFontSize())
+	if a.lyricSize != size {
+		if a.lyricSize != 0 {
+			a.lyricSizeAt = c.Now()
+		}
+		a.lyricSize, a.lyricAt = size, -2
+	}
+	// Builds can repeat before layout commits. Keep waiting for that entire
+	// frame, so following uses the new geometry rather than a previous pass.
+	resized := !a.lyricSizeAt.IsZero() && a.lyricSizeAt.Equal(c.Now())
+	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: size, translationSize: 17 * size / lyricsFontSizeDefault, weight: 800, lineHeight: 1.25, quiet: quiet, relayout: resized}, nil)
 }
 
 // linesStyle is how timedLines sets its lines: the size, weight and
 // leading of their type; quiet nearly hides them, under a hot comment.
 type linesStyle struct {
-	size       float32
-	weight     int
-	lineHeight float32
-	quiet      bool
+	size            float32
+	translationSize float32
+	weight          int
+	lineHeight      float32
+	quiet           bool
+	relayout        bool // wait for the new size's committed bounds before following
 }
 
 // timedLines fills scroll with lines that follow the track playing at
@@ -619,7 +649,11 @@ func (a *app) timedLines(c *ui.Context, scroll ui.Element, lines []lyrics.Line, 
 							ui.Text(c, l.Text).FontSize(st.size).FontWeight(st.weight).LineHeight(st.lineHeight).LetterSpacing(-0.4).TextColor(white)
 						}
 						if l.Translation != "" {
-							ui.Text(c, l.Translation).FontSize(17).FontWeight(600).TextColor(white.Alpha(0.7))
+							size := st.translationSize
+							if size == 0 {
+								size = 17
+							}
+							ui.Text(c, l.Translation).FontSize(size).FontWeight(600).TextColor(white.Alpha(0.7))
 						}
 					})
 				})
@@ -635,6 +669,10 @@ func (a *app) timedLines(c *ui.Context, scroll ui.Element, lines []lyrics.Line, 
 			foot()
 		}
 	})
+	if st.relayout {
+		c.AnimationFrame()
+		return
+	}
 	// Bring the line sung to a third of the way down, once it changed.
 	if cur != a.lyricAt {
 		box := scroll.Bounds()
