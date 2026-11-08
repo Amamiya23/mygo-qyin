@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
+
 	"lilt/internal/lyrics"
 )
 
@@ -19,13 +21,24 @@ func TestStageStyleMenu(t *testing.T) {
 		if err := tt.Click("律动效果"); err != nil {
 			t.Fatal(err)
 		}
-		if err := tt.ChooseMenuItem(c.item); err != nil {
-			t.Fatalf("%v; the menu shows %q", err, tt.Menu())
+		if err := tt.Click(c.item); err != nil {
+			t.Fatal(err)
 		}
 		tt.Frame()
 		if a.settings.StageStyle != c.want {
 			t.Errorf("chose %s: style %q, want %q", c.item, a.settings.StageStyle, c.want)
 		}
+		if a.stageStyleOpen {
+			t.Fatal("choosing a style left the menu open")
+		}
+		if err := tt.Click("律动效果"); err != nil {
+			t.Fatal(err)
+		}
+		selected, ok := tt.AccessByRole(ui.RoleMenuItemRadio, c.item)
+		if !ok || !selected.Checked {
+			t.Fatal("reopening the menu lost its selected style")
+		}
+		tt.Key(0, ui.KeyEscape)
 	}
 }
 
@@ -41,13 +54,79 @@ func TestStageSparksMenu(t *testing.T) {
 		if err := tt.Click("律动效果"); err != nil {
 			t.Fatal(err)
 		}
-		if err := tt.ChooseMenuItem("火花"); err != nil {
-			t.Fatalf("%v; the menu shows %q", err, tt.Menu())
+		if err := tt.Click("火花"); err != nil {
+			t.Fatal(err)
 		}
 		tt.Frame()
 		if a.settings.StageSparks != want || a.settings.StageStyle != "tilt" {
 			t.Errorf("sparks %v in %q, want %v in tilt", a.settings.StageSparks, a.settings.StageStyle, want)
 		}
+		if a.stageStyleOpen {
+			t.Fatal("toggling sparks left the menu open")
+		}
+	}
+}
+
+// Choosing menu items with Space and Enter changes the effect without triggering the player's Space shortcut.
+func TestStageStyleMenuKeyboard(t *testing.T) {
+	a, tt, _ := playingApp()
+	a.nowPlaying, a.npPane = true, paneStage
+	tt.Frame()
+	tt.Advance(time.Second)
+	playing := a.pl.Playing()
+	if err := tt.Click("律动效果"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Key(0, ui.KeyHome)
+	tt.Key(0, ui.KeyDown)
+	tt.Key(0, ui.KeySpace)
+	tt.Frame()
+	if a.settings.StageStyle != "partita" || a.stageStyleOpen || a.pl.Playing() != playing || !a.nowPlaying {
+		t.Fatalf("Space did not choose the style locally: style=%q open=%v playing=%v", a.settings.StageStyle, a.stageStyleOpen, a.pl.Playing())
+	}
+	if !tt.Focused("律动效果") {
+		t.Fatal("choosing a style did not restore focus to its trigger")
+	}
+	tt.Key(0, ui.KeyDown)
+	tt.Key(0, ui.KeyEnd)
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if !a.settings.StageSparks || a.settings.StageStyle != "partita" || a.stageStyleOpen || a.pl.Playing() != playing {
+		t.Fatal("keyboard spark selection changed the style or playback")
+	}
+}
+
+// Escape, a second trigger press and an outside press dismiss only the effect menu, preserving the stage and playback.
+func TestStageStyleMenuDismissal(t *testing.T) {
+	for _, dismiss := range []string{"escape", "trigger", "outside"} {
+		t.Run(dismiss, func(t *testing.T) {
+			a, tt, _ := playingApp()
+			a.nowPlaying, a.npPane = true, paneStage
+			a.settings.StageStyle, a.settings.StageSparks = "tilt", true
+			tt.Frame()
+			tt.Advance(time.Second)
+			playing := a.pl.Playing()
+			if err := tt.Click("律动效果"); err != nil {
+				t.Fatal(err)
+			}
+			if !a.stageStyleOpen {
+				t.Fatal("the effect menu did not open")
+			}
+			switch dismiss {
+			case "escape":
+				tt.Key(0, ui.KeyEscape)
+			case "trigger":
+				if err := tt.Click("律动效果"); err != nil {
+					t.Fatal(err)
+				}
+			case "outside":
+				tt.ClickAt(10, 400)
+			}
+			tt.Frame()
+			if a.stageStyleOpen || !a.nowPlaying || a.npPane != paneStage || a.pl.Playing() != playing || a.settings.StageStyle != "tilt" || !a.settings.StageSparks {
+				t.Fatal("dismissing the effect menu changed the stage, effects or playback")
+			}
+		})
 	}
 }
 

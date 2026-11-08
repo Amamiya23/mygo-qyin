@@ -30,13 +30,13 @@ func queuePopupApp(n int) *app {
 	return a
 }
 
-// The queue opens over the current page and closes through its button, Escape, outside presses and its close control.
+// The queue opens over the current page and closes through its button, Escape and outside presses.
 func TestPlayerQueuePopoverInteraction(t *testing.T) {
 	a := queuePopupApp(12)
 	a.npPane = paneLyrics
 	route := a.route
 	tt := ui.NewTester(a.view, 1180, 700)
-	for _, dismiss := range []string{"button", "escape", "outside", "close"} {
+	for _, dismiss := range []string{"button", "escape", "outside"} {
 		if err := tt.Click("待播清单"); err != nil {
 			t.Fatal(err)
 		}
@@ -54,10 +54,6 @@ func TestPlayerQueuePopoverInteraction(t *testing.T) {
 			tt.Key(0, ui.KeyEscape)
 		case "outside":
 			tt.ClickAt(10, 400)
-		case "close":
-			if err := tt.Click("关闭待播清单"); err != nil {
-				t.Fatal(err)
-			}
 		}
 		if a.queueOpen || a.pl.Playing() || a.pl.Current().ID != 1 || a.route != route {
 			t.Fatalf("%s did not dismiss locally", dismiss)
@@ -159,6 +155,61 @@ func TestPlayerQueuePopoverScroll(t *testing.T) {
 	}
 }
 
+// The row's right edge toggles playback; the scrollbar used to intercept clicks over its highlight.
+func TestPlayerQueuePopoverScrollbarGutter(t *testing.T) {
+	a := queuePopupApp(60)
+	tt := ui.NewTester(a.view, 1180, 700)
+	if err := tt.Click("待播清单"); err != nil {
+		t.Fatal(err)
+	}
+	row, ok := tt.AccessByRole(ui.RoleButton, a.pl.Current().Name)
+	if !ok {
+		t.Fatal("cannot target the current queue row")
+	}
+	r := row.Bounds
+	tt.ClickAt(r.X+r.W-2, r.Y+r.H/2)
+	if !a.pl.Playing() || a.pl.Current().ID != 1 {
+		t.Fatal("the scrollbar intercepted the song row's right edge")
+	}
+	first, _ := a.queuePopup.Visible()
+	// The thumb sits in the gutter, outside the song's clickable rectangle.
+	x, y := r.X+r.W+8, r.Y+6
+	tt.Press(x, y)
+	tt.Move(x, y+150)
+	tt.Release(x, y+150)
+	tt.Frame()
+	if got, _ := a.queuePopup.Visible(); got <= first {
+		t.Fatal("dragging the gutter did not scroll the queue")
+	}
+	if !a.pl.Playing() || a.pl.Current().ID != 1 || !a.queueOpen {
+		t.Fatal("dragging the scrollbar changed playback or closed the queue")
+	}
+}
+
+// Short queues do not move on wheel input; their popup used to omit padding and overflow by a few DIPs.
+func TestPlayerQueuePopoverShortQueueFits(t *testing.T) {
+	for _, n := range []int{1, 3} {
+		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			a := queuePopupApp(n)
+			tt := ui.NewTester(a.view, 1180, 700)
+			if err := tt.Click("待播清单"); err != nil {
+				t.Fatal(err)
+			}
+			row, ok := tt.AccessByRole(ui.RoleButton, a.pl.Current().Name)
+			if !ok {
+				t.Fatal("cannot target the current queue row")
+			}
+			r := row.Bounds
+			tt.Wheel(r.X+r.W/2, r.Y+r.H/2, 0, 240)
+			tt.Advance(time.Second)
+			after, ok := tt.AccessByRole(ui.RoleButton, a.pl.Current().Name)
+			if !ok || after.Bounds.Y != r.Y {
+				t.Fatal("a short queue scrolled despite fitting in the popup")
+			}
+		})
+	}
+}
+
 // Navigating from queue artist links or opening Now Playing closes the floating queue.
 func TestPlayerQueuePopoverNavigation(t *testing.T) {
 	a := queuePopupApp(3)
@@ -214,26 +265,39 @@ func TestPlayerQueuePopoverFrames(t *testing.T) {
 	if dir == "" {
 		t.Skip("NM_FRAMES not set")
 	}
-	for _, dark := range []bool{false, true} {
-		for _, size := range [][2]int{{1180, 700}, {960, 580}} {
-			a := queuePopupApp(18)
-			tt := ui.NewTester(a.view, size[0], size[1])
-			tt.SetDark(dark)
-			if err := tt.Click("待播清单"); err != nil {
-				t.Fatal(err)
-			}
-			tt.Move(10, 10)
-			tt.Advance(time.Second)
-			tt.Frame()
-			path := filepath.Join(dir, fmt.Sprintf("queue-dark-%t-%dx%d.png", dark, int(size[0]), int(size[1])))
-			f, err := os.Create(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = png.Encode(f, tt.Image())
-			f.Close()
-			if err != nil {
-				t.Fatal(err)
+	for _, n := range []int{3, 18} {
+		for _, dark := range []bool{false, true} {
+			for _, size := range [][2]int{{1180, 700}, {960, 580}} {
+				a := queuePopupApp(n)
+				tt := ui.NewTester(a.view, size[0], size[1])
+				tt.SetDark(dark)
+				if err := tt.Click("待播清单"); err != nil {
+					t.Fatal(err)
+				}
+				for _, hovered := range []bool{false, true} {
+					if hovered {
+						row, ok := tt.AccessByRole(ui.RoleButton, a.pl.Queue()[1].Name)
+						if !ok {
+							t.Fatal("cannot target the hovered queue row")
+						}
+						r := row.Bounds
+						tt.Move(r.X+r.W/2, r.Y+r.H/2)
+					} else {
+						tt.Move(10, 10)
+					}
+					tt.Advance(time.Second)
+					tt.Frame()
+					path := filepath.Join(dir, fmt.Sprintf("queue-%d-dark-%t-%dx%d-hover-%t.png", n, dark, int(size[0]), int(size[1]), hovered))
+					f, err := os.Create(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					err = png.Encode(f, tt.Image())
+					f.Close()
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
 			}
 		}
 	}

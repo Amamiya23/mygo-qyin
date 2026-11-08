@@ -33,30 +33,73 @@ func (a *app) stageStyleButton(c *ui.Context) {
 			label = s.label
 		}
 	}
-	b := ui.ButtonBase(c.Key("stage-style")).Padding(6, 10, 6, 14).Radius(999).Gap(4).AlignItems(ui.Center).
+	m := ui.MenuBase(c.Key("stage-style"), &a.stageStyleOpen)
+	b := m.Trigger.Padding(6, 10, 6, 14).Radius(999).Gap(4).AlignItems(ui.Center).
 		FocusRing(false).Label("律动效果").Tooltip("律动效果")
-	bg, fg := ui.Transparent, white.Alpha(0.55)
-	if b.Hovered() {
-		bg, fg = white.Alpha(0.06), white.Alpha(0.8)
+	mediaFeedback(b, radixWhite(8))
+	angle := float32(0)
+	if a.stageStyleOpen {
+		b.Background(radixWhite(2)).TextColor(radixPaper)
+		angle = 180
 	}
-	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
 	b.Children(func() {
-		ui.Text(c, label).FontSize(13).FontWeight(600).TextColor(fg)
-		ui.Icon(c, iconDown).Size(12, 12).TextColor(fg)
+		ui.Text(c, label).FontSize(13).FontWeight(600)
+		ui.Icon(c, iconDown).Size(12, 12).Rotate(b.AnimateTo("arrow", angle, ui.Animation{Duration: 140 * time.Millisecond}))
 	})
-	b.Menu(func(m *ui.Menu) {
+	m.Popup(func(panel ui.Element) {
+		// The stage is a dark media surface even when the app's pages use the light theme.
+		panel.AttachTo(b, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(6, 0, 0, 0).
+			Width(176).Padding(6).Gap(2).Radius(12).Background(radixSage(true, 2)).
+			Border(0.5, radixSage(true, 6)).Shadow(0, 8, 24, -4, radixBlack(6)).Label("律动效果菜单")
 		for _, s := range stageStyles {
-			if m.Item(s.label).Checked(a.settings.StageStyle == s.id).Chosen() && a.settings.StageStyle != s.id {
+			selected := a.settings.StageStyle == s.id
+			item := stageMenuRow(m.RadioItem(selected), selected).Label(s.label)
+			item.Children(func() {
+				ui.Text(c, s.label).FontSize(13).Grow(1)
+				ui.Box(c).Size(16, 16).Children(func() {
+					if selected {
+						ui.Icon(c, iconCheck).Size(16, 16).TextColor(radixGreen(true, 11))
+					}
+				})
+			})
+			if item.Clicked() && !selected {
 				a.settings.StageStyle = s.id
 				a.settings.save()
 			}
 		}
-		m.Separator()
-		if m.Item("火花").Checked(a.settings.StageSparks).Chosen() {
+		ui.Box(c).Height(0.5).Margin(5, 10).Background(radixSage(true, 6))
+		item := stageMenuRow(m.CheckItem(a.settings.StageSparks), false).Label("火花")
+		item.Children(func() {
+			ui.Text(c, "火花").FontSize(13).Grow(1)
+			fill, knob, x := radixSage(true, 6), radixSage(true, 11), float32(2)
+			if a.settings.StageSparks {
+				fill, knob, x = radixGreen(true, 9), radixPaper, 12
+			}
+			ui.Box(c).Size(26, 16).Radius(8).Background(fill).Children(func() {
+				ui.Box(c).Absolute().Left(x).Top(2).Size(12, 12).Radius(6).Background(knob)
+			})
+		})
+		if item.Clicked() {
 			a.settings.StageSparks = !a.settings.StageSparks
 			a.settings.save()
 		}
 	})
+}
+
+// stageMenuRow keeps the selected effect distinct from the pointer or keyboard highlight.
+func stageMenuRow(item ui.Element, selected bool) ui.Element {
+	item.Height(34).PaddingX(10).Gap(12).Radius(7).AlignItems(ui.Center).
+		TextColor(radixSage(true, 12)).FocusRing(false)
+	if selected {
+		item.Background(radixSage(true, 3))
+	}
+	if item.Highlighted() {
+		item.Background(radixSage(true, 4))
+	}
+	if item.Pressed() {
+		item.Background(radixSage(true, 5))
+	}
+	return item
 }
 
 // sparkTime is how long a word's sparks fly.

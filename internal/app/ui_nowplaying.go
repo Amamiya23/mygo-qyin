@@ -150,8 +150,8 @@ func (a *app) nowPlayingView(c *ui.Context) {
 	}
 	root := ui.Box(c.Key("now-playing")).Absolute().Top(0).Left(0).Right(0).Bottom(0).
 		Background(bg).TextColor(white)
-	// The pointer is over the view whenever it is in the window.
-	pointerIn := root.Hovered()
+	// Keep the controls visible while the pointer is in their detached effect menu.
+	pointerIn := root.Hovered() || a.stageStyleOpen
 	root.Children(func() {
 		bloom := ui.Box(c.Key("bloom")).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough()
 		if t := a.npT; t < 1 && !a.npStill {

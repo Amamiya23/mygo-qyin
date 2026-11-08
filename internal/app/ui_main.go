@@ -47,6 +47,9 @@ func (a *app) view(c *ui.Context) {
 	if npOpen || a.pl.Current() == nil {
 		a.queueOpen = false
 	}
+	if !a.nowPlaying || a.npPane != paneStage {
+		a.stageStyleOpen = false
+	}
 	root.Children(func() {
 		page := ui.Row(c).Fill().AlignItems(ui.Stretch)
 		page.Children(func() {

@@ -148,6 +148,8 @@ type app struct {
 	comments    commentState
 	tabCount    rollState // the count on the comments' tab, as it rolls
 
+	stageStyleOpen bool // the stage's effect menu shows
+
 	queueOpen    bool // the player bar's floating queue shows
 	queuePopup   ui.ListState
 	queuePopupAt int // the floating queue's last followed row, reset when opened
