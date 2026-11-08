@@ -90,9 +90,11 @@ func (a *app) acceptAccountRestore(gen int, prof *qqmusic.Profile, err error) bo
 func (a *app) signedIn(prof *qqmusic.Profile) {
 	a.accountRestore = accountRestoreState{gen: a.accountRestore.gen + 1}
 	a.profile = prof
+	a.resetSongFans()
 	// Playback picks up where it was left, once the session that lets
 	// the listener play their songs is back.
 	a.restoreSession()
+	a.syncSongFans()
 	a.mine, a.saved, a.recPlaylists, a.liked = nil, nil, nil, nil
 	a.clearSongShelves()
 	a.likedPrograms, a.askedPrograms = nil, nil

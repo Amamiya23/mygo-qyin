@@ -88,6 +88,7 @@ type app struct {
 	naming         nameDialog     // the name of a playlist asked for
 	deleting       deleteDialog   // whether to delete a playlist, asked
 	liked          map[int64]bool // the songs the listener likes
+	songFans       songFansState
 	likedAlbums    *likedAlbumData
 	likedScroll    likedScrollState
 	toast          string   // a message to show once
@@ -237,6 +238,7 @@ var invalidateWindow = (*mygo.Window).Invalidate
 
 // playerChanged keeps every window in sync, including seeks while paused.
 func (a *app) playerChanged() {
+	a.syncSongFans()
 	if a.desktopLyrics != nil {
 		a.desktopLyrics.revision++
 	}
@@ -366,6 +368,7 @@ func Run() error {
 	})
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
 		a.quitting = true
+		a.resetSongFans()
 		if a.desktopLyrics != nil {
 			a.desktopLyrics.destroy()
 		}

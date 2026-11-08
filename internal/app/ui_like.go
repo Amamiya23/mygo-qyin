@@ -311,6 +311,7 @@ func (a *app) toggleLike(tr *qqmusic.Track) {
 				a.toast = "操作失败，请稍后再试"
 				return
 			}
+			a.refreshSongFans(id)
 			// The liked songs' playlist changed: load it anew when shown.
 			for _, pl := range a.mine {
 				if pl.SpecialType == 5 {
@@ -431,6 +432,16 @@ func (a *app) programLikesAnswered(uid int64, asked []int64, liked map[int64]boo
 // pops it in on a spring while a ring swells around it and confetti flies
 // out; unliking lets it give a little.
 func (a *app) likeButton(c *ui.Context, tr *qqmusic.Track, size float32, color ui.Color, surface ...buttonSurface) ui.Element {
+	return a.likeButtonWithFans(c, tr, size, color, false, surface...)
+}
+
+// playingLikeButton reserves room for the fan count so asynchronous loading
+// and track changes keep the button's dimensions stable.
+func (a *app) playingLikeButton(c *ui.Context, tr *qqmusic.Track, size float32, color ui.Color, surface ...buttonSurface) ui.Element {
+	return a.likeButtonWithFans(c, tr, size, color, tr.ProgramID == 0, surface...)
+}
+
+func (a *app) likeButtonWithFans(c *ui.Context, tr *qqmusic.Track, size float32, color ui.Color, fans bool, surface ...buttonSurface) ui.Element {
 	if tr.ProgramID != 0 {
 		a.askProgramLikes([]int64{tr.ProgramID})
 	}
@@ -441,8 +452,23 @@ func (a *app) likeButton(c *ui.Context, tr *qqmusic.Track, size float32, color u
 	}
 	// The burst goes on a wrapper, which the heart's pop does not scale.
 	wrap := ui.Box(c).Center()
+	buttonWidth := size + 16
+	if fans {
+		wrap.Size(buttonWidth+40, buttonWidth).Shrink(0)
+	}
 	var b ui.Element
-	wrap.Children(func() { b = iconButton(c, icon, size, color, label, surface...) })
+	wrap.Children(func() {
+		b = iconButton(c, icon, size, color, label, surface...)
+		if fans {
+			b.Absolute().Left(0).Top(0)
+			if a.songFans.id == tr.ID && a.songFans.show != "" {
+				show := a.songFans.show
+				ui.Text(c.Key("fans"), show).Absolute().Left(buttonWidth - 9).Top(1).Width(48).
+					FontSize(10).FontWeight(500).FontFeatures("tnum").TextColor(color).
+					SingleLine().PassThrough().Label("喜欢人数：" + show)
+			}
+		}
+	})
 	scale := b.AnimateTo("pop", 1, ui.Animation{Spring: ui.SpringOptions{Duration: 550 * time.Millisecond, Bounce: 0.55}})
 	b.Scale(scale, scale)
 	burst := ui.Local(wrap, "burst", func() time.Time { return time.Time{} })
@@ -460,6 +486,9 @@ func (a *app) likeButton(c *ui.Context, tr *qqmusic.Track, size float32, color u
 	if !burst.IsZero() {
 		start, accent := *burst, radixRed(a.pal.dark, 9)
 		wrap.DrawOver(func(p *ui.Painter, r ui.Rect) {
+			if fans {
+				r.W = buttonWidth
+			}
 			if drawBurst(p, r, size, p.Now().Sub(start), accent) {
 				p.AnimationFrame()
 			}

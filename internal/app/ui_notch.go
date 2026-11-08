@@ -560,6 +560,7 @@ func (n *notch) idle(c *ui.Context, open, left float32) {
 // syncWindows redraws both windows when what plays changed in one of
 // them, so the other shows it too.
 func (a *app) syncWindows() {
+	a.syncSongFans()
 	pl := a.pl
 	var id int64
 	if tr := pl.Current(); tr != nil {
