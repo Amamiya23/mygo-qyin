@@ -11,7 +11,7 @@
 | `mygo-v0.8.3-macos-dev-icon.patch` | 开发包优先选择 `macos.icon` 的 `-dev` 兄弟文件，正确读取和缓存 ICNS，并监听文件或资产目录变化。 |
 | `mygo-v0.8.3-windows-state-compat.patch` | 将旧版本地补丁保存的 `windowsBounds` 读入上游 `pixel*` 字段；已有 `pixel*` 优先，下次保存使用上游格式。 |
 | `mygo-v0.8.3-tester-label-target.patch` | Tester 点击同名目标时逐个验证实际命中，避免 RichText 父文本误挡内联链接；仍拒绝被遮挡的目标。 |
-| `mygo-v0.8.3-desktop-audio.patch` | 保留桌面原采样率输出、可选设备预热、自然尾音排空及停止后端重开、ALSA 转换回退，以及 WSOLA 按输出率步进的修复与回归。 |
+| `mygo-v0.8.3-desktop-audio.patch` | 保留桌面原采样率输出、可选设备预热、自然尾音排空及停止后端重开、ALSA 转换回退、切频时隔离已暂停旧曲淡出并在旧输出平滑收尾，以及 WSOLA 按输出率步进的修复与回归。 |
 | `mygo-v0.8.3-analytic-clip.patch` | 将可化简的静止几何裁剪直接交给 GPU，包含完整切除圆角的分数滚动边界及不透明冗余裁剪；重叠抗锯齿、变换及图片/渐变遮罩保留像素路径。 |
 | `mygo-v0.8.3-render-resource-lifetime.patch` | 在预算压力下跨开关复用闲置遮罩，固定坐标裁剪保留可复用尺寸；D3D11 / GL / Metal 在完成绘制或提交后清理退场的临时遮罩纹理及离屏层。 |
 

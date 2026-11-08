@@ -133,14 +133,18 @@ func active() bool {
 
 // mixFor mixes into buf for an output open at latency lat, and reports
 // whether anything plays; ok is false, and it mixes nothing, once tests
-// mix by hand or the latency/rate changed.
-func mixFor(buf []float32, lat Latency, rate int) (busy, ok bool) {
+// mix by hand or the latency/rate changed. primary reports a primary voice
+// rendering audio rather than waiting for a previously rendered natural tail.
+func mixFor(buf []float32, lat Latency, rate int) (busy, ok, primary bool) {
 	mu.Lock()
 	defer mu.Unlock()
 	if testMode || latency != lat || outputRate != rate {
-		return false, false
+		return false, false, false
 	}
-	return mixLocked(buf), true
+	for _, v := range voices {
+		primary = primary || v.primary && v.playing && !v.closed && !v.finishing
+	}
+	return mixLocked(buf), true, primary
 }
 
 // run opens the device while anything plays, and mixes into it.
@@ -172,6 +176,7 @@ func playOutput() {
 	mu.Lock()
 	outputState, deviceRate = outputReady, rate
 	if !testMode && outputRate == rate && latency == lat {
+		retirePausedFadesLocked()
 		held, unheard = int64(lat.ahead())*int64(rate)/int64(time.Second), 0
 		if err != nil {
 			// Null output holds nothing.
@@ -194,16 +199,36 @@ func playOutput() {
 	}
 	mu.Unlock()
 	buf := make([]float32, n*channels)
+	var last [channels]float32
+	naturalTailPlayed := false
+	hasAudio := false
 	idle := time.Duration(0)
 	per := frames(int64(n), rate)
 	for {
-		busy, ok := mixFor(buf, lat, rate)
+		busy, ok, primary := mixFor(buf, lat, rate)
 		if !ok {
+			if hasAudio && !naturalTailPlayed {
+				if err := finishRateTransition(dev, lat, rate, n, last); err != nil {
+					setErr(err)
+				}
+			}
 			break
+		}
+		if primary {
+			naturalTailPlayed = false
 		}
 		if err := dev.write(buf); err != nil {
 			// Lost, or a null device trying the real one again.
 			break
+		}
+		copy(last[:], buf[len(buf)-channels:])
+		if !hasAudio {
+			for _, s := range buf {
+				if s != 0 {
+					hasAudio = true
+					break
+				}
+			}
 		}
 		if naturalDrain() {
 			if d, ok := dev.(drainingDevice); ok {
@@ -214,6 +239,9 @@ func playOutput() {
 				}
 				mu.Lock()
 				unheard = 0
+				// The natural tail was heard already; do not append a manual fade.
+				naturalTailPlayed = true
+				hasAudio = false
 				if reopen {
 					// Publish the heard tail before retiring the stopped backend.
 					// An empty mix completes EOF without consuming the next song.
@@ -239,6 +267,66 @@ func playOutput() {
 	outputState, deviceRate = outputClosed, 0
 	held, unheard = 0, 0
 	mu.Unlock()
+}
+
+// finishRateTransition gently brings the old output to zero before changing
+// its rate. The source cursors are deliberately untouched: the old player may
+// already be closed, and the new player must only run on its own output.
+// This waits for the short output queue, not for the old song's natural EOF.
+func finishRateTransition(dev device, lat Latency, rate, block int, last [channels]float32) error {
+	mu.Lock()
+	changing := desktopAudioFeatures && !testMode && latency == lat && outputRate != rate
+	mu.Unlock()
+	d, canDrain := dev.(drainingDevice)
+	if !changing || !canDrain {
+		return nil
+	}
+	frames := max(rate/200, 1)
+	tail := make([]float32, frames*channels)
+	for i := range frames {
+		gain := float32(frames-1-i) / float32(frames)
+		for ch := range channels {
+			tail[i*channels+ch] = last[ch] * gain
+		}
+	}
+	// AudioQueue buffers have a fixed capacity, including at high rates.
+	for len(tail) > 0 {
+		n := min(len(tail), block*channels)
+		if err := dev.write(tail[:n]); err != nil {
+			return err
+		}
+		tail = tail[n:]
+	}
+	_, err := d.drain()
+	return err
+}
+
+// A paused voice may still be fading out on the old output. That fade belongs
+// to that session: replaying it after a new session's silence brings back a
+// fragment of the previous song. Retire it without closing or seeking its
+// source, so a later Play can still resume with the usual fade-in. Voices
+// which are playing (including effects and natural EOF tails) stay intact.
+// The caller holds mu; same-session pauses never pass through here.
+func retirePausedFadesLocked() {
+	if !desktopAudioFeatures {
+		return
+	}
+	n := 0
+	for _, v := range voices {
+		if !v.playing && !v.closed {
+			v.active, v.finishing = false, false
+			v.gain, v.target, v.step = [4]float32{}, [4]float32{}, [4]float32{}
+			v.rampLeft = 0
+			if v.orphan {
+				v.close()
+			}
+			continue
+		}
+		voices[n] = v
+		n++
+	}
+	clear(voices[n:])
+	voices = voices[:n]
 }
 
 var errUnsupported = errors.New("audio: no audio output on this platform")
