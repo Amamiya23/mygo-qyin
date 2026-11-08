@@ -77,20 +77,21 @@ type app struct {
 	history []route
 	forward []route // the pages gone back from, the last first to go to
 
-	profile      *qqmusic.Profile
-	mine, saved  []qqmusic.Playlist // the listener's playlists: made, and saved
-	recPlaylists []qqmusic.Playlist // playlists picked for the listener by the home feed
-	songShelves  *songShelfData
-	shelfPagers  map[*qqmusic.SongShelf]*songShelfPager
-	login        loginState
-	accountOpen  bool           // the dropdown of the account row shows
-	naming       nameDialog     // the name of a playlist asked for
-	deleting     deleteDialog   // whether to delete a playlist, asked
-	liked        map[int64]bool // the songs the listener likes
-	likedAlbums  *likedAlbumData
-	likedScroll  likedScrollState
-	toast        string   // a message to show once
-	picked       pickedUp // the song a login picked up, waiting to play
+	profile        *qqmusic.Profile
+	mine, saved    []qqmusic.Playlist // the listener's playlists: made, and saved
+	recPlaylists   []qqmusic.Playlist // playlists picked for the listener by the home feed
+	songShelves    *songShelfData
+	shelfPagers    map[*qqmusic.SongShelf]*songShelfPager
+	login          loginState
+	accountRestore accountRestoreState
+	accountOpen    bool           // the dropdown of the account row shows
+	naming         nameDialog     // the name of a playlist asked for
+	deleting       deleteDialog   // whether to delete a playlist, asked
+	liked          map[int64]bool // the songs the listener likes
+	likedAlbums    *likedAlbumData
+	likedScroll    likedScrollState
+	toast          string   // a message to show once
+	picked         pickedUp // the song a login picked up, waiting to play
 
 	// The episodes the listener likes, and doesn't, as far as NetEase has
 	// answered, and those asked about: see ui_like.go.

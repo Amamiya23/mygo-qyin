@@ -12,8 +12,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
-	"strings"
 	"testing"
+	"time"
 )
 
 type authRoundTripper func(*http.Request) (*http.Response, error)
@@ -84,104 +84,128 @@ func TestQRRefreshAfterFetchFailure(t *testing.T) {
 	}
 }
 
-// QQ's PNG and qrsig must survive the complete OAuth exchange without leaking global cookies to musicu.
+// QQ's scan must decode escaped callback parameters and retain graph cookies despite parent-domain deletion cookies.
 func TestQQQRLogin(t *testing.T) {
 	const sig = "fake-qrsig-value_01"
 	const oauthCode = "ABCDEF0123456789ABCDEF0123456789"
 	var imageBytes bytes.Buffer
 	_ = png.Encode(&imageBytes, image.NewRGBA(image.Rect(0, 0, 37, 37)))
-	polls := 0
-	exchanges := 0
-	fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
-		switch r.Host + r.URL.Path {
-		case "xui.ptlogin2.qq.com/ssl/ptqrshow":
-			if r.URL.Query().Get("appid") != "716027609" || r.URL.Query().Get("pt_3rd_aid") != "100497308" {
-				t.Error("incorrect QQ application IDs")
+	for _, order := range []string{"graph first", "parent deletion first"} {
+		t.Run(order, func(t *testing.T) {
+			polls, checks, exchanges := 0, 0, 0
+			fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.Host + r.URL.Path {
+				case "xui.ptlogin2.qq.com/ssl/ptqrshow":
+					if r.URL.Query().Get("appid") != "716027609" || r.URL.Query().Get("pt_3rd_aid") != "100497308" {
+						t.Error("incorrect QQ application IDs")
+					}
+					http.SetCookie(w, &http.Cookie{Name: "qrsig", Value: sig, Domain: "ptlogin2.qq.com", Path: "/"})
+					w.Write(imageBytes.Bytes())
+				case "xui.ptlogin2.qq.com/ssl/ptqrlogin":
+					if r.Header.Get("Cookie") != "qrsig="+sig || r.URL.Query().Get("ptqrtoken") != strconv.FormatUint(uint64(hash33(sig, 0)), 10) {
+						t.Error("poll lost QR authentication")
+					}
+					polls++
+					switch polls {
+					case 1:
+						io.WriteString(w, `ptuiCB('66','0','','0','waiting','')`)
+					case 2:
+						io.WriteString(w, `ptuiCB('67','0','','0','scanned','')`)
+					default:
+						io.WriteString(w, `ptuiCB('0','0','https://ssl.ptlogin2.graph.qq.com/check_sig?ptsigx=fake\x26daid=383\u0026pt_3rd_aid=100497308','0','ok','nick')`)
+					}
+				case "ssl.ptlogin2.graph.qq.com/check_sig":
+					checks++
+					q := r.URL.Query()
+					if len(q) != 3 || q.Get("ptsigx") != "fake" || q.Get("daid") != "383" || q.Get("pt_3rd_aid") != "100497308" {
+						t.Error("escaped callback separators did not reach check_sig as separate query parameters")
+					}
+					for _, c := range []http.Cookie{{Name: "p_uin", Value: "o0010001"}, {Name: "p_skey", Value: "fake-pskey"}, {Name: "pt_oauth_token", Value: "fake-oauth"}} {
+						c.Domain, c.Path = "graph.qq.com", "/"
+						deleted := http.Cookie{Name: c.Name, Value: "", Domain: "qq.com", Path: "/", Expires: time.Unix(0, 0).UTC()}
+						if order == "parent deletion first" {
+							http.SetCookie(w, &deleted)
+							http.SetCookie(w, &c)
+						} else {
+							http.SetCookie(w, &c)
+							http.SetCookie(w, &deleted)
+						}
+					}
+					w.Header().Set("Location", loginJump)
+					w.WriteHeader(302)
+				case "graph.qq.com/oauth2.0/login_jump":
+					w.WriteHeader(200)
+				case "graph.qq.com/oauth2.0/authorize":
+					if r.Method != "POST" {
+						t.Error("authorization is not POST")
+					}
+					_ = r.ParseForm()
+					if r.Form.Get("g_tk") != strconv.FormatUint(uint64(hash33("fake-pskey", 5381)), 10) {
+						t.Error("authorization hash did not use the graph p_skey")
+					}
+					cookies := r.Cookies()
+					if len(cookies) != 3 {
+						t.Error("authorization received missing or duplicate credential cookies")
+					}
+					for name, want := range map[string]string{"p_uin": "o0010001", "p_skey": "fake-pskey", "pt_oauth_token": "fake-oauth"} {
+						c, err := r.Cookie(name)
+						if err != nil || c.Value != want {
+							t.Errorf("authorization lost graph cookie %s", name)
+						}
+					}
+					if len(r.Form.Get("state")) != 32 {
+						t.Error("state is missing")
+					}
+					w.Header().Set("Location", "https://y.qq.com/portal/wx_redirect.html?code="+oauthCode+"&state="+r.Form.Get("state"))
+					w.WriteHeader(302)
+				case "u.y.qq.com/cgi-bin/musicu.fcg":
+					exchanges++
+					if r.Header.Get("Cookie") != "" {
+						t.Error("global QQ cookies leaked to musicu")
+					}
+					var body struct {
+						Req struct {
+							Module string `json:"module"`
+							Method string `json:"method"`
+							Param  struct {
+								Code string `json:"code"`
+							} `json:"param"`
+						} `json:"req"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					if body.Req.Module != "QQConnectLogin.LoginServer" || body.Req.Method != "QQLogin" || body.Req.Param.Code != oauthCode {
+						t.Errorf("incorrect credential request: %+v", body)
+					}
+					io.WriteString(w, qqWebLoginResponse)
+				default:
+					t.Errorf("unexpected request %s%s", r.Host, r.URL)
+					w.WriteHeader(500)
+				}
+			})
+			key, err := QRKey()
+			if err != nil {
+				t.Fatal(err)
 			}
-			http.SetCookie(w, &http.Cookie{Name: "qrsig", Value: sig, Domain: "ptlogin2.qq.com", Path: "/"})
-			w.Write(imageBytes.Bytes())
-		case "xui.ptlogin2.qq.com/ssl/ptqrlogin":
-			if r.Header.Get("Cookie") != "qrsig="+sig || r.URL.Query().Get("ptqrtoken") != strconv.FormatUint(uint64(hash33(sig, 0)), 10) {
-				t.Error("poll lost QR authentication")
+			b, err := QRImage(key)
+			if err != nil || !bytes.Equal(b, imageBytes.Bytes()) {
+				t.Fatalf("lost original QR PNG: %v", err)
 			}
-			polls++
-			switch polls {
-			case 1:
-				io.WriteString(w, `ptuiCB('66','0','','0','waiting','')`)
-			case 2:
-				io.WriteString(w, `ptuiCB('67','0','','0','scanned','')`)
-			default:
-				io.WriteString(w, `ptuiCB('0','0','https://ssl.ptlogin2.graph.qq.com/check_sig?ptsigx=fake','0','ok','nick')`)
+			for _, want := range []int{QRWaiting, QRScanned, QRConfirmed} {
+				code, _, _, _, err := QRCheck(key)
+				if err != nil || code != want {
+					t.Fatalf("QRCheck = %d, %v; want %d", code, err, want)
+				}
 			}
-		case "ssl.ptlogin2.graph.qq.com/check_sig":
-			for _, c := range []http.Cookie{{Name: "p_uin", Value: "o0010001"}, {Name: "p_skey", Value: "fake-pskey"}, {Name: "pt_oauth_token", Value: "fake-oauth"}} {
-				c.Domain = "graph.qq.com"
-				c.Path = "/"
-				http.SetCookie(w, &c)
+			if checks != 1 || exchanges != 1 {
+				t.Fatalf("credential requests: check_sig=%d exchanges=%d", checks, exchanges)
 			}
-			w.Header().Set("Location", loginJump)
-			w.WriteHeader(302)
-		case "graph.qq.com/oauth2.0/login_jump":
-			w.WriteHeader(200)
-		case "graph.qq.com/oauth2.0/authorize":
-			if r.Method != "POST" {
-				t.Error("authorization is not POST")
+			s := sessionSnapshot()
+			if s.MusicID != "10001" || s.MusicKey != "fake-musickey" || s.LoginType != 2 || s.RefreshKey != "" || s.RefreshToken != "fake-refresh-token" || !s.canRefresh() {
+				t.Fatalf("bad or non-renewable QQ web session: id=%s type=%d", s.MusicID, s.LoginType)
 			}
-			_ = r.ParseForm()
-			if r.Form.Get("g_tk") != strconv.FormatUint(uint64(hash33("fake-pskey", 5381)), 10) || !strings.Contains(r.Header.Get("Cookie"), "p_skey=fake-pskey") {
-				t.Error("lost graph authentication")
-			}
-			if len(r.Form.Get("state")) != 32 {
-				t.Error("state is missing")
-			}
-			w.Header().Set("Location", "https://y.qq.com/portal/wx_redirect.html?code="+oauthCode+"&state="+r.Form.Get("state"))
-			w.WriteHeader(302)
-		case "u.y.qq.com/cgi-bin/musicu.fcg":
-			exchanges++
-			if r.Header.Get("Cookie") != "" {
-				t.Error("global QQ cookies leaked to musicu")
-			}
-			var body struct {
-				Req struct {
-					Module string `json:"module"`
-					Method string `json:"method"`
-					Param  struct {
-						Code string `json:"code"`
-					} `json:"param"`
-				} `json:"req"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Error(err)
-			}
-			if body.Req.Module != "QQConnectLogin.LoginServer" || body.Req.Method != "QQLogin" || body.Req.Param.Code != oauthCode {
-				t.Errorf("incorrect credential request: %+v", body)
-			}
-			io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":10001,"musickey":"fake-musickey","loginType":2,"nick":"Listener","logo":"https://example.test/avatar"}}}`)
-		default:
-			t.Errorf("unexpected request %s%s", r.Host, r.URL)
-			w.WriteHeader(500)
-		}
-	})
-	key, err := QRKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := QRImage(key)
-	if err != nil || !bytes.Equal(b, imageBytes.Bytes()) {
-		t.Fatalf("lost original QR PNG: %v", err)
-	}
-	for _, want := range []int{QRWaiting, QRScanned, QRConfirmed} {
-		code, _, _, _, err := QRCheck(key)
-		if err != nil || code != want {
-			t.Fatalf("QRCheck = %d, %v; want %d", code, err, want)
-		}
-	}
-	if exchanges != 1 {
-		t.Fatalf("credential exchanges = %d", exchanges)
-	}
-	s := sessionSnapshot()
-	if s.MusicID != "10001" || s.MusicKey != "fake-musickey" || s.LoginType != 2 {
-		t.Fatalf("bad session: id=%s type=%d", s.MusicID, s.LoginType)
+		})
 	}
 }
 

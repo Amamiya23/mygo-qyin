@@ -22,33 +22,73 @@ type loginState struct {
 	wechat   bool
 }
 
+type accountRestoreState struct {
+	gen     int
+	loading bool
+	failed  bool
+	boot    bool
+}
+
 // beginLoginQR is replaced by UI tests so retry actions never contact QQ.
 var beginLoginQR = qqmusic.QRKey
 var beginWechatLoginQR = qqmusic.WechatQRKey
+
+// Restoration tests isolate credential reads and the page loads that follow a recovered account.
+var restoreLoginSession = qqmusic.RestoreSession
+var readLoginAccount = qqmusic.Account
+var applyLoginProfile = (*app).signedIn
 
 // boot signs in with the session in the keychain, if any, then loads the
 // home page for whoever is listening.
 func (a *app) boot() {
 	a.homeLoading = true
+	a.startAccountRestore(true)
+}
+
+// startAccountRestore reads saved credentials at boot; retries use the retained in-memory session.
+func (a *app) startAccountRestore(boot bool) {
+	if a.accountRestore.loading {
+		return
+	}
+	a.accountRestore.gen++
+	a.accountRestore.loading = true
+	a.accountRestore.boot = boot
+	gen := a.accountRestore.gen
 	go func() {
 		var prof *qqmusic.Profile
-		if qqmusic.RestoreSession() {
-			p, err := qqmusic.Account()
-			switch {
-			case err == nil && p == nil:
-				qqmusic.ClearSession() // expired
-			case err == nil:
-				prof = p
-			}
+		var err error
+		if !boot || restoreLoginSession() {
+			prof, err = readLoginAccount()
 		}
 		a.post(func() {
-			a.signedIn(prof)
+			if !a.acceptAccountRestore(gen, prof, err) {
+				return
+			}
+			if boot || err == nil {
+				applyLoginProfile(a, a.profile)
+				a.accountRestore.failed = err != nil
+			}
 		})
 	}()
 }
 
+// acceptAccountRestore applies only the active request; failure keeps the session available to retry.
+func (a *app) acceptAccountRestore(gen int, prof *qqmusic.Profile, err error) bool {
+	if gen != a.accountRestore.gen || !a.accountRestore.loading {
+		return false
+	}
+	a.accountRestore.loading = false
+	a.accountRestore.boot = false
+	a.accountRestore.failed = err != nil
+	if err == nil {
+		a.profile = prof
+	}
+	return true
+}
+
 // signedIn shows what is personal to prof, or to nobody.
 func (a *app) signedIn(prof *qqmusic.Profile) {
+	a.accountRestore = accountRestoreState{gen: a.accountRestore.gen + 1}
 	a.profile = prof
 	// Playback picks up where it was left, once the session that lets
 	// the listener play their songs is back.
@@ -81,6 +121,13 @@ func (a *app) openLogin() {
 }
 
 func (a *app) openLoginChannel(wechat bool) {
+	if a.accountRestore.loading && a.accountRestore.boot {
+		// Choosing a fresh login must still finish startup if the QR is later dismissed.
+		applyLoginProfile(a, nil)
+	}
+	a.accountRestore.gen++
+	a.accountRestore.loading = false
+	a.accountRestore.boot = false
 	qqmusic.CancelQR(a.login.key)
 	a.login = loginState{open: true, gen: a.login.gen + 1, wechat: wechat}
 	gen := a.login.gen
@@ -284,11 +331,17 @@ func (a *app) accountRow(c *ui.Context) {
 		b.Background(a.sidebarSurface(c, p.hover, 0.035))
 	}
 	if a.profile == nil {
+		status := "未登录"
+		if a.accountRestore.loading {
+			status = "正在恢复登录"
+		} else if a.accountRestore.failed {
+			status = "登录恢复失败"
+		}
 		b.Label("账户").Expanded(a.accountOpen).Children(func() {
 			ui.Box(c).Size(26, 26).Radius(13).Background(p.press).Center().Children(func() {
 				ui.Icon(c, iconUser).Size(14, 14).TextColor(p.muted)
 			})
-			ui.Text(c, "未登录").FontSize(13).FontWeight(500).TextColor(p.muted).Grow(1)
+			ui.Text(c, status).FontSize(13).FontWeight(500).TextColor(p.muted).Grow(1)
 			ui.Icon(c, iconUpDown).Size(13, 13).TextColor(p.faint)
 		})
 		if b.Clicked() {
@@ -322,7 +375,26 @@ func (a *app) accountMenu(c *ui.Context, row ui.Element) {
 			panel.Width(w)
 		}
 		if a.profile == nil {
-			if a.menuItem(c, iconUser, "登录 QQ 音乐", "").AutoFocus().Clicked() {
+			r := a.accountRestore
+			if r.failed || r.loading {
+				retry := a.menuItem(c, iconRepeat, "重试恢复登录", "").Disabled(r.loading)
+				if !r.loading {
+					retry.AutoFocus()
+				}
+				if retry.Clicked() {
+					a.accountOpen = false
+					a.startAccountRestore(false)
+				}
+			}
+			label := "登录 QQ 音乐"
+			if r.failed {
+				label = "重新扫码登录"
+			}
+			scan := a.menuItem(c, iconUser, label, "")
+			if !r.failed || r.loading {
+				scan.AutoFocus()
+			}
+			if scan.Clicked() {
 				a.accountOpen = false
 				a.openLogin()
 			}
