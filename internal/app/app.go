@@ -353,15 +353,7 @@ func Run() error {
 		// Closing the window follows the listener's choice. Without a tray
 		// or Dock to bring it back, closing it always quits.
 		a.win.OnClose(func(e *mygo.CloseEvent) {
-			if a.quitting {
-				return
-			}
-			e.PreventDefault()
-			if !a.settings.QuitOnClose && a.canHideOnClose() {
-				a.win.Hide()
-			} else {
-				mygo.App.Quit()
-			}
+			a.mainWindowClose(e, a.win.Hide, mygo.App.Quit)
 		})
 	})
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
@@ -386,6 +378,9 @@ func Run() error {
 			a.tray.Destroy()
 		}
 	})
+	// The event loop has stopped: no UI callbacks can start another track.
+	// This also runs before an updater relaunch releases the process.
+	mygo.App.OnQuit(finishAudio)
 	mygo.App.OnWindowAllClosed(func() {})
 	// The Dock icon's click, and the launch another instance handed over
 	// above, as the shortcut's while the window hides in the tray.
