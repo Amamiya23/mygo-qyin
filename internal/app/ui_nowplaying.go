@@ -206,7 +206,6 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 			// controls a slim bar at the foot.
 			a.npRise(reveal(npTabsRow(c, w, h), pointerIn), 0).Children(func() {
 				a.paneTabs(c)
-				ui.Spacer(c)
 				a.stageStyleButton(c)
 			})
 			a.stage(c, tr, accent)
@@ -227,7 +226,6 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 		a.npRise(reveal(npTabsRow(c, w, h), pointerIn), 0).Children(func() {
 			a.paneTabs(c)
 			if a.npPane == paneLyrics {
-				ui.Spacer(c)
 				a.lyricsSizeButton(c)
 			}
 		})
