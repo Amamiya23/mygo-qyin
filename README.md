@@ -13,8 +13,14 @@ Lilt 是基于 MyGo 云音乐改造的第三方 QQ 音乐客户端，使用 Go �
 - LRC 歌词与同步翻译，正在播放页的「律动」视图与歌曲评论
 - macOS 刘海播放器：在屏幕顶部刘海处显示迷你播放器，悬停展开
 - 音量平衡模式，减小不同歌曲之间的音量差异
+- 桌面歌词：拖拽定位、锁定后鼠标穿透；Linux Wayland 支持 layer-shell 定位
 
 > 未登录可浏览和播放 QQ 允许匿名收听的歌曲。左下角「登录 QQ 音乐」可选择使用手机 QQ 或微信扫码。会员与版权权限由 QQ 音乐服务决定。
+
+## Linux 桌面歌词
+
+Wayland 下建议安装 **GTK 3 版 `gtk-layer-shell`**；任务栏区域避让目前针对 KDE Plasma Wayland 适配。
+详见 [Linux 桌面歌词：依赖、安装与限制](docs/linux-desktop-lyrics.md)，包含 RPM 体系（Fedora、RHEL 兼容发行版、openSUSE）、Debian / Ubuntu 和 Arch 系的安装示例。
 
 ## 构建
 

@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,7 @@ func RunDesktopLyricsProbe(dir string, duration time.Duration, check bool) error
 						ui.Button(c, "锁定歌词").OnClick(func() { a.desktopLyrics.setLocked(true) })
 						ui.Button(c, "解锁歌词").OnClick(func() { a.desktopLyrics.setLocked(false) })
 						ui.Button(c, "关闭歌词").OnClick(func() { a.setDesktopLyricsEnabled(false) })
+						ui.Button(c, "测试菜单").OnClick(func() { a.trayMenu().Popup(a.win) })
 					})
 					ui.Row(c).Gap(8).Children(func() {
 						ui.Button(c, "隐藏主窗 3 秒").OnClick(func() {
@@ -142,6 +144,14 @@ func runDesktopLyricsNativeChecks(a *app, dir string) {
 		{"locked-again", func() { a.setDesktopLyricsLocked(true) }},
 		{"closed-while-locked", func() { a.setDesktopLyricsEnabled(false) }},
 		{"restored-locked", func() { a.setDesktopLyricsEnabled(true) }},
+		{"bottom-edge", func() {
+			w := a.desktopLyrics.win
+			r := w.Bounds()
+			work := a.desktopLyrics.workArea(r)
+			r.Y = work.Y + work.Height - r.Height
+			w.SetBounds(r)
+		}},
+		{"unlocked-bottom-edge", func() { a.setDesktopLyricsLocked(false); a.desktopLyrics.fitWorkArea() }},
 	}
 	for i, stage := range stages {
 		time.AfterFunc(time.Duration(i+1)*time.Second, func() {
@@ -151,6 +161,7 @@ func runDesktopLyricsNativeChecks(a *app, dir string) {
 				time.AfterFunc(300*time.Millisecond, func() {
 					mygo.RunOnMain(func() {
 						results[stage.name] = desktopLyricsNativeSnapshot(a)
+						fmt.Fprintf(os.Stderr, "lyrics-probe snapshot=%s locked=%t\n", stage.name, a.settings.DesktopLyricsLocked)
 						if strings.HasSuffix(stage.name, "-line") && a.desktopLyrics.win != nil {
 							if data, err := a.desktopLyrics.win.CapturePage(); err == nil {
 								os.WriteFile(filepath.Join(dir, stage.name+".png"), data, 0600)

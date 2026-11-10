@@ -1,8 +1,8 @@
 diff --git a/internal/linux/layer.go b/internal/linux/layer.go
-index 38eed8e..85e4887 100644
+index 38eed8e..75d193e 100644
 --- a/internal/linux/layer.go
 +++ b/internal/linux/layer.go
-@@ -3,12 +3,65 @@
+@@ -3,6 +3,7 @@
  package linux
  
  import (
@@ -10,10 +10,10 @@ index 38eed8e..85e4887 100644
  	"os"
  	"path/filepath"
  	"sync"
- 
+@@ -10,6 +11,62 @@ import (
  	"github.com/egoist/mygo/internal/platform"
  )
-+
+ 
 +// layerDrag keeps the point held by the pointer in surface coordinates.
 +type layerDrag struct {
 +	x, y    float64
@@ -52,27 +52,72 @@ index 38eed8e..85e4887 100644
 +	}
 +	// Keep the panel on its current output: Wayland does not expose global
 +	// pointer coordinates for finding another output during a drag.
-+	m := gdkDisplayGetMonitorAtPoint(gdkDisplayGetDefault(), int32(r.X), int32(r.Y))
++	m := layerMonitorAtPoint(r.X, r.Y)
 +	if m == 0 {
 +		return
 +	}
-+	var g gdkRectangle
-+	gdkMonitorGetGeometry(m, &g)
-+	next.X = min(int(g.X+g.Width)-r.Width, max(int(g.X), next.X))
-+	next.Y = min(int(g.Y+g.Height)-r.Height, max(int(g.Y), next.Y))
++	g := layerMonitorGeometry(m)
++	next = clampLayerDrag(next, g)
 +	if next.X != r.X || next.Y != r.Y {
 +		w.placeLayer(next.X, next.Y)
 +		w.h.Moved()
 +	}
 +}
- 
++
++func clampLayerDrag(r platform.Rect, g gdkRectangle) platform.Rect {
++	r.X = max(int(g.X), min(int(g.X+g.Width)-r.Width, r.X))
++	r.Y = max(int(g.Y), min(int(g.Y+g.Height)-r.Height, r.Y))
++	return r
++}
++
  // gtk-layer-shell makes panels surfaces of the wlr-layer-shell protocol
  // on Wayland compositors that speak it (Sway, Hyprland, KDE Plasma,
+ // COSMIC…), as launchers there do (Ulauncher, Walker, anyrun): above
+@@ -67,6 +124,14 @@ func loadLayerShell() bool {
+ 	return layerSupported
+ }
+ 
++// PreparePanelScreen loads the panel's logical coordinates before core state
++// restoration can mistake a saved bottom-edge position for an off-screen one.
++func (b *Backend) PreparePanelScreen() {
++	if !b.onX11 && loadLayerShell() {
++		initLayerGeometry()
++	}
++}
++
+ // initLayer makes a new panel a layer surface where it can be one, before
+ // GTK realizes it, and reports whether it did. Without a position, the
+ // compositor centers it on the output it chooses, the one the user is on.
+@@ -111,9 +176,11 @@ func (w *window) layerKeyboard(take bool) {
+ // placeLayer puts a layer surface's top-left corner at x, y, on the output
+ // there, with margins from that output's top and left edges.
+ func (w *window) placeLayer(x, y int) {
+-	m := gdkDisplayGetMonitorAtPoint(gdkDisplayGetDefault(), int32(x), int32(y))
+-	var g gdkRectangle
+-	gdkMonitorGetGeometry(m, &g)
++	m := layerMonitorAtPoint(x, y)
++	if m == 0 {
++		return
++	}
++	g := layerMonitorGeometry(m)
+ 	gtkLayerSetMonitor(w.win, m)
+ 	gtkLayerSetAnchor(w.win, edgeTop, true)
+ 	gtkLayerSetAnchor(w.win, edgeLeft, true)
+@@ -164,8 +231,7 @@ func (w *window) layerBounds() platform.Rect {
+ 	if m == 0 {
+ 		return r
+ 	}
+-	var g gdkRectangle
+-	gdkMonitorGetGeometry(m, &g)
++	g := layerMonitorGeometry(m)
+ 	r.X, r.Y = int(g.X)+(int(g.Width)-r.Width)/2, int(g.Y)+(int(g.Height)-r.Height)/2
+ 	return r
+ }
 diff --git a/internal/linux/window.go b/internal/linux/window.go
 index 5c797fe..4363299 100644
 --- a/internal/linux/window.go
 +++ b/internal/linux/window.go
-@@ -142,6 +142,7 @@
+@@ -142,6 +142,7 @@ type window struct {
  	// context menu positioning.
  	press struct {
  		button     int32
@@ -80,7 +125,7 @@ index 5c797fe..4363299 100644
  		rootX      float64
  		rootY      float64
  		time       uint32
-@@ -152,6 +153,7 @@
+@@ -152,6 +153,7 @@ type window struct {
  	// dragPending holds whether a window drag was requested with the last
  	// press and waits for the pointer to move; see StartDrag.
  	dragPending bool
@@ -88,7 +133,7 @@ index 5c797fe..4363299 100644
  
  	// cursor is the resize cursor shown over an edge of a frameless
  	// window, and the page's cursor it replaced.
-@@ -908,6 +910,10 @@
+@@ -908,6 +910,10 @@ func (w *window) StartDrag() {
  	if !w.press.hasPressed {
  		return
  	}
@@ -99,7 +144,7 @@ index 5c797fe..4363299 100644
  	if !w.undecorated() {
  		gtkWindowBeginMoveDrag(w.win, w.press.button, int32(w.press.rootX), int32(w.press.rootY), w.press.time)
  		return
-@@ -918,6 +924,10 @@
+@@ -918,6 +924,10 @@ func (w *window) StartDrag() {
  // checkDragStart starts a pending window drag once the pointer moves past
  // the drag threshold with the button still down.
  func (w *window) checkDragStart(event ptr) {
@@ -110,7 +155,7 @@ index 5c797fe..4363299 100644
  	if !w.dragPending {
  		return
  	}
-@@ -1850,6 +1860,9 @@
+@@ -1850,6 +1860,9 @@ func initWindowCallbacks() {
  		// GdkEventButton: time 20, button 52, x_root 64, y_root 72.
  		w.press.time = field[uint32](event, 20)
  		w.press.button = int32(field[uint32](event, 52))
@@ -160,3 +205,348 @@ index 0000000..3279218
 +		t.Fatal("motion after release restarted the drag")
 +	}
 +}
+diff --git a/internal/linux/system.go b/internal/linux/system.go
+index f250bbc..9bbfb74 100644
+--- a/internal/linux/system.go
++++ b/internal/linux/system.go
+@@ -29,7 +29,12 @@ var (
+ 
+ func initSystemCallbacks() {
+ 	cbThemeChanged = purego.NewCallback(func(a, b, data ptr) { theBackend.h.ThemeChanged() })
+-	cbMonitorsChanged = purego.NewCallback(func(display, monitor, data ptr) { theBackend.h.DisplaysChanged() })
++	cbMonitorsChanged = purego.NewCallback(func(display, monitor, data ptr) {
++		if layerRefreshDisplays != nil {
++			layerRefreshDisplays()
++		}
++		theBackend.h.DisplaysChanged()
++	})
+ 	cbPortalSignal = purego.NewCallback(portalSignal)
+ 	cbPowerSignal = purego.NewCallback(func(conn, sender, path, iface, signal, params, data ptr) {
+ 		child := gVariantGetChildValue(params, 0)
+@@ -236,6 +241,11 @@ func (screen) Displays() []platform.Display {
+ 		var geo, work gdkRectangle
+ 		gdkMonitorGetGeometry(m, &geo)
+ 		gdkMonitorGetWorkarea(m, &work)
++		if layerDisplayGeometry != nil {
++			logical := layerDisplayGeometry(m, geo)
++			work = layerLogicalWorkArea(geo, work, logical)
++			geo = logical
++		}
+ 		out = append(out, platform.Display{
+ 			ID:          int64(i),
+ 			Label:       goStr(gdkMonitorGetModel(m)),
+diff --git a/internal/linux/layer_geometry.go b/internal/linux/layer_geometry.go
+new file mode 100644
+index 0000000..1c3f4c9
+--- /dev/null
++++ b/internal/linux/layer_geometry.go
+@@ -0,0 +1,222 @@
++//go:build linux && (amd64 || arm64)
++
++package linux
++
++import (
++	"math"
++	"sync"
++	"unsafe"
++
++	"github.com/ebitengine/purego"
++)
++
++// Some GTK 3 versions report mode / integer scale as monitor geometry even
++// when xdg-output supplies a different logical size (KWin fractional scaling).
++// Layer-shell margins use the compositor's logical coordinates. Query those
++// on a private Wayland queue so no GTK callbacks run inside the roundtrips.
++// This is linked and loaded only when a panel uses layer-shell.
++type layerWLMessage struct {
++	name, signature *byte
++	types           *ptr
++}
++
++type layerWLInterface struct {
++	name        *byte
++	version     int32
++	methodCount int32
++	methods     *layerWLMessage
++	eventCount  int32
++	events      *layerWLMessage
++}
++
++var layerGeometry struct {
++	once      sync.Once
++	display   func(ptr) ptr
++	output    func(ptr) ptr
++	queue     func(ptr) ptr
++	freeQueue func(ptr)
++	setQueue  func(ptr, ptr)
++	roundtrip func(ptr, ptr) int32
++	construct func(ptr, uint32, *uint64, ptr, uint32) ptr
++	listen    func(ptr, *ptr, ptr) int32
++	marshal   func(ptr, uint32, *uint64)
++	destroy   func(ptr)
++	registry  ptr
++	manager   layerWLInterface
++	xdg       layerWLInterface
++	methods   [2]layerWLMessage
++	events    [5]layerWLMessage
++	types     [2]ptr
++	globals   [2]ptr
++	listener  [5]ptr
++	globalID  uint32
++	// All access is on GTK's main thread; callbacks exist once per process.
++	monitors map[ptr]gdkRectangle
++	observed map[ptr]bool
++}
++
++func initLayerGeometry() {
++	l := &layerGeometry
++	l.once.Do(func() {
++		lib, err := open("libwayland-client.so.0")
++		if err != nil {
++			return
++		}
++		if !bind(libGDK, &l.display, "gdk_wayland_display_get_wl_display") ||
++			!bind(libGDK, &l.output, "gdk_wayland_monitor_get_wl_output") ||
++			!bind(lib, &l.queue, "wl_display_create_queue") ||
++			!bind(lib, &l.freeQueue, "wl_event_queue_destroy") ||
++			!bind(lib, &l.setQueue, "wl_proxy_set_queue") ||
++			!bind(lib, &l.roundtrip, "wl_display_roundtrip_queue") ||
++			!bind(lib, &l.construct, "wl_proxy_marshal_array_constructor_versioned") ||
++			!bind(lib, &l.listen, "wl_proxy_add_listener") ||
++			!bind(lib, &l.marshal, "wl_proxy_marshal_array") ||
++			!bind(lib, &l.destroy, "wl_proxy_destroy") {
++			return
++		}
++		l.registry, _ = purego.Dlsym(lib, "wl_registry_interface")
++		output, _ := purego.Dlsym(lib, "wl_output_interface")
++		if l.registry == 0 || output == 0 {
++			return
++		}
++		l.xdg = layerWLInterface{name: cs("zxdg_output_v1"), version: 2, methodCount: 1, methods: &l.methods[0], eventCount: 5, events: &l.events[0]}
++		l.types = [2]ptr{uintptr(unsafe.Pointer(&l.xdg)), output}
++		l.methods = [2]layerWLMessage{{name: cs("destroy"), signature: cs("")}, {name: cs("get_xdg_output"), signature: cs("no"), types: &l.types[0]}}
++		l.manager = layerWLInterface{name: cs("zxdg_output_manager_v1"), version: 2, methodCount: 2, methods: &l.methods[0]}
++		for i, event := range []struct{ name, signature string }{{"logical_position", "ii"}, {"logical_size", "ii"}, {"done", ""}, {"name", "2s"}, {"description", "2s"}} {
++			l.events[i] = layerWLMessage{name: cs(event.name), signature: cs(event.signature)}
++		}
++		l.globals[0] = purego.NewCallback(func(data, registry ptr, name uint32, iface ptr, version uint32) {
++			if goStr(iface) == "zxdg_output_manager_v1" && version >= 2 {
++				l.globalID = name
++			}
++		})
++		l.globals[1] = purego.NewCallback(func(data, registry ptr, name uint32) {})
++		l.listener[0] = purego.NewCallback(func(monitor, output ptr, x, y int32) {
++			r := l.monitors[monitor]
++			r.X, r.Y = x, y
++			l.monitors[monitor] = r
++		})
++		l.listener[1] = purego.NewCallback(func(monitor, output ptr, width, height int32) {
++			r := l.monitors[monitor]
++			r.Width, r.Height = width, height
++			l.monitors[monitor] = r
++		})
++		l.listener[2] = purego.NewCallback(func(data, output ptr) {})
++		l.listener[3] = purego.NewCallback(func(data, output, value ptr) {})
++		l.listener[4] = l.listener[3]
++		l.observed = make(map[ptr]bool)
++		cbLayerGeometryChanged = purego.NewCallback(func(monitor, pspec, data ptr) {
++			refreshLayerGeometry()
++			theBackend.h.DisplaysChanged()
++		})
++		layerRefreshDisplays = refreshLayerGeometry
++		layerDisplayGeometry = func(m ptr, fallback gdkRectangle) gdkRectangle {
++			if r := l.monitors[m]; r.Width > 0 && r.Height > 0 {
++				return r
++			}
++			return fallback
++		}
++	})
++	if layerRefreshDisplays != nil {
++		layerRefreshDisplays()
++	}
++}
++
++func refreshLayerGeometry() {
++	l := &layerGeometry
++	d := l.display(gdkDisplayGetDefault())
++	q := l.queue(d)
++	if q == 0 {
++		return
++	}
++	defer l.freeQueue(q)
++	zero := uint64(0)
++	registry := l.construct(d, 1, &zero, l.registry, 1) // wl_display.get_registry
++	if registry == 0 {
++		return
++	}
++	defer l.destroy(registry)
++	l.setQueue(registry, q)
++	l.globalID = 0
++	l.listen(registry, &l.globals[0], 0)
++	if l.roundtrip(d, q) < 0 || l.globalID == 0 {
++		return
++	}
++	args := [4]uint64{uint64(l.globalID), uint64(uintptr(unsafe.Pointer(l.manager.name))), 2, 0}
++	manager := l.construct(registry, 0, &args[0], uintptr(unsafe.Pointer(&l.manager)), 2)
++	if manager == 0 {
++		return
++	}
++	defer func() { l.marshal(manager, 0, nil); l.destroy(manager) }()
++	l.setQueue(manager, q)
++	l.monitors = make(map[ptr]gdkRectangle)
++	observed := make(map[ptr]bool)
++	var outputs []ptr
++	defer func() {
++		for _, output := range outputs {
++			l.marshal(output, 0, nil)
++			l.destroy(output)
++		}
++	}()
++	display := gdkDisplayGetDefault()
++	for i, n := int32(0), gdkDisplayGetNMonitors(display); i < n; i++ {
++		m := gdkDisplayGetMonitor(display, i)
++		args := [2]uint64{0, uint64(l.output(m))}
++		output := l.construct(manager, 1, &args[0], uintptr(unsafe.Pointer(&l.xdg)), 2)
++		if output == 0 {
++			continue
++		}
++		outputs = append(outputs, output)
++		l.setQueue(output, q)
++		l.listen(output, &l.listener[0], m)
++		// Geometry notifications cover resolution/scale changes on an existing
++		// output; monitor-added/removed alone do not report those changes.
++		if !l.observed[m] {
++			connect(m, "notify::geometry", cbLayerGeometryChanged, 0)
++		}
++		observed[m] = true
++	}
++	l.observed = observed
++	if l.roundtrip(d, q) < 0 {
++		l.monitors = nil
++	}
++}
++
++// Set by layer-shell only, keeping native Wayland probing out of ordinary apps.
++var layerRefreshDisplays func()
++var layerDisplayGeometry func(ptr, gdkRectangle) gdkRectangle
++var cbLayerGeometryChanged ptr
++
++func layerMonitorGeometry(m ptr) gdkRectangle {
++	var r gdkRectangle
++	gdkMonitorGetGeometry(m, &r)
++	if layerDisplayGeometry != nil {
++		r = layerDisplayGeometry(m, r)
++	}
++	return r
++}
++
++func layerLogicalWorkArea(geo, work, logical gdkRectangle) gdkRectangle {
++	// Keep the work area's insets while replacing GTK's rounded-scale extent.
++	return gdkRectangle{X: logical.X + work.X - geo.X, Y: logical.Y + work.Y - geo.Y,
++		Width: max(1, logical.Width-(geo.Width-work.Width)), Height: max(1, logical.Height-(geo.Height-work.Height))}
++}
++
++func layerMonitorAtPoint(x, y int) ptr {
++	d := gdkDisplayGetDefault()
++	// GDK's lookup uses the same rounded geometry; select in layer-shell's
++	// coordinate space instead, including outputs with a negative origin.
++	var nearest ptr
++	best := math.Inf(1)
++	for i, n := int32(0), gdkDisplayGetNMonitors(d); i < n; i++ {
++		m := gdkDisplayGetMonitor(d, i)
++		r := layerMonitorGeometry(m)
++		dx := float64(max(int(r.X)-x, 0, x-int(r.X+r.Width)+1))
++		dy := float64(max(int(r.Y)-y, 0, y-int(r.Y+r.Height)+1))
++		if distance := dx*dx + dy*dy; distance < best {
++			nearest, best = m, distance
++		}
++	}
++	return nearest
++}
+diff --git a/internal/linux/layer_geometry_test.go b/internal/linux/layer_geometry_test.go
+new file mode 100644
+index 0000000..b5e395d
+--- /dev/null
++++ b/internal/linux/layer_geometry_test.go
+@@ -0,0 +1,48 @@
++//go:build linux && (amd64 || arm64)
++
++package linux
++
++import (
++	"testing"
++
++	"github.com/egoist/mygo/internal/platform"
++)
++
++func TestLayerFractionalScaleBottomEdge(t *testing.T) {
++	gtk := gdkRectangle{Width: 1280, Height: 800}
++	logical := gdkRectangle{Width: 1707, Height: 1067}
++	work := layerLogicalWorkArea(gtk, gtk, logical)
++	if work != logical {
++		t.Fatalf("work area still uses integer scale: %+v", work)
++	}
++	r := platform.Rect{X: 400, Y: 2000, Width: 760, Height: 151}
++	r = clampLayerDrag(r, logical)
++	if r.Y+r.Height != 1067 {
++		t.Fatalf("drag stopped above the compositor's bottom edge: %+v", r)
++	}
++	// Display changes and content-height adjustments must agree with dragging.
++	if r.Y+r.Height != int(work.Y+work.Height) {
++		t.Fatal("work area and drag boundary disagree")
++	}
++}
++
++func TestLayerLogicalWorkAreaInsets(t *testing.T) {
++	gtk := gdkRectangle{X: -1280, Y: 20, Width: 1280, Height: 800}
++	logical := gdkRectangle{X: -1707, Y: 20, Width: 1707, Height: 1067}
++	work := gtk
++	work.Y += 24
++	work.Height -= 64
++	want := logical
++	want.Y += 24
++	want.Height -= 64
++	if got := layerLogicalWorkArea(gtk, work, logical); got != want {
++		t.Fatalf("lost work area insets: got %+v, want %+v", got, want)
++	}
++	r := clampLayerDrag(platform.Rect{X: -3000, Y: 3000, Width: 760, Height: 151}, logical)
++	if r.X != -1707 || r.Y+r.Height != 1087 {
++		t.Fatalf("wrong boundary on negative-origin output: %+v", r)
++	}
++	if got := layerLogicalWorkArea(gtk, work, gtk); got != work {
++		t.Fatalf("changed a display without fractional scaling: %+v", got)
++	}
++}
+diff --git a/window.go b/window.go
+index 5042200..307ca79 100644
+--- a/window.go
++++ b/window.go
+@@ -617,6 +617,11 @@ func newWindow(opts WindowOptions, bg, tint *background, native uintptr, flyout
+ 		popts.Center = false
+ 	}
+ 	w.devTools = popts.DevTools
++	if popts.Panel {
++		if b, ok := backend().(platform.PanelScreenBackend); ok {
++			b.PreparePanelScreen()
++		}
++	}
+ 	if w.stateKey != "" {
+ 		restoreWindowState(w.stateKey, popts)
+ 	}
+diff --git a/internal/platform/platform.go b/internal/platform/platform.go
+index 2b11be2..13cdb53 100644
+--- a/internal/platform/platform.go
++++ b/internal/platform/platform.go
+@@ -149,6 +149,12 @@ type WindowStateBackend interface {
+ 	RestoreWindowState(opts *WindowOptions, pixels Rect) bool
+ }
+ 
++// PanelScreenBackend prepares a panel's screen coordinate system before
++// restoring its saved bounds. Other windows do not load panel-only protocols.
++type PanelScreenBackend interface {
++	PreparePanelScreen()
++}
++
+ // StyleBackend styles the widgets the toolkit draws for the app with the
+ // app's own style sheet (Linux: GTK's CSS, Theme.SetGTKCSS). SetStyleSheet
+ // replaces the sheet set before, or removes it for "", and keeps that one

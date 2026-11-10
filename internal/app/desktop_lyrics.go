@@ -13,12 +13,14 @@ const desktopLyricsWidth = 760
 // desktopLyrics owns a panel independently of the main window's visibility.
 // All its state and callbacks belong to MyGo's main thread.
 type desktopLyrics struct {
-	a             *app
-	win           *mygo.Window
-	offDisplays   func()
-	width         float64
-	desiredHeight int
-	revision      uint64
+	a                *app
+	win              *mygo.Window
+	offDisplays      func()
+	width            float64
+	desiredHeight    int
+	revision         uint64
+	workAreaOverride func(mygo.Rectangle) mygo.Rectangle
+	stopWorkArea     func()
 }
 
 func supportsDesktopLyrics() bool {
@@ -81,6 +83,7 @@ func (a *app) syncDesktopLyrics() {
 	})
 	d.win = w
 	styleDesktopLyricsWindow(w)
+	watchDesktopLyricsWorkArea(d)
 	d.desiredHeight = 0
 	d.width = float64(w.Bounds().Width)
 	setDesktopLyricsIgnoreMouse(w, a.settings.DesktopLyricsLocked)
@@ -99,6 +102,7 @@ func (a *app) syncDesktopLyrics() {
 	})
 	w.OnClosed(func() {
 		if d.win == w {
+			d.clearWorkAreaWatcher()
 			d.win = nil
 			if d.offDisplays != nil {
 				d.offDisplays()
@@ -111,12 +115,13 @@ func (a *app) syncDesktopLyrics() {
 			return
 		}
 		r := d.win.Bounds()
-		work := mygo.Screen.DisplayMatching(r).WorkArea
+		work := d.workArea(r)
 		d.win.SetBounds(clampDesktopLyricsBounds(r, work))
 	})
 }
 
 func (d *desktopLyrics) destroy() {
+	d.clearWorkAreaWatcher()
 	if d.offDisplays != nil {
 		d.offDisplays()
 		d.offDisplays = nil
@@ -127,6 +132,32 @@ func (d *desktopLyrics) destroy() {
 		w.Close()
 	}
 	d.desiredHeight = 0
+}
+
+func (d *desktopLyrics) clearWorkAreaWatcher() {
+	if d.stopWorkArea != nil {
+		d.stopWorkArea()
+		d.stopWorkArea = nil
+	}
+	d.workAreaOverride = nil
+}
+
+func (d *desktopLyrics) workArea(r mygo.Rectangle) mygo.Rectangle {
+	work := mygo.Screen.DisplayMatching(r).WorkArea
+	if d.workAreaOverride != nil {
+		return d.workAreaOverride(work)
+	}
+	return work
+}
+
+func (d *desktopLyrics) fitWorkArea() {
+	if d.win == nil {
+		return
+	}
+	r := d.win.Bounds()
+	if next := clampDesktopLyricsBounds(r, d.workArea(r)); next != r {
+		d.win.SetBounds(next)
+	}
 }
 
 func (d *desktopLyrics) close() { d.a.setDesktopLyricsEnabled(false) }
@@ -165,7 +196,7 @@ func (d *desktopLyrics) fitHeight(height float64) {
 		return
 	}
 	w := d.win
-	work := mygo.Screen.DisplayMatching(w.Bounds()).WorkArea
+	work := d.workArea(w.Bounds())
 	h := min(work.Height, max(100, int(math.Ceil(height))))
 	if h == d.desiredHeight {
 		return
@@ -197,7 +228,7 @@ func (d *desktopLyrics) resizeWidth(delta float64) {
 		return
 	}
 	r := d.win.Bounds()
-	work := mygo.Screen.DisplayMatching(r).WorkArea
+	work := d.workArea(r)
 	r.Width = min(work.Width, max(320, r.Width+int(math.Round(delta))))
 	r = clampDesktopLyricsBounds(r, work)
 	d.width = float64(r.Width)
