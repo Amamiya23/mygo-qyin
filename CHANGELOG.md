@@ -1,5 +1,21 @@
 # 更新日志
 
+## 0.4.3
+
+- 支持搜索自己歌单中的歌曲
+- 修复 Linux Wayland 桌面歌词的定位、层级及锁定后鼠标穿透问题
+- 关闭应用时遵循播放淡入淡出设置
+- 优化 Windows 任务栏歌词
+
+### 下载指南
+
+| 处理器架构 | Windows | macOS | Linux |
+| :--- | :--- | :--- | :--- |
+| amd64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.3/lilt-setup-0.4.3-amd64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.3/lilt-0.4.3-amd64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.3/lilt_0.4.3_amd64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.3/lilt-0.4.3-linux-amd64.tar.gz) |
+| arm64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.3/lilt-setup-0.4.3-arm64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.3/lilt-0.4.3-arm64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.3/lilt_0.4.3_arm64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.3/lilt-0.4.3-linux-arm64.tar.gz) |
+
+> Linux：Ubuntu / Debian 等支持 deb 的发行版选 `.deb`，其他发行版选 `.tar.gz`。
+
 ## 0.4.2
 
 - 正在播放页面支持调整歌词字号
