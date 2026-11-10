@@ -5,10 +5,12 @@ package audio
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 )
 
+// Shutdown must render the requested pause-length fade before closing, without reopening.
 func TestShutdownFadesClosesAndNeverReopens(t *testing.T) {
 	for _, rate := range []int{44100, 48000, 88200, 96000, 192000, 384000} {
 		for _, lat := range []Latency{LatencyInteractive, LatencyPlayback} {
@@ -42,7 +44,7 @@ func TestShutdownFadesClosesAndNeverReopens(t *testing.T) {
 							return nil
 						}
 						at = p.v.at()
-						request = beginShutdown()
+						request = beginShutdown(750 * time.Millisecond)
 						p.Play() // terminal shutdown must suppress restarts
 						if p.Playing() || p.v.closed || !p.v.active {
 							t.Fatal("shutdown must report stopped but keep the source alive for its fade")
@@ -53,7 +55,7 @@ func TestShutdownFadesClosesAndNeverReopens(t *testing.T) {
 						t.Fatal("shutdown source did not advance exactly through its music fade")
 					}
 					for i := 0; i < len(out); i += channels {
-						gain := float32(rate/10-1-tail) / float32(rate/10)
+						gain := float32(0.5 + 0.5*math.Cos(math.Pi*float64(tail+1)/float64(rate*3/4)))
 						j := (int(at) + tail) * channels
 						if out[i] != samples[j]*gain || out[i+1] != samples[j+1]*gain {
 							t.Fatalf("shutdown did not fade continuous stereo music at frame %d", tail)
@@ -63,10 +65,10 @@ func TestShutdownFadesClosesAndNeverReopens(t *testing.T) {
 					return nil
 				}
 				playOutput()
-				if request == nil || tail != rate/10 || !p.v.closed || p.v.active || d.drains != 1 || !d.closed || outputState != outputClosed || active() {
+				if request == nil || tail != rate*3/4 || !p.v.closed || p.v.active || d.drains != 1 || !d.closed || outputState != outputClosed || active() {
 					t.Fatal("shutdown did not complete fade/drain/close")
 				}
-				if err := Shutdown(context.Background()); err != nil {
+				if err := Shutdown(context.Background(), 100*time.Millisecond); err != nil {
 					t.Fatal(err)
 				}
 				playOutput() // even a queued wake must not reopen
@@ -75,6 +77,33 @@ func TestShutdownFadesClosesAndNeverReopens(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Disabling the exit fade must not consume more music, but still drain and close.
+func TestShutdownWithoutMusicFade(t *testing.T) {
+	resetOutputTest(t)
+	p := testSong(48000).SetPreRoll(false)
+	p.Play()
+	runOnce.Do(func() {})
+	testMode = false
+	d := &reviewDrainingDevice{}
+	openOutput = func(time.Duration, int) (device, int, error) { return d, 480, nil }
+	writes := 0
+	var position float64
+	d.writeFn = func([]float32) error {
+		writes++
+		if writes == 1 {
+			position = p.v.at()
+			beginShutdown(0)
+		} else if p.v.at() != position {
+			t.Fatal("disabled exit fade consumed music")
+		}
+		return nil
+	}
+	playOutput()
+	if writes != 2 || p.v.at() != position || !p.v.closed || !d.closed || d.drains != 1 {
+		t.Fatal("disabled exit fade did not limit shutdown to the short anti-click tail")
 	}
 }
 
@@ -87,7 +116,7 @@ func TestShutdownDuringPrerollDoesNotStartMusic(t *testing.T) {
 	d := &reviewDrainingDevice{}
 	openOutput = func(time.Duration, int) (device, int, error) { return d, 480, nil }
 	writes := 0
-	d.writeFn = func([]float32) error { writes++; beginShutdown(); return nil }
+	d.writeFn = func([]float32) error { writes++; beginShutdown(100 * time.Millisecond); return nil }
 	playOutput()
 	if writes != 1 || d.drains != 0 || p.v.at() != 0 || !p.v.closed || !d.closed {
 		t.Fatal("quitting during pre-roll read music or added a fade")
@@ -108,7 +137,7 @@ func TestShutdownDuringRateChangeOnlyFadesOriginalMusic(t *testing.T) {
 		writes++
 		if writes == 1 {
 			next.Play()
-			beginShutdown()
+			beginShutdown(100 * time.Millisecond)
 		}
 		return nil
 	}
@@ -131,7 +160,7 @@ func TestShutdownEOFDoesNotStartNextSong(t *testing.T) {
 	testMode = false
 	d := &reviewDrainingDevice{}
 	openOutput = func(time.Duration, int) (device, int, error) { return d, 480, nil }
-	d.writeFn = func([]float32) error { beginShutdown(); return nil }
+	d.writeFn = func([]float32) error { beginShutdown(100 * time.Millisecond); return nil }
 	playOutput()
 	if !p.v.closed || !d.closed || p.v.position(p.v.at()) != 600 {
 		t.Fatal("short source did not end during shutdown")
@@ -146,7 +175,7 @@ func TestShutdownEOFDoesNotStartNextSong(t *testing.T) {
 func TestShutdownClosedOutputDoesNotOpen(t *testing.T) {
 	resetOutputTest(t)
 	openOutput = func(time.Duration, int) (device, int, error) { t.Fatal("opened on quit"); return nil, 0, nil }
-	if err := Shutdown(context.Background()); err != nil {
+	if err := Shutdown(context.Background(), 100*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	testSong(96000).Play()
@@ -162,14 +191,14 @@ func TestShutdownDuringOpenClosesWithoutWriting(t *testing.T) {
 	testMode = false
 	d := &rateTestDevice{writeFn: func([]float32) error { t.Fatal("wrote after shutdown during open"); return nil }}
 	openOutput = func(time.Duration, int) (device, int, error) {
-		beginShutdown()
+		beginShutdown(100 * time.Millisecond)
 		return d, 960, nil
 	}
 	playOutput()
 	if !d.closed || outputState != outputClosed {
 		t.Fatal("in-flight open was not retired on shutdown")
 	}
-	if err := Shutdown(context.Background()); err != nil {
+	if err := Shutdown(context.Background(), 100*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -177,11 +206,11 @@ func TestShutdownDuringOpenClosesWithoutWriting(t *testing.T) {
 func TestShutdownCallerCancellationDoesNotCancelCleanup(t *testing.T) {
 	resetOutputTest(t)
 	outputState = outputReady
-	request := beginShutdown()
+	request := beginShutdown(100 * time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
 	waiting := make(chan struct{})
 	results := make(chan error)
-	go func() { results <- Shutdown(shutdownWaitContext{Context: ctx, waiting: waiting}) }()
+	go func() { results <- Shutdown(shutdownWaitContext{Context: ctx, waiting: waiting}, 100*time.Millisecond) }()
 	<-waiting
 	cancel()
 	if err := <-results; err != context.Canceled {
@@ -196,7 +225,7 @@ func TestShutdownCallerCancellationDoesNotCancelCleanup(t *testing.T) {
 	outputState = outputClosed
 	completeShutdownLocked(nil)
 	mu.Unlock()
-	if err := Shutdown(context.Background()); err != nil {
+	if err := Shutdown(context.Background(), 100*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -230,7 +259,7 @@ func TestShutdownWaitsForOwningThreadToClose(t *testing.T) {
 	testMode = false
 	d := &shutdownCloseDevice{closing: make(chan struct{}), release: make(chan struct{})}
 	openOutput = func(time.Duration, int) (device, int, error) { return d, 480, nil }
-	d.writeFn = func([]float32) error { beginShutdown(); return nil }
+	d.writeFn = func([]float32) error { beginShutdown(100 * time.Millisecond); return nil }
 	workerDone := make(chan struct{})
 	go func() { playOutput(); close(workerDone) }()
 	<-d.closing
@@ -242,11 +271,11 @@ func TestShutdownWaitsForOwningThreadToClose(t *testing.T) {
 	// A canceled caller can leave while another caller still awaits native close.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := Shutdown(ctx); err != context.Canceled {
+	if err := Shutdown(ctx, 100*time.Millisecond); err != context.Canceled {
 		t.Fatalf("cancel error = %v", err)
 	}
 	result := make(chan error, 1)
-	go func() { result <- Shutdown(context.Background()) }()
+	go func() { result <- Shutdown(context.Background(), 100*time.Millisecond) }()
 	close(d.release)
 	<-workerDone
 	if err := <-result; err != nil || !d.closed {
@@ -268,7 +297,7 @@ func TestShutdownPausedSilentOutputNeedsNoExtraDrain(t *testing.T) {
 		if writes == 1 {
 			p.Pause()
 		} else if writes == 20 { // well past fade-out plus the 40ms look-ahead
-			beginShutdown()
+			beginShutdown(100 * time.Millisecond)
 		}
 		return nil
 	}

@@ -12,7 +12,7 @@ func TestOtherPlatformsShutdownDoesNotStopPlayback(t *testing.T) {
 	resetOutputTest(t)
 	p := testSong(44100)
 	p.Play()
-	if err := Shutdown(context.Background()); err != nil {
+	if err := Shutdown(context.Background(), 100*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	if !p.Playing() || shuttingDown != nil {

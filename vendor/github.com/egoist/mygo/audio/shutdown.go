@@ -1,30 +1,36 @@
 package audio
 
-import "context"
+import (
+	"context"
+	"math"
+	"time"
+)
 
 type outputShutdown struct {
 	done   chan struct{}
 	err    error
 	voices []*voice
+	fade   time.Duration
 }
 
 // Guarded by mu. Shutdown is terminal for the process's audio output.
 var shuttingDown *outputShutdown
 
 // Shutdown stops all players and closes the desktop output on its owning
-// thread, with a 100ms fade of continuous music when playing, then drain. It never opens
+// thread, fading continuous music for fade when playing, then draining. It never opens
 // a device. Subsequent Play calls do nothing. Concurrent calls share completion.
 // ctx limits waiting, not an in-flight native call: after a timeout cleanup
 // continues on the output thread. Intended for final application shutdown.
 // On Web, mobile and unsupported backends this is a no-op.
-func Shutdown(ctx context.Context) error {
+// A nonpositive fade skips the music fade, retaining only a short anti-click tail.
+func Shutdown(ctx context.Context, fade time.Duration) error {
 	if !desktopAudioFeatures {
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	s := beginShutdown()
+	s := beginShutdown(fade)
 	select {
 	case <-s.done:
 		return s.err
@@ -33,11 +39,11 @@ func Shutdown(ctx context.Context) error {
 	}
 }
 
-func beginShutdown() *outputShutdown {
+func beginShutdown(fade time.Duration) *outputShutdown {
 	mu.Lock()
 	defer mu.Unlock()
 	if shuttingDown == nil {
-		shuttingDown = &outputShutdown{done: make(chan struct{}), voices: voices}
+		shuttingDown = &outputShutdown{done: make(chan struct{}), voices: voices, fade: fade}
 		// Keep voices active until their fade is rendered, so Player cleanup
 		// cannot close an orphaned decoder in the middle of the fade.
 		voices = nil
@@ -65,7 +71,7 @@ func completeShutdownLocked(err error) {
 	}
 }
 
-// Fade the next 100ms of the already-rendering voices, not a held last sample.
+// Fade continuous samples from the already-rendering voices, not a held last sample.
 // Keep decoder sources alive until completion and bypass mix/OnEnd dispatch.
 // Only voices which rendered on this session can contribute: a newly queued
 // song must never be read on a previous song's output rate during shutdown.
@@ -75,6 +81,7 @@ func finishShutdown(dev device, rate, block int, hasAudio bool, last [channels]f
 	}
 	mu.Lock()
 	lat := latency
+	fade := shuttingDown.fade
 	var fading []*voice
 	for _, v := range shuttingDown.voices {
 		if !v.closed && v.playing && !v.finishing && v.mixedRate == rate {
@@ -82,11 +89,11 @@ func finishShutdown(dev device, rate, block int, hasAudio bool, last [channels]f
 		}
 	}
 	mu.Unlock()
-	if len(fading) == 0 {
+	if fade <= 0 || len(fading) == 0 {
 		// Paused audio may still be queued; retain the short anti-click tail.
 		return finishRateTransition(dev, lat, rate, block, last)
 	}
-	total := max(rate/10, 1)
+	total := max(int(fade.Seconds()*float64(rate)), 1)
 	buf := make([]float32, min(block, total)*channels)
 	for at := 0; at < total; {
 		n := min(block, total-at)
@@ -100,7 +107,8 @@ func finishShutdown(dev device, rate, block int, hasAudio bool, last [channels]f
 		}
 		mu.Unlock()
 		for i := 0; i < n; i++ {
-			gain := float32(total-1-at-i) / float32(total)
+			t := float64(at+i+1) / float64(total)
+			gain := float32(0.5 + 0.5*math.Cos(math.Pi*t))
 			for ch := range channels {
 				k := i*channels + ch
 				out[k] = min(max(out[k], -1), 1) * gain

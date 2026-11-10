@@ -10,8 +10,9 @@ import (
 
 // How long pausing and resuming fade the music out and in.
 const (
-	fadeOut = 750 * time.Millisecond
-	fadeIn  = 500 * time.Millisecond
+	// FadeOutDuration is shared by pause and application shutdown.
+	FadeOutDuration = 750 * time.Millisecond
+	fadeIn          = 500 * time.Millisecond
 )
 
 // fader sets the volume of the player playing: the listener's volume and

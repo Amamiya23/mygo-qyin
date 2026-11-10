@@ -475,7 +475,7 @@ func (p *Player) TogglePlay() {
 	}
 	if p.playing {
 		p.playing = false
-		p.fade.fade(0, fadeOut, func() {
+		p.fade.fade(0, FadeOutDuration, func() {
 			p.post(func() {
 				if p.out == out && !p.playing {
 					out.Pause()

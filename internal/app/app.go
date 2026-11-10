@@ -394,7 +394,7 @@ func Run() error {
 	})
 	// The event loop has stopped: no UI callbacks can start another track.
 	// This also runs before an updater relaunch releases the process.
-	mygo.App.OnQuit(finishAudio)
+	mygo.App.OnQuit(a.finishAudio)
 	mygo.App.OnWindowAllClosed(func() {})
 	// The Dock icon's click, and the launch another instance handed over
 	// above, as the shortcut's while the window hides in the tray.
