@@ -1,17 +1,88 @@
 package app
 
 import (
+	"fmt"
 	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"lilt/internal/lyrics"
 	"lilt/internal/qqmusic"
 )
+
+// Playback can advance without the hidden window receiving a frame. Resuming
+// rebuilds both the clock and the active lyric before the next line's timer.
+func TestLyricsResumeBeforeNextLineTimer(t *testing.T) {
+	frames := os.Getenv("NM_FRAMES")
+	if frames != "" {
+		if err := os.MkdirAll(frames, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, reduceMotion := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reduce-motion=%t", reduceMotion), func(t *testing.T) {
+			a := newTestApp()
+			a.settings = defaultSettings()
+			a.win = &mygo.Window{}
+			a.pl.Cue([]qqmusic.Track{{ID: 7, Duration: 400000}})
+			var lrc string
+			for i := 0; i < 12; i++ {
+				lrc += fmt.Sprintf("[%02d:%02d.00]第%d句歌词\n", i/2, i%2*30, i)
+			}
+			a.pl.SetLyrics(lyrics.Build(lrc, "", ""))
+			a.pl.Hold(time.Second)
+			tt := ui.NewTester(func(c *ui.Context) {
+				ui.Column(c).Fill().Background(radixSage(true, 1)).Children(func() {
+					ui.Text(c, clock(a.pl.Position())).TextColor(white)
+					a.lyricsPane(c, a.pl.Current(), 500)
+				})
+			}, 600, 500)
+			tt.SetPreferences(ui.Preferences{ReduceMotion: reduceMotion})
+			tt.Advance(time.Second)
+			if a.lyricAt != 0 {
+				t.Fatalf("initial line=%d", a.lyricAt)
+			}
+			if frames != "" {
+				saveLyricsEntryFrame(t, frames, fmt.Sprintf("lyrics-resume-%t-before.png", reduceMotion), tt)
+			}
+			// Move only the playback clock, as audio does while minimized.
+			a.pl.Hold(190 * time.Second)
+			if tt.HasText("3:10") || a.lyricAt != 0 {
+				t.Fatal("fixture did not retain the old frame")
+			}
+			before := tt.Now()
+			oldInvalidate := invalidateWindow
+			defer func() { invalidateWindow = oldInvalidate }()
+			requests := 0
+			invalidateWindow = func(w *mygo.Window) {
+				if w != a.win {
+					t.Fatal("resume invalidated another window")
+				}
+				requests++
+				tt.Frame()
+			}
+			a.resumeMainWindow()
+			if requests != 1 || a.lyricAt != 6 || !tt.HasText("3:10") || tt.Now() != before {
+				t.Fatalf("resume waited for a timer: requests=%d line=%d clock=%v", requests, a.lyricAt, tt.Texts())
+			}
+			tt.Advance(2 * time.Second)
+			if a.lyricScroll.Y <= 0 {
+				t.Fatal("resumed lyrics did not scroll to the current line")
+			}
+			if r, ok := tt.Find("第6句歌词"); !ok || r.Y < 0 || r.Y+r.H > 500 {
+				t.Fatalf("current line is outside the resumed pane: %+v, found=%v", r, ok)
+			}
+			if frames != "" {
+				saveLyricsEntryFrame(t, frames, fmt.Sprintf("lyrics-resume-%t-after.png", reduceMotion), tt)
+			}
+		})
+	}
+}
 
 // Clicking a QRC line seeks to its absolute start and keeps a paused player
 // paused while the lyric selection follows both forward and backwards seeks.

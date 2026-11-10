@@ -235,6 +235,15 @@ func (a *app) redraw() {
 
 var invalidateWindow = (*mygo.Window).Invalidate
 
+// resumeMainWindow rebuilds playback UI from the audio clock instead of
+// presenting the frame cached before minimization. Focus is also a resume
+// signal: Wayland does not consistently report iconified/restored states.
+func (a *app) resumeMainWindow() {
+	if a.win != nil {
+		invalidateWindow(a.win)
+	}
+}
+
 // playerChanged keeps every window in sync, including seeks while paused.
 func (a *app) playerChanged() {
 	if a.desktopLyrics != nil {
@@ -341,9 +350,14 @@ func Run() error {
 		// does.
 		a.syncDock()
 		a.win.OnShow(a.syncDock)
+		a.win.OnShow(a.resumeMainWindow)
 		a.win.OnHide(a.syncDock)
+		a.win.OnRestore(a.resumeMainWindow)
 		// Shown or switched to the morning after, it shows the new day's.
-		a.win.OnFocus(a.freshenHome)
+		a.win.OnFocus(func() {
+			a.freshenHome()
+			a.resumeMainWindow()
+		})
 		a.applyTray()
 		a.syncDesktopLyrics()
 		a.syncTaskbarLyrics()
