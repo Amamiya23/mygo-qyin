@@ -66,7 +66,7 @@ type settings struct {
 	StageSparks bool `json:"stageSparks,omitempty"`
 	// Volume is where the volume was left, from 0 to 1.
 	Volume float64 `json:"volume"`
-	// PlaybackFade smooths pause and resume operations.
+	// PlaybackFade smooths pause, resume and application shutdown.
 	PlaybackFade bool `json:"playbackFade"`
 	// Normalize is the old volume-balance switch, kept so installs saved
 	// before the mode selector can still be read.

@@ -1,12 +1,44 @@
 package app
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+
+	"lilt/internal/player"
 )
+
+// The playback fade switch must control quitting as well as pause and resume.
+func TestQuitAudioFollowsPlaybackFadeSetting(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	tt := ui.NewTester(a.settingsView, 560, 2000)
+	tt.Frame()
+	previous := shutdownAudio
+	defer func() { shutdownAudio = previous }()
+	var durations []time.Duration
+	shutdownAudio = func(ctx context.Context, fade time.Duration) error {
+		if ctx.Err() != nil {
+			t.Fatal("shutdown received an expired context")
+		}
+		durations = append(durations, fade)
+		return nil
+	}
+	a.finishAudio()
+	if err := tt.Click("切换播放操作淡入淡出"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	a.finishAudio()
+	if len(durations) != 2 || durations[0] != player.FadeOutDuration || durations[1] != 0 {
+		t.Fatalf("shutdown fade durations = %v", durations)
+	}
+}
 
 func TestMainWindowCloseUsesConfiguredExitBehavior(t *testing.T) {
 	a := newTestApp()
