@@ -128,7 +128,7 @@ func wakeOutput() {
 func active() bool {
 	mu.Lock()
 	defer mu.Unlock()
-	return len(voices) > 0 && !testMode
+	return len(voices) > 0 && !testMode && shuttingDown == nil
 }
 
 // mixFor mixes into buf for an output open at latency lat, and reports
@@ -138,7 +138,7 @@ func active() bool {
 func mixFor(buf []float32, lat Latency, rate int) (busy, ok, primary bool) {
 	mu.Lock()
 	defer mu.Unlock()
-	if testMode || latency != lat || outputRate != rate {
+	if testMode || shuttingDown != nil || latency != lat || outputRate != rate {
 		return false, false, false
 	}
 	for _, v := range voices {
@@ -162,6 +162,11 @@ func run() {
 // playOutput owns one device session; only the output thread calls it.
 func playOutput() {
 	mu.Lock()
+	if shuttingDown != nil {
+		completeShutdownLocked(nil)
+		mu.Unlock()
+		return
+	}
 	outputRate = playbackRateLocked()
 	lat, rate := latency, outputRate
 	outputState = outputOpening
@@ -175,7 +180,7 @@ func playOutput() {
 	}
 	mu.Lock()
 	outputState, deviceRate = outputReady, rate
-	if !testMode && outputRate == rate && latency == lat {
+	if !testMode && shuttingDown == nil && outputRate == rate && latency == lat {
 		retirePausedFadesLocked()
 		held, unheard = int64(lat.ahead())*int64(rate)/int64(time.Second), 0
 		if err != nil {
@@ -202,14 +207,22 @@ func playOutput() {
 	var last [channels]float32
 	naturalTailPlayed := false
 	hasAudio := false
+	var silentFrames int64
+	var sessionErr error
 	idle := time.Duration(0)
 	per := frames(int64(n), rate)
 	for {
 		busy, ok, primary := mixFor(buf, lat, rate)
 		if !ok {
-			if hasAudio && !naturalTailPlayed {
+			mu.Lock()
+			quitting := shuttingDown != nil
+			mu.Unlock()
+			if quitting {
+				sessionErr = finishShutdown(dev, rate, n, hasAudio, last)
+			} else if hasAudio && !naturalTailPlayed {
 				if err := finishRateTransition(dev, lat, rate, n, last); err != nil {
 					setErr(err)
+					sessionErr = err
 				}
 			}
 			break
@@ -219,6 +232,7 @@ func playOutput() {
 		}
 		if err := dev.write(buf); err != nil {
 			// Lost, or a null device trying the real one again.
+			sessionErr = err
 			break
 		}
 		copy(last[:], buf[len(buf)-channels:])
@@ -230,11 +244,29 @@ func playOutput() {
 				}
 			}
 		}
+		// Once a full look-ahead of silence has passed, a paused/idle output
+		// has no music left to fade or drain when the application quits.
+		quiet := 0
+		for i := len(buf) - channels; i >= 0; i -= channels {
+			if buf[i] != 0 || buf[i+1] != 0 {
+				break
+			}
+			quiet++
+		}
+		if quiet == n {
+			silentFrames += int64(quiet)
+		} else {
+			silentFrames = int64(quiet)
+		}
+		if silentFrames >= max(int64(lat.ahead())*int64(rate)/int64(time.Second), 1) {
+			hasAudio = false
+		}
 		if naturalDrain() {
 			if d, ok := dev.(drainingDevice); ok {
 				reopen, err := d.drain()
 				if err != nil {
 					setErr(err)
+					sessionErr = err
 					break
 				}
 				mu.Lock()
@@ -266,6 +298,7 @@ func playOutput() {
 	mu.Lock()
 	outputState, deviceRate = outputClosed, 0
 	held, unheard = 0, 0
+	completeShutdownLocked(sessionErr)
 	mu.Unlock()
 }
 
@@ -273,9 +306,10 @@ func playOutput() {
 // its rate. The source cursors are deliberately untouched: the old player may
 // already be closed, and the new player must only run on its own output.
 // This waits for the short output queue, not for the old song's natural EOF.
+// Shutdown uses this only when paused audio still needs a short anti-click tail.
 func finishRateTransition(dev device, lat Latency, rate, block int, last [channels]float32) error {
 	mu.Lock()
-	changing := desktopAudioFeatures && !testMode && latency == lat && outputRate != rate
+	changing := desktopAudioFeatures && !testMode && (shuttingDown != nil || latency == lat && outputRate != rate)
 	mu.Unlock()
 	d, canDrain := dev.(drainingDevice)
 	if !changing || !canDrain {

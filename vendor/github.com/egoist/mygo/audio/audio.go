@@ -272,7 +272,7 @@ func (p *Player) Play() {
 	mu.Lock()
 	defer mu.Unlock()
 	v := p.v
-	if v.closed || v.playing {
+	if v.closed || v.playing || shuttingDown != nil {
 		return
 	}
 	if v.ended() {
@@ -354,7 +354,7 @@ func (p *Player) Stop() {
 func (p *Player) Playing() bool {
 	mu.Lock()
 	defer mu.Unlock()
-	return p.v.playing
+	return p.v.playing && shuttingDown == nil
 }
 
 // endListener is a function OnEnd registered.

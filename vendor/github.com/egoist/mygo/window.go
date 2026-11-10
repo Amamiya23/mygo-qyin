@@ -617,6 +617,11 @@ func newWindow(opts WindowOptions, bg, tint *background, native uintptr, flyout 
 		popts.Center = false
 	}
 	w.devTools = popts.DevTools
+	if popts.Panel {
+		if b, ok := backend().(platform.PanelScreenBackend); ok {
+			b.PreparePanelScreen()
+		}
+	}
 	if w.stateKey != "" {
 		restoreWindowState(w.stateKey, popts)
 	}

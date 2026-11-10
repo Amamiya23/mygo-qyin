@@ -104,6 +104,7 @@ type voice struct {
 	marks     []mark
 	finishing bool  // natural EOF rendered, waiting for the device to play its tail
 	finishOut int64 // output frame after the final source frame
+	mixedRate int   // session rate at which this voice last rendered source frames
 }
 
 // A mark is the voice at output frame out: at frame pos of its source,
@@ -118,6 +119,7 @@ type mark struct {
 // has moved there.
 func (v *voice) reset(f int64) {
 	v.finishing = false
+	v.mixedRate = 0
 	v.hist = [4][2]float32{}
 	// Three frames come in before the first output: the second is f.
 	v.idx = f - 3
@@ -308,7 +310,7 @@ func (v *voice) gains(master float64) [4]float32 {
 }
 
 // retarget ramps the gains to t from now.
-func (v *voice) retarget(t [4]float32) {
+func (v *voice) retarget(t [4]float32, rate int) {
 	switch {
 	case v.snap:
 		v.snap, v.fadeIn = false, false
@@ -321,10 +323,11 @@ func (v *voice) retarget(t [4]float32) {
 		return
 	}
 	v.target = t
+	n := max(rate/200, 1)
 	for i := range t {
-		v.step[i] = (t[i] - v.gain[i]) / float32(rampFrames())
+		v.step[i] = (t[i] - v.gain[i]) / float32(n)
 	}
-	v.rampLeft = rampFrames()
+	v.rampLeft = n
 }
 
 // mix adds the voice's next frames to out, which the output mixes from
@@ -343,7 +346,10 @@ func (v *voice) mix(out []float32, master float64, at, heard int64) bool {
 		return true
 	}
 	v.mark(at, heard)
-	n, ok := v.play(out, master)
+	n, ok := v.play(out, master, outputRate)
+	if n > 0 {
+		v.mixedRate = outputRate
+	}
 	v.mark(at+int64(n), heard)
 	if desktopAudioFeatures && !ok && v.atEnd {
 		// Keep Playing true and postpone OnEnd until the queued tail is heard.
@@ -357,12 +363,12 @@ func (v *voice) mix(out []float32, master float64, at, heard int64) bool {
 
 // play adds the voice's next frames to out and returns how many it moved
 // through its source for, and whether it is still active.
-func (v *voice) play(out []float32, master float64) (int, bool) {
-	v.retarget(v.gains(master))
-	step := v.rate / float64(outputRate) * v.speed
+func (v *voice) play(out []float32, master float64, rate int) (int, bool) {
+	v.retarget(v.gains(master), rate)
+	step := v.rate / float64(rate) * v.speed
 	if v.st != nil && v.st.on {
 		// Stretched to the speed already.
-		step = v.rate / float64(outputRate)
+		step = v.rate / float64(rate)
 	}
 	for i := 0; i < len(out); i += 2 {
 		for v.phase >= 1 {

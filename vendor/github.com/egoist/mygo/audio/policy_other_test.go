@@ -3,9 +3,22 @@
 package audio
 
 import (
+	"context"
 	"testing"
 	"time"
 )
+
+func TestOtherPlatformsShutdownDoesNotStopPlayback(t *testing.T) {
+	resetOutputTest(t)
+	p := testSong(44100)
+	p.Play()
+	if err := Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Playing() || shuttingDown != nil {
+		t.Fatal("desktop shutdown affected a non-desktop backend")
+	}
+}
 
 func TestOtherPlatformsIgnoreDesktopOptions(t *testing.T) {
 	resetOutputTest(t)

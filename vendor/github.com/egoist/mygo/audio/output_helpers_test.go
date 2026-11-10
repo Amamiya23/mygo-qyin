@@ -8,6 +8,7 @@ func resetOutputTest(t *testing.T) {
 	mu.Lock()
 	testMode = true
 	voices = nil
+	shuttingDown = nil
 	outputRate, warmupFrames = 48000, 0
 	outputState, deviceRate = outputClosed, 0
 	mixed, held, unheard = 0, 0, 0
@@ -20,6 +21,7 @@ func resetOutputTest(t *testing.T) {
 			v.close()
 		}
 		voices = nil
+		shuttingDown = nil
 		testMode = true
 		openOutput = original
 		mu.Unlock()
