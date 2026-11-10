@@ -10,7 +10,7 @@ import (
 func main() {
 	dir := flag.String("output", "build/desktop-lyrics-probe", "isolated preferences and screenshot directory")
 	duration := flag.Duration("duration", 2*time.Minute, "automatically exit after this duration; 0 waits for Exit")
-	check := flag.Bool("check", false, "exercise visibility, lock, close and reopen over six seconds")
+	check := flag.Bool("check", false, "exercise sizing, visibility, locking, reopening and bottom-edge placement")
 	flag.Parse()
 	if err := app.RunDesktopLyricsProbe(*dir, *duration, *check); err != nil {
 		log.Fatal(err)

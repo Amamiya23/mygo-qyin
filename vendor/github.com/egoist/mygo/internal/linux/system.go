@@ -29,7 +29,12 @@ var (
 
 func initSystemCallbacks() {
 	cbThemeChanged = purego.NewCallback(func(a, b, data ptr) { theBackend.h.ThemeChanged() })
-	cbMonitorsChanged = purego.NewCallback(func(display, monitor, data ptr) { theBackend.h.DisplaysChanged() })
+	cbMonitorsChanged = purego.NewCallback(func(display, monitor, data ptr) {
+		if layerRefreshDisplays != nil {
+			layerRefreshDisplays()
+		}
+		theBackend.h.DisplaysChanged()
+	})
 	cbPortalSignal = purego.NewCallback(portalSignal)
 	cbPowerSignal = purego.NewCallback(func(conn, sender, path, iface, signal, params, data ptr) {
 		child := gVariantGetChildValue(params, 0)
@@ -236,6 +241,11 @@ func (screen) Displays() []platform.Display {
 		var geo, work gdkRectangle
 		gdkMonitorGetGeometry(m, &geo)
 		gdkMonitorGetWorkarea(m, &work)
+		if layerDisplayGeometry != nil {
+			logical := layerDisplayGeometry(m, geo)
+			work = layerLogicalWorkArea(geo, work, logical)
+			geo = logical
+		}
 		out = append(out, platform.Display{
 			ID:          int64(i),
 			Label:       goStr(gdkMonitorGetModel(m)),

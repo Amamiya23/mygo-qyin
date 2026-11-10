@@ -49,18 +49,22 @@ func (w *window) moveLayerDrag(event ptr) {
 	}
 	// Keep the panel on its current output: Wayland does not expose global
 	// pointer coordinates for finding another output during a drag.
-	m := gdkDisplayGetMonitorAtPoint(gdkDisplayGetDefault(), int32(r.X), int32(r.Y))
+	m := layerMonitorAtPoint(r.X, r.Y)
 	if m == 0 {
 		return
 	}
-	var g gdkRectangle
-	gdkMonitorGetGeometry(m, &g)
-	next.X = min(int(g.X+g.Width)-r.Width, max(int(g.X), next.X))
-	next.Y = min(int(g.Y+g.Height)-r.Height, max(int(g.Y), next.Y))
+	g := layerMonitorGeometry(m)
+	next = clampLayerDrag(next, g)
 	if next.X != r.X || next.Y != r.Y {
 		w.placeLayer(next.X, next.Y)
 		w.h.Moved()
 	}
+}
+
+func clampLayerDrag(r platform.Rect, g gdkRectangle) platform.Rect {
+	r.X = max(int(g.X), min(int(g.X+g.Width)-r.Width, r.X))
+	r.Y = max(int(g.Y), min(int(g.Y+g.Height)-r.Height, r.Y))
+	return r
 }
 
 // gtk-layer-shell makes panels surfaces of the wlr-layer-shell protocol
@@ -120,6 +124,14 @@ func loadLayerShell() bool {
 	return layerSupported
 }
 
+// PreparePanelScreen loads the panel's logical coordinates before core state
+// restoration can mistake a saved bottom-edge position for an off-screen one.
+func (b *Backend) PreparePanelScreen() {
+	if !b.onX11 && loadLayerShell() {
+		initLayerGeometry()
+	}
+}
+
 // initLayer makes a new panel a layer surface where it can be one, before
 // GTK realizes it, and reports whether it did. Without a position, the
 // compositor centers it on the output it chooses, the one the user is on.
@@ -164,9 +176,11 @@ func (w *window) layerKeyboard(take bool) {
 // placeLayer puts a layer surface's top-left corner at x, y, on the output
 // there, with margins from that output's top and left edges.
 func (w *window) placeLayer(x, y int) {
-	m := gdkDisplayGetMonitorAtPoint(gdkDisplayGetDefault(), int32(x), int32(y))
-	var g gdkRectangle
-	gdkMonitorGetGeometry(m, &g)
+	m := layerMonitorAtPoint(x, y)
+	if m == 0 {
+		return
+	}
+	g := layerMonitorGeometry(m)
 	gtkLayerSetMonitor(w.win, m)
 	gtkLayerSetAnchor(w.win, edgeTop, true)
 	gtkLayerSetAnchor(w.win, edgeLeft, true)
@@ -217,8 +231,7 @@ func (w *window) layerBounds() platform.Rect {
 	if m == 0 {
 		return r
 	}
-	var g gdkRectangle
-	gdkMonitorGetGeometry(m, &g)
+	g := layerMonitorGeometry(m)
 	r.X, r.Y = int(g.X)+(int(g.Width)-r.Width)/2, int(g.Y)+(int(g.Height)-r.Height)/2
 	return r
 }

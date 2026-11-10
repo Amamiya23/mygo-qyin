@@ -7,11 +7,11 @@
 | 补丁 | 用途 |
 | --- | --- |
 | `mygo-v0.8.3-radix-color-swatches.patch` | ColorPicker / ColorWell 内置色块使用 Radix Colors 第 9 阶与黑色端点，保留自选色及透明度。 |
-| `mygo-v0.8.3-linux-layer-drag.patch` | Wayland layer-shell 歌词面板通过更新锚点拖动，限制在当前输出内，并通知位置保存。 |
+| `mygo-v0.8.3-linux-layer-drag.patch` | Wayland layer-shell 歌词面板通过更新锚点拖动；读取 xdg-output 逻辑边界，修复 KDE 分数缩放下无法拖到底边的问题，并通知位置保存。 |
 | `mygo-v0.8.3-macos-dev-icon.patch` | 开发包优先选择 `macos.icon` 的 `-dev` 兄弟文件，正确读取和缓存 ICNS，并监听文件或资产目录变化。 |
 | `mygo-v0.8.3-windows-state-compat.patch` | 将旧版本地补丁保存的 `windowsBounds` 读入上游 `pixel*` 字段；已有 `pixel*` 优先，下次保存使用上游格式。 |
 | `mygo-v0.8.3-tester-label-target.patch` | Tester 点击同名目标时逐个验证实际命中，避免 RichText 父文本误挡内联链接；仍拒绝被遮挡的目标。 |
-| `mygo-v0.8.3-desktop-audio.patch` | 保留桌面原采样率输出、可选设备预热、自然尾音排空及停止后端重开、ALSA 转换回退、切频时隔离已暂停旧曲淡出并在旧输出平滑收尾，以及 WSOLA 按输出率步进的修复与回归。 |
+| `mygo-v0.8.3-desktop-audio.patch` | 保留桌面原采样率输出、可选设备预热、自然尾音排空及停止后端重开、ALSA 转换回退、切频时隔离已暂停旧曲淡出并在旧输出平滑收尾、正常退出时以 100ms 连续音乐淡出的终止性 Shutdown，以及 WSOLA 按输出率步进的修复与回归。 |
 | `mygo-v0.8.3-analytic-clip.patch` | 将可化简的静止几何裁剪直接交给 GPU，包含完整切除圆角的分数滚动边界及不透明冗余裁剪；重叠抗锯齿、变换及图片/渐变遮罩保留像素路径。 |
 | `mygo-v0.8.3-render-resource-lifetime.patch` | 在预算压力下跨开关复用闲置遮罩，固定坐标裁剪保留可复用尺寸；D3D11 / GL / Metal 在完成绘制或提交后清理退场的临时遮罩纹理及离屏层。 |
 
@@ -52,8 +52,31 @@ go test github.com/egoist/mygo/audio -count=5
 go run ./scripts/check-window-state -cycles 20
 ```
 
-Linux 目标机可运行 `go test github.com/egoist/mygo/internal/linux -run TestLayerDrag`。
+Linux 目标机可运行 `go test github.com/egoist/mygo/internal/linux -run TestLayer`。
 实际 Wayland 桌面拖动、macOS 图标及 GPU 渲染仍需在对应平台验收。
+
+KDE Wayland 在 150% 缩放时，部分 GTK 3 版本报告 1280×800 的屏幕，
+而 KWin 的实际逻辑桌面为 1707×1067。layer-shell 面板启用后，补丁通过
+独立 Wayland 事件队列读取 xdg-output v2 的逻辑坐标，统一面板拖动、
+定位和工作区边界；缺少协议时保留 GTK 的原有坐标。
+显示器增减、几何变化及面板重建会刷新坐标，普通窗口不主动加载此功能。
+原生离线探针增加 `bottom-edge` 阶段与非 Windows 平台的边界诊断。
+
+Lilt 的 Linux 歌词窗口另外使用 layer-shell 的 TOP 层，确保弹出菜单位于
+歌词之上。KDE Wayland 下，应用通过 GIO / D-Bus 只读查询 Plasma 面板的
+屏幕、边缘及厚度；查询在后台进行，窗口关闭时停止，不依赖 qdbus 命令。
+缓存的可用区域用于拖动、恢复位置和调整歌词尺寸，并随面板配置更新。
+`LILT_PLASMA_CHECK=1 go test ./internal/app -run 'TestDesktopLyrics(AvoidPlasmaTaskbar|PlasmaPanels)' -v`
+可检查当前 Plasma 会话和面板避让。离线原生探针的 `unlocked-bottom-edge`
+阶段覆盖解锁后的底边位置，手动入口「测试菜单」用于检查菜单覆盖顺序。
+
+Linux 歌词锁定直接调用 MyGo v0.8.3 的 `Window.SetIgnoreMouseEvents`，
+由框架记录状态并在 GTK realize / map 后重新应用空输入区域。
+旧的应用侧 GDK 兼容实现只修改当时的输入区域，已移除，避免保持锁定
+重新开启歌词后再次拦截下方窗口的鼠标。原生探针在各阶段打印
+`lyrics-probe snapshot=... locked=...`，可配合 `WAYLAND_DEBUG=1` 检查
+对应 layer surface 在 commit 时的 `set_input_region`，尤其是
+`restored-locked` 和 `bottom-edge` 阶段。
 
 ## 播放页裁剪内存
 

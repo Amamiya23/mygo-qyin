@@ -149,6 +149,12 @@ type WindowStateBackend interface {
 	RestoreWindowState(opts *WindowOptions, pixels Rect) bool
 }
 
+// PanelScreenBackend prepares a panel's screen coordinate system before
+// restoring its saved bounds. Other windows do not load panel-only protocols.
+type PanelScreenBackend interface {
+	PreparePanelScreen()
+}
+
 // StyleBackend styles the widgets the toolkit draws for the app with the
 // app's own style sheet (Linux: GTK's CSS, Theme.SetGTKCSS). SetStyleSheet
 // replaces the sheet set before, or removes it for "", and keeps that one
