@@ -29,6 +29,8 @@ type settings struct {
 	DesktopLyricsColor string `json:"desktopLyricsColor,omitempty"`
 	// TaskbarLyrics embeds a separate compact lyric view in the Windows taskbar.
 	TaskbarLyrics bool `json:"taskbarLyrics,omitempty"`
+	// TaskbarLyricsMaterial selects white or acrylic (also when empty) for the song panel.
+	TaskbarLyricsMaterial string `json:"taskbarLyricsMaterial,omitempty"`
 	// LyricsMode keeps the preferred location independently of its enabled state.
 	LyricsMode string `json:"lyricsMode,omitempty"`
 	// NotchActivity shows the cover and the music's levels beside the

@@ -15,6 +15,35 @@ import (
 var taskbarUser32 = syscall.NewLazyDLL("user32.dll")
 var taskbarOle32 = syscall.NewLazyDLL("ole32.dll")
 var taskbarOleaut32 = syscall.NewLazyDLL("oleaut32.dll")
+var taskbarComctl32 = syscall.NewLazyDLL("comctl32.dll")
+
+var taskbarContextMenuProc uintptr
+
+func init() {
+	taskbarContextMenuProc = syscall.NewCallback(taskbarContextMenuMessage)
+}
+
+func taskbarContextMenuMessage(hwnd, message, wp, lp, id, data uintptr) uintptr {
+	if message == 0x007B { // WM_CONTEXTMENU
+		// MyGo's surface has already delivered PointerUp. Do not let the
+		// default child-window handling synchronously forward its menu to Explorer.
+		return 0
+	}
+	if message == 0x0082 { // WM_NCDESTROY
+		taskbarComctl32.NewProc("RemoveWindowSubclass").Call(hwnd, taskbarContextMenuProc, id)
+	}
+	r, _, _ := taskbarComctl32.NewProc("DefSubclassProc").Call(hwnd, message, wp, lp)
+	return r
+}
+
+// Install on our own host, on its UI thread, before it becomes Explorer's child.
+func guardTaskbarContextMenu(hwnd uintptr) error {
+	ok, _, _ := taskbarComctl32.NewProc("SetWindowSubclass").Call(hwnd, taskbarContextMenuProc, 1, 0)
+	if ok == 0 {
+		return fmt.Errorf("cannot isolate taskbar context menu")
+	}
+	return nil
+}
 
 type taskbarNativeRect struct{ left, top, right, bottom int32 }
 type taskbarGUID struct {
@@ -174,6 +203,9 @@ func placeTaskbarLyricsWindow(w *mygo.Window, p taskbarLyricsPlacement) error {
 	parent, _, _ := taskbarUser32.NewProc("GetAncestor").Call(hwnd, 1)
 	attaching := parent != p.parent
 	if attaching {
+		if err := guardTaskbarContextMenu(hwnd); err != nil {
+			return err
+		}
 		taskbarUser32.NewProc("SetWindowPos").Call(hwnd, ^uintptr(1), 0, 0, 0, 0, 0x1|0x2|0x10)
 		taskbarUser32.NewProc("SetParent").Call(hwnd, p.parent)
 		parent, _, _ = taskbarUser32.NewProc("GetAncestor").Call(hwnd, 1)
@@ -259,6 +291,7 @@ func detachTaskbarLyricsWindow(w *mygo.Window) {
 		return
 	}
 	taskbarUser32.NewProc("SetParent").Call(hwnd, 0)
+	taskbarComctl32.NewProc("RemoveWindowSubclass").Call(hwnd, taskbarContextMenuProc, 1)
 	taskbarSetStyle(hwnd, -16, (taskbarGetStyle(hwnd, -16)&^0x40000000)|0x80000000)
 	taskbarSetStyle(hwnd, -20, taskbarGetStyle(hwnd, -20)|0x80|0x08000000)
 }

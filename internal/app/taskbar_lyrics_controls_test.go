@@ -223,9 +223,11 @@ func TestTaskbarLyricsControlsFrames(t *testing.T) {
 		name     string
 		dark     bool
 		vibrancy bool
-	}{{"light", false, false}, {"dark", true, false}, {"acrylic-light", false, true}, {"acrylic-dark", true, true}} {
+		material string
+	}{{"light", false, false, ""}, {"dark", true, false, ""}, {"acrylic-light", false, true, ""}, {"acrylic-dark", true, true, ""}, {"white-light", false, false, taskbarMaterialWhite}, {"white-dark", true, true, taskbarMaterialWhite}} {
 		t.Run(mode.name, func(t *testing.T) {
 			a, d := taskbarControlsFixture()
+			a.settings.TaskbarLyricsMaterial = mode.material
 			d.controlsOpen, d.dark = true, mode.dark
 			if mode.vibrancy {
 				d.dark = !mode.dark // Exercise differing app and taskbar appearances.

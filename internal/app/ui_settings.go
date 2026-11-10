@@ -308,6 +308,17 @@ func (a *app) settingsContent(c *ui.Context) {
 				a.desktopLyricsColorControl(c)
 			})
 		}
+		if supportsTaskbarLyrics() && s.lyricsMode() == lyricsTaskbar {
+			row("任务栏面板材质", "", func() {
+				i := 0
+				if s.TaskbarLyricsMaterial == taskbarMaterialWhite {
+					i = 1
+				}
+				if segmented(c.Key("taskbar-lyrics-material"), &i, "亚克力", "白色") {
+					a.setTaskbarLyricsMaterial([]string{taskbarMaterialAcrylic, taskbarMaterialWhite}[i])
+				}
+			})
+		}
 		row("进度条特效", "", func() {
 			chosen := progressEffects[0].label
 			labels := make([]string, len(progressEffects))

@@ -11,6 +11,43 @@ import (
 	"lilt/internal/qqmusic"
 )
 
+// Changing the taskbar panel material persists both choices without closing controls or committing a pending seek.
+func TestTaskbarLyricsMaterialSettings(t *testing.T) {
+	if !supportsTaskbarLyrics() {
+		t.Skip("taskbar lyrics are Windows-only")
+	}
+	a, d := taskbarControlsFixture()
+	a.settings.LyricsMode = lyricsTaskbar
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	d.controlsOpen = true
+	d.scrub = scrubState{v: 120, held: true, active: true}
+	tt := ui.NewTester(a.settingsView, 560, 2400)
+	tt.Frame()
+	for _, choice := range []struct {
+		label, material string
+		vibrancy        mygo.Vibrancy
+	}{
+		{"白色", taskbarMaterialWhite, mygo.VibrancyNone},
+		{"亚克力", taskbarMaterialAcrylic, mygo.VibrancyAcrylic},
+		{"白色", taskbarMaterialWhite, mygo.VibrancyNone},
+	} {
+		if choice.material == taskbarMaterialAcrylic {
+			// Move within the focused taskbar selector; the sidebar also has an Acrylic segment.
+			tt.Key(0, ui.KeyLeft)
+		} else if err := tt.Click(choice.label); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		restored := readDesktopLyricsEntrySettings(t, a)
+		if a.settings.TaskbarLyricsMaterial != choice.material || restored.TaskbarLyricsMaterial != choice.material || restored.taskbarControlsVibrancy() != choice.vibrancy {
+			t.Fatalf("material not applied/saved: live=%q saved=%q backdrop=%q", a.settings.TaskbarLyricsMaterial, restored.TaskbarLyricsMaterial, restored.taskbarControlsVibrancy())
+		}
+		if !d.controlsOpen || !d.scrub.held || !d.scrub.active || !a.settings.TaskbarLyrics || a.pl.Position() != 40*time.Second {
+			t.Fatal("material change closed controls, changed lyrics mode, or disturbed the pending seek")
+		}
+	}
+}
+
 // Choosing a lyric position swaps the active owner, saves the mode, and stops the previous taskbar monitor.
 func TestTaskbarLyricsSettingsModeSwitch(t *testing.T) {
 	if !supportsTaskbarLyrics() {

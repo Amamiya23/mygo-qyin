@@ -13,15 +13,19 @@ type taskbarControlsTrack struct {
 // controlsView is a small player above the taskbar cover, independent of the main window.
 func (d *taskbarLyrics) controlsView(c *ui.Context) {
 	theme := *c.Theme()
+	white := d.a.settings.TaskbarLyricsMaterial == taskbarMaterialWhite
+	material := !white && c.Vibrancy()
 	// The material follows app appearance, which can differ from the taskbar.
-	if !c.Vibrancy() {
+	if white {
+		theme.Dark = false
+	} else if !material {
 		theme.Dark = d.dark
 	}
 	c.SetTheme(&theme)
 	dark := theme.Dark
 	background, text := radixGray(dark, 2), radixGray(dark, 12)
 	muted := radixGray(dark, 11)
-	if c.Vibrancy() {
+	if material {
 		background = ui.Transparent
 	}
 	c.Root().Background(background)

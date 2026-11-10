@@ -6,9 +6,27 @@ import (
 )
 
 const (
-	taskbarControlsWidth  = 360
-	taskbarControlsHeight = 124
+	taskbarControlsWidth   = 360
+	taskbarControlsHeight  = 124
+	taskbarMaterialWhite   = "white"
+	taskbarMaterialAcrylic = "acrylic"
 )
+
+func (s settings) taskbarControlsVibrancy() mygo.Vibrancy {
+	if s.TaskbarLyricsMaterial == taskbarMaterialWhite {
+		return mygo.VibrancyNone
+	}
+	return mygo.VibrancyAcrylic
+}
+
+func (a *app) setTaskbarLyricsMaterial(material string) {
+	a.settings.TaskbarLyricsMaterial = material
+	a.settings.save()
+	if d := a.taskbarLyrics; d != nil && d.controls != nil && !d.controls.IsDestroyed() {
+		d.controls.SetVibrancy(a.settings.taskbarControlsVibrancy())
+	}
+	a.redraw()
+}
 
 // Only the cover owns an interactive taskbar rectangle; the lyric host stays
 // transparent to input, including clicks sent to Explorer's other threads.
@@ -97,6 +115,9 @@ func (d *taskbarLyrics) toggleControls() {
 		Placement: mygo.PlacementTopStart, Gap: 16, Width: taskbarControlsWidth, Height: taskbarControlsHeight,
 		Focusable: true, Shadow: true, Hidden: true, Vibrancy: mygo.VibrancyAcrylic, Content: ui.View(d.controlsView),
 	})
+	// Windows can enable a backdrop later only when the window was created
+	// with material support. Disable it before showing the opaque white panel.
+	w.SetVibrancy(d.a.settings.taskbarControlsVibrancy())
 	d.controls = w
 	w.OnClosed(func() {
 		if d.controls == w {
