@@ -121,6 +121,9 @@ func (d *Differ) Diff(s *Scene) ([]image.Rectangle, bool) {
 	if n == m {
 		for k := pre; k < n-suf; k++ {
 			if !same(k, k) {
+				if d.glyphColorDamage(k, s, maskRects, colorRects) {
+					continue
+				}
 				d.damage = addRect(d.damage, d.bounds[k])
 				d.damage = addRect(d.damage, d.next[k])
 			}
@@ -134,6 +137,47 @@ func (d *Differ) Diff(s *Scene) ([]image.Rectangle, bool) {
 		}
 	}
 	return d.damage, true
+}
+
+// glyphColorDamage narrows a stable glyph operation's damage to the glyphs
+// whose colors changed. A timed word otherwise damages its whole sentence,
+// making the renderer redraw unchanged outlines behind the rest of the line.
+// Geometry, clip bounds and atlas changes keep the ordinary whole-op path.
+func (d *Differ) glyphColorDamage(i int, s *Scene, maskRects, colorRects []image.Rectangle) bool {
+	a, b := d.ops[i], s.Ops[i]
+	if a.Kind != OpGlyphs || b.Kind != OpGlyphs || a.End-a.Start != b.End-b.Start ||
+		len(maskRects) != 0 || len(colorRects) != 0 || d.bounds[i] != d.next[i] {
+		return false
+	}
+	ga, gb := d.glyphs[a.Start:a.End], s.Glyphs[b.Start:b.End]
+	a.Start, a.End, b.Start, b.End = 0, 0, 0, 0
+	if a != b || !sameStops(d.stops, a.Stops, s.Stops, b.Stops) || !d.sameWide(a.Wide, s, b.Wide) {
+		return false
+	}
+	// Check every glyph before adding any damage: a later geometry change
+	// must not leave a partially refined result in place of the full bounds.
+	for k, g := range gb {
+		old := ga[k]
+		old.Color, old.Wide = g.Color, g.Wide
+		if old != g {
+			return false
+		}
+	}
+	for k, g := range gb {
+		if ga[k].Color == g.Color && d.sameWide(ga[k].Wide, s, g.Wide) {
+			continue
+		}
+		m := b.Transform.Mul(g.Transform)
+		reach := d.Reach
+		if m.Set {
+			reach += 3
+		}
+		// Match opBounds: GPU glyphs can draw their atlas bitmap's size
+		// rather than the destination size, including under a transform.
+		r := Rect{X: g.X, Y: g.Y, W: max(g.W, float32(g.UW)), H: max(g.H, float32(g.VH))}
+		d.damage = addRect(d.damage, outset(m.Bounds(r), reach).Intersect(d.next[i]))
+	}
+	return true
 }
 
 // Match returns the op of the last scene that op j of the scene Diff was

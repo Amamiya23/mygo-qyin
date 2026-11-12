@@ -359,6 +359,7 @@ func (p *Player) Shuffle() bool      { return p.shuffle }
 func (p *Player) Repeat() RepeatMode { return p.repeat }
 
 // Lyrics returns the current track's lyrics, and whether they have loaded.
+// Published lines are read-only; loading another result replaces the slice.
 func (p *Player) Lyrics() ([]lyrics.Line, bool) { return p.lyrics, p.lyricsLoaded }
 
 // Instrumental reports an explicit instrumental response for the current track.

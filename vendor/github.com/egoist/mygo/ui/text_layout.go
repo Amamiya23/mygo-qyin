@@ -20,6 +20,8 @@ type TextLayout struct {
 	units      []int // rune offset -> UTF-16 offset
 	boundaries []int // grapheme boundaries in runes
 	spans      []Span
+	styles     []text.Span // retained span boundaries and shaping styles
+	paint      *spanPaint  // immutable paint metadata; nil for plain foreground
 }
 
 // TextAffinity chooses a caret's preceding or following logical edge. Bidi
@@ -146,7 +148,9 @@ func shapeText(s string, font Font, width float32, spans []Span) *TextLayout {
 }
 
 func shapeTextAligned(s string, font Font, shape TextShape, spans []Span) *TextLayout {
-	params := text.Params{Text: s, Style: font.style(), Width: shape.Width, KeepSpaces: true, Spans: encodeSpans(spans), RTL: shape.Direction == RightToLeft,
+	var sc spanCache
+	sc.update(spans)
+	params := text.Params{Text: s, Style: font.style(), Width: shape.Width, KeepSpaces: true, Spans: sc.key, RTL: shape.Direction == RightToLeft,
 		Justify: shape.Justify, Indent: shape.Indent, NoBreakWords: shape.NoBreakWords, Balance: shape.Balance, Pretty: shape.Pretty}
 	if shape.Justify {
 		text.Shared().UseJustify()
@@ -165,7 +169,10 @@ func shapeTextAligned(s string, font Font, shape TextShape, spans []Span) *TextL
 		params.Align = text.End
 	}
 	l := text.Shared().Shape(params)
-	t := &TextLayout{l: l, units: make([]int, len(l.Runes)+1), spans: spans}
+	t := &TextLayout{l: l, units: make([]int, len(l.Runes)+1), spans: spans, styles: sc.styles}
+	if sc.paints {
+		t.paint = &spanPaint{spans: spans, styles: sc.styles}
+	}
 	for i, r := range l.Runes {
 		t.units[i+1] = t.units[i] + utf16.RuneLen(r)
 	}
@@ -336,5 +343,32 @@ func (p *Painter) TextLayout(layout *TextLayout, x, y float32, color Color) {
 	}
 	layout.mu.Lock()
 	defer layout.mu.Unlock()
-	p.textLayout(layout.l, x, y, color, textStyle{size: layout.l.Params.Style.FontSize()}, newSpanPaint(layout.spans))
+	p.textLayout(layout.l, x, y, color, textStyle{size: layout.l.Params.Style.FontSize()}, layout.paint)
+}
+
+// TextLayoutColors paints layout with the supplied foreground colors replacing
+// those of its spans, in the order passed to ShapeRichText or ShapeRichTextWith.
+// Missing colors retain the span's original color; extra colors are ignored.
+// An override with zero alpha is transparent, rather than inheriting color.
+// Fonts, positions, wrapping and decorations remain those of the retained layout:
+// changing colors neither shapes the text again nor changes the layout itself.
+func (p *Painter) TextLayoutColors(layout *TextLayout, x, y float32, color Color, colors []Color) {
+	if layout == nil {
+		return
+	}
+	if len(colors) == 0 {
+		p.TextLayout(layout, x, y, color)
+		return
+	}
+	layout.mu.Lock()
+	defer layout.mu.Unlock()
+	spans := slices.Clone(layout.spans)
+	for i, c := range colors[:min(len(colors), len(spans))] {
+		spans[i].Color, spans[i].colorSet = c, true
+	}
+	var paint *spanPaint
+	if len(spans) > 0 {
+		paint = &spanPaint{spans: spans, styles: layout.styles}
+	}
+	p.textLayout(layout.l, x, y, color, textStyle{size: layout.l.Params.Style.FontSize()}, paint)
 }

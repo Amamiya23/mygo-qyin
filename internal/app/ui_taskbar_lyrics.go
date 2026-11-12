@@ -4,7 +4,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-	"unicode/utf16"
 
 	"github.com/egoist/mygo/ui"
 	"lilt/internal/lyrics"
@@ -135,7 +134,7 @@ func (d *taskbarLyrics) content(position time.Duration) desktopLyricContent {
 	if loaded && d.a.pl.Instrumental() {
 		return desktopLyricContent{index: -1, text: "纯音乐，请欣赏"}
 	}
-	return lyricAt(lines, loaded, position, true, taskbarLyricsTranslation(lines))
+	return lyricAt(lines, loaded, position, true, d.translationPolicy.get(lines, taskbarLyricsTranslation))
 }
 
 // Han lyrics without a translation use current/next even when they contain none
@@ -169,69 +168,27 @@ type taskbarLyricLayout struct {
 	width, secondaryWidth, height, originalHeight float32
 	progressX, progress                           float32
 	preview                                       bool
+	words                                         *lyricWordGeometry
+	wordColors                                    []ui.Color
 }
 
 func makeTaskbarLyricLayout(c *ui.Context, content desktopLyricContent, position time.Duration, dark bool, height float32) taskbarLyricLayout {
 	if content.text == "" {
 		return taskbarLyricLayout{}
 	}
-	color := radixGray(dark, 12)
-	text := taskbarLyricSingleLine(content.text)
-	secondary := content.translation
-	preview := secondary == "" && content.preview != ""
-	if preview {
-		secondary = content.preview
-	}
-	secondary = taskbarLyricSingleLine(secondary)
-	var spans []ui.Span
-	if content.line.Timed && len(content.line.Words) > 0 {
-		spans = make([]ui.Span, 0, len(content.line.Words))
-		for _, word := range content.line.Words {
+	layout := retainedTaskbarLyricLayout(c, content, dark, height)
+	if layout.words != nil {
+		color := radixGray(dark, 12)
+		layout.wordColors = make([]ui.Color, len(content.line.Words))
+		for i, word := range content.line.Words {
 			brightness := desktopLyricsRestAlpha + (desktopLyricsSungAlpha-desktopLyricsRestAlpha)*word.Progress(position)
-			spans = append(spans, ui.Span{Text: taskbarLyricSingleLine(word.Text), Color: color.Alpha(brightness)})
+			layout.wordColors[i] = color.Alpha(brightness)
 		}
-	}
-	shape := func(size float32) taskbarLyricLayout {
-		font := ui.Font{Family: c.Theme().Font, Size: size, Weight: 600, LineHeight: 1.15}
-		layout := taskbarLyricLayout{
-			outline: retainedLyricText(c, text, font, ui.TextShape{}, ui.Color{}),
-			preview: preview,
-		}
-		if content.line.Timed && len(content.line.Words) > 0 {
-			layout.text = ui.ShapeRichText(spans, font, 0)
-		} else {
-			layout.text = retainedLyricText(c, text, font, ui.TextShape{}, color)
-		}
-		layout.width, layout.originalHeight = layout.text.Size()
-		layout.height = layout.originalHeight
-		if secondary != "" {
-			layout.secondary = retainedLyricText(c, secondary, font, ui.TextShape{}, ui.Color{})
-			layout.secondaryOutline = layout.secondary
-			var h float32
-			layout.secondaryWidth, h = layout.secondary.Size()
-			layout.height += h + 1
-		}
-		return layout
-	}
-	layout := shape(16)
-	if layout.height > max(1, height-2) {
-		gap := float32(0)
-		if layout.secondary != nil {
-			gap = 1
-		}
-		// Both sentences shrink together on compact taskbars. Never discard a
-		// translation or a Chinese preview just because the taskbar is shorter.
-		layout = shape(max(1, 16*max(1, height-2-gap)/(layout.height-gap)))
-	}
-	if content.line.Timed && len(content.line.Words) > 0 {
-		units := 0
-		for _, word := range content.line.Words {
-			start := units
-			units += len(utf16.Encode([]rune(taskbarLyricSingleLine(word.Text))))
+		for i, word := range content.line.Words {
 			if position < word.Start {
 				break
 			}
-			left, right := layout.text.Caret(start).X, layout.text.Caret(units).X
+			left, right := layout.words.left[i], layout.words.right[i]
 			layout.progressX = left + (right-left)*word.Progress(position)
 		}
 		if layout.width > 0 {
@@ -244,9 +201,9 @@ func makeTaskbarLyricLayout(c *ui.Context, content desktopLyricContent, position
 	return layout
 }
 
-func taskbarLyricSingleLine(text string) string {
-	return strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "\t", " ").Replace(text)
-}
+var taskbarLyricLineReplacer = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "\t", " ")
+
+func taskbarLyricSingleLine(text string) string { return taskbarLyricLineReplacer.Replace(text) }
 
 // Keep the sung word visible and leave short sentences left aligned. The clamp is
 // shared by the original and translation so seeking never leaves stale scroll.
@@ -269,7 +226,7 @@ func (layout taskbarLyricLayout) draw(p *ui.Painter, r ui.Rect, dark bool, offse
 		for _, offset := range []ui.Point{{X: -0.5}, {X: 0.5}, {Y: -0.5}, {Y: 0.5}} {
 			p.TextLayout(layout.outline, x+offset.X, y+offset.Y, outline)
 		}
-		p.TextLayout(layout.text, x, y, radixGray(dark, 12))
+		p.TextLayoutColors(layout.text, x, y, radixGray(dark, 12), layout.wordColors)
 		if layout.secondary != nil {
 			w, progress := layout.secondaryWidth, layout.progress
 			color := radixGray(dark, 12)

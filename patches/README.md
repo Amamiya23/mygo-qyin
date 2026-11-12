@@ -14,6 +14,8 @@
 | `mygo-v0.8.3-desktop-audio.patch` | 保留桌面原采样率输出、可选设备预热、自然尾音排空及停止后端重开、ALSA 转换回退、切频时隔离已暂停旧曲淡出并在旧输出平滑收尾、正常退出时遵循播放淡入淡出设置的终止性 Shutdown，以及 WSOLA 按输出率步进的修复与回归。 |
 | `mygo-v0.8.3-analytic-clip.patch` | 将可化简的静止几何裁剪直接交给 GPU，包含完整切除圆角的分数滚动边界及不透明冗余裁剪；重叠抗锯齿、变换及图片/渐变遮罩保留像素路径。 |
 | `mygo-v0.8.3-render-resource-lifetime.patch` | 在预算压力下跨开关复用闲置遮罩，固定坐标裁剪保留可复用尺寸；D3D11 / GL / Metal 在完成绘制或提交后清理退场的临时遮罩纹理及离屏层。 |
+| `mygo-v0.8.3-retained-text-colors.patch` | 为保留的 TextLayout 缓存原绘制元数据并增加逐 span 前景色覆盖，外部歌词逐字淡入及重复描边时复用整行 shaping 与静态绘制信息。 |
+| `mygo-v0.8.3-glyph-color-damage.patch` | 字形几何与 atlas 不变时，将单纯前景色变化的重绘区域细化到变化字形；保留原场景、字形顺序与绘制效果。 |
 
 重新生成 vendor 后，在项目根目录应用全部补丁：
 
@@ -189,3 +191,61 @@ go test github.com/egoist/mygo/internal/gpu/d3d11 -count=5
 全套测试、上游闲置预算及透视卡片回归、三个桌面平台构建均通过。
 八份补丁在干净上游文件上逐份重应用，43 个受影响文件与当前 vendor 一致。
 GL / Metal 真机 GPU 尚未验收。
+
+## 外部歌词保留文本着色
+
+`Painter.TextLayoutColors(layout, x, y, color, colors)` 使用原有整行布局，只替换
+各 span 的前景色。颜色不参与 MyGo 的 shaping 样式，因此保持原 span 边界即可
+复用字体回退、连字、双向文字、字形位置与换行。背景、描边、阴影与装饰沿用
+原布局；原布局及 span 不被修改。缺少的颜色保留原值，多余颜色忽略，
+显式零透明度覆盖会完全透明。
+
+构造布局时一次生成 shaping 与绘制共用的 span 样式；普通 `TextLayout` 绘制直接
+复用原绘制元数据，保留无颜色或装饰时的 nil 快速路径，避免重复描边时反复
+扫描文字、编码 span 样式。颜色覆盖路径不重建文本、UTF-16 索引或字素边界，
+也不触发 shaping；每次着色仍复制一次 span 切片。
+
+像素回归对比重新 shaping 后的原绘制路径，覆盖连字、混合
+双向文字、中文、ZWJ emoji、组合字符、换行、透明度、阴影、描边及文字装饰，
+并检查布局计数不增加、原布局未改变。普通绘制另与原
+`p.textLayout(..., newSpanPaint(layout.spans))` 路径逐像素对比，覆盖无 span、
+仅几何样式、透明与带装饰的文字，并确认 nil 快速路径一致。
+
+```powershell
+go test github.com/egoist/mygo/ui -run 'TestTextLayout(RetainedPaint|Colors)' -count=5
+```
+
+该回归连续 5 次通过。九份补丁在干净 v0.8.3 副本上逐份重应用，
+53 个受影响文件与当前 vendor 一致（忽略 CRLF/LF 差异）。
+应用侧另有 54 张软件截图与修改前完全一致，Windows 原生离线 CPU 采样已完成；
+短时总 CPU 读数波动较大，不能用布局基准的加速比推算整机降幅。
+macOS 真机 CPU 与原生 GPU 逐像素对照尚未验收。
+
+## 字形颜色的局部重绘
+
+整行文字原先作为一个 `OpGlyphs` 比较，逐词亮度变化会使整个句子的边界
+进入脏区，连带重绘其后的同区域静态描边。新增细化仅接受相同的 op 字段、
+裁剪后总边界、字形数量与全部字形几何，且两个 atlas 均没有更新的帧；
+只允许字形 `Color` / `Wide` 的语义颜色变化。任何其它变化继续使用整 op
+脏区，下游已有的 GPU pipeline 变化检查也继续保留。
+
+局部边界包含变化字形的 atlas bitmap 尺寸、op 与 glyph 变换以及原有
+抗锯齿 Reach；多个词同时变化会累计所有变化字形。保持原 scene、字形
+绘制次序、描边、阴影、亮度、动画和帧率，只缩小清除、绘制与呈现区域。
+此路径不会缓存新的位图，也不会缩减 D3D 每帧的全部实例构建与上传。
+
+共享回归覆盖透明度、多词变化、bitmap 尺寸、变换、裁剪、atlas 更新、
+结构变化回退与宽色域。D3D 原生回归将局部更新结果与整帧重新绘制逐像素
+对照，并对局部 dirty area 设置上限，旧实现无法通过该面积回归。
+测试命令：
+
+```powershell
+go test github.com/egoist/mygo/internal/scene -run TestGlyphColorDamage -count=5
+go test github.com/egoist/mygo/internal/gpu/d3d11 -run TestGlyphColorPartialRedrawMatchesFull -count=5
+```
+
+本补丁的共享与原生像素回归均连续 5 次通过；本机真实播放原生插桩中
+累计重绘面积约降 78%，帧数基本一致。版本顺序反转后的无插桩 CPU 对照
+未证明稳定下降，不能从脏区面积的下降直接推算 CPU 降幅。
+新补丁在已应用前九份补丁的干净 v0.8.3 副本上检查并应用成功，十份补丁
+涉及的 56 个文件与当前 vendor 一致（忽略 CRLF/LF），反向检查通过。

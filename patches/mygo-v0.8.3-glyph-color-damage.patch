@@ -1,0 +1,375 @@
+diff --git a/internal/scene/damage.go b/internal/scene/damage.go
+--- a/internal/scene/damage.go
++++ b/internal/scene/damage.go
+@@ -121,6 +121,9 @@
+ 	if n == m {
+ 		for k := pre; k < n-suf; k++ {
+ 			if !same(k, k) {
++				if d.glyphColorDamage(k, s, maskRects, colorRects) {
++					continue
++				}
+ 				d.damage = addRect(d.damage, d.bounds[k])
+ 				d.damage = addRect(d.damage, d.next[k])
+ 			}
+@@ -134,6 +137,47 @@
+ 		}
+ 	}
+ 	return d.damage, true
++}
++
++// glyphColorDamage narrows a stable glyph operation's damage to the glyphs
++// whose colors changed. A timed word otherwise damages its whole sentence,
++// making the renderer redraw unchanged outlines behind the rest of the line.
++// Geometry, clip bounds and atlas changes keep the ordinary whole-op path.
++func (d *Differ) glyphColorDamage(i int, s *Scene, maskRects, colorRects []image.Rectangle) bool {
++	a, b := d.ops[i], s.Ops[i]
++	if a.Kind != OpGlyphs || b.Kind != OpGlyphs || a.End-a.Start != b.End-b.Start ||
++		len(maskRects) != 0 || len(colorRects) != 0 || d.bounds[i] != d.next[i] {
++		return false
++	}
++	ga, gb := d.glyphs[a.Start:a.End], s.Glyphs[b.Start:b.End]
++	a.Start, a.End, b.Start, b.End = 0, 0, 0, 0
++	if a != b || !sameStops(d.stops, a.Stops, s.Stops, b.Stops) || !d.sameWide(a.Wide, s, b.Wide) {
++		return false
++	}
++	// Check every glyph before adding any damage: a later geometry change
++	// must not leave a partially refined result in place of the full bounds.
++	for k, g := range gb {
++		old := ga[k]
++		old.Color, old.Wide = g.Color, g.Wide
++		if old != g {
++			return false
++		}
++	}
++	for k, g := range gb {
++		if ga[k].Color == g.Color && d.sameWide(ga[k].Wide, s, g.Wide) {
++			continue
++		}
++		m := b.Transform.Mul(g.Transform)
++		reach := d.Reach
++		if m.Set {
++			reach += 3
++		}
++		// Match opBounds: GPU glyphs can draw their atlas bitmap's size
++		// rather than the destination size, including under a transform.
++		r := Rect{X: g.X, Y: g.Y, W: max(g.W, float32(g.UW)), H: max(g.H, float32(g.VH))}
++		d.damage = addRect(d.damage, outset(m.Bounds(r), reach).Intersect(d.next[i]))
++	}
++	return true
+ }
+ 
+ // Match returns the op of the last scene that op j of the scene Diff was
+diff --git a/internal/scene/glyph_damage_test.go b/internal/scene/glyph_damage_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/scene/glyph_damage_test.go
+@@ -0,0 +1,146 @@
++package scene
++
++import (
++	"image"
++	"slices"
++	"testing"
++)
++
++func lyricDamageScene() *Scene {
++	s := &Scene{Width: 300, Height: 100}
++	for _, x := range []float32{20, 100, 180} {
++		s.Glyphs = append(s.Glyphs, Glyph{X: x, Y: 20, W: 10, H: 20, UW: 10, VH: 20, Color: Color{R: 255, A: 120}})
++	}
++	s.Ops = []Op{{Kind: OpGlyphs, End: int32(len(s.Glyphs))}}
++	return s
++}
++
++func rememberLyricDamage(t *testing.T, d *Differ, s *Scene) {
++	t.Helper()
++	if _, known := d.Diff(s); known {
++		t.Fatal("the first frame unexpectedly has a preceding frame")
++	}
++	d.Remember(s)
++}
++
++func requireLyricDamage(t *testing.T, d *Differ, s *Scene, want ...image.Rectangle) {
++	t.Helper()
++	got, known := d.Diff(s)
++	if !known || !slices.Equal(got, want) {
++		t.Fatalf("damage = %v, known = %t; want %v", got, known, want)
++	}
++}
++
++// A changing word used to damage the entire sentence, redrawing every static outline behind it.
++func TestGlyphColorDamage(t *testing.T) {
++	for _, alpha := range []uint8{0, 180, 255} {
++		s := lyricDamageScene()
++		d := Differ{Reach: 1}
++		rememberLyricDamage(t, &d, s)
++		s.Glyphs[1].Color.A = alpha
++		requireLyricDamage(t, &d, s, image.Rect(99, 19, 111, 41))
++		d.Remember(s)
++		requireLyricDamage(t, &d, s)
++	}
++}
++
++// Every changed glyph remains damaged when a seek changes several separated words at once.
++func TestGlyphColorDamageMultipleWords(t *testing.T) {
++	s := lyricDamageScene()
++	d := Differ{Reach: 1}
++	rememberLyricDamage(t, &d, s)
++	s.Glyphs[0].Color.A, s.Glyphs[2].Color.A = 255, 0
++	requireLyricDamage(t, &d, s, image.Rect(19, 19, 31, 41), image.Rect(179, 19, 191, 41))
++}
++
++// Refined damage includes the full atlas bitmap and respects enclosing clipping and both glyph transforms.
++func TestGlyphColorDamageBounds(t *testing.T) {
++	t.Run("bitmap size", func(t *testing.T) {
++		s := lyricDamageScene()
++		s.Glyphs[1].W, s.Glyphs[1].H = 5, 10
++		d := Differ{Reach: 1}
++		rememberLyricDamage(t, &d, s)
++		s.Glyphs[1].Color.A = 255
++		requireLyricDamage(t, &d, s, image.Rect(99, 19, 111, 41))
++	})
++	t.Run("clip", func(t *testing.T) {
++		s := lyricDamageScene()
++		s.Ops = []Op{{Kind: OpPushClip, Rect: Rect{X: 50, Y: 22, W: 120, H: 15}}, s.Ops[0], {Kind: OpPopClip}}
++		d := Differ{Reach: 1}
++		rememberLyricDamage(t, &d, s)
++		s.Glyphs[1].Color.A = 255
++		// opBounds conservatively grows the clip by Reach too.
++		requireLyricDamage(t, &d, s, image.Rect(99, 21, 111, 38))
++	})
++	t.Run("transforms", func(t *testing.T) {
++		s := lyricDamageScene()
++		s.Ops[0].Transform = Translation(10, 5)
++		s.Glyphs[1].Transform = Scaling(1.5, 1.5)
++		d := Differ{Reach: 1}
++		rememberLyricDamage(t, &d, s)
++		s.Glyphs[1].Color.A = 255
++		requireLyricDamage(t, &d, s, image.Rect(156, 31, 179, 69))
++	})
++}
++
++// Any structural change keeps full operation damage, even after an earlier glyph changed only color.
++func TestGlyphColorDamageFallback(t *testing.T) {
++	for _, tc := range []struct {
++		name   string
++		change func(*Scene)
++	}{
++		{"position", func(s *Scene) { s.Glyphs[2].X++ }},
++		{"atlas coordinates", func(s *Scene) { s.Glyphs[2].U++ }},
++		{"glyph transform", func(s *Scene) { s.Glyphs[2].Transform = Translation(1, 0) }},
++		{"glyph flags", func(s *Scene) { s.Glyphs[2].Subpixel = true }},
++		{"operation transform", func(s *Scene) { s.Ops[0].Transform = Translation(1, 0) }},
++		{"operation fields", func(s *Scene) { s.Ops[0].Color.A = 200 }},
++		{"glyph count", func(s *Scene) { s.Ops[0].End-- }},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			s := lyricDamageScene()
++			d := Differ{Reach: 1}
++			rememberLyricDamage(t, &d, s)
++			old := d.bounds[0]
++			s.Glyphs[0].Color.A = 255
++			tc.change(s)
++			got, known := d.Diff(s)
++			if !known || len(got) != 1 || got[0] != old.Union(d.next[0]) {
++				t.Fatalf("structural change refined damage: %v", got)
++			}
++		})
++	}
++}
++
++// Atlas updates retain the full operation path rather than trusting unchanged texture coordinates.
++func TestGlyphColorDamageAtlasFallback(t *testing.T) {
++	for _, colored := range []bool{false, true} {
++		s := lyricDamageScene()
++		atlas := NewAtlas(1, 32, 32)
++		if colored {
++			s.ColorAtlas = atlas
++		} else {
++			s.MaskAtlas = atlas
++		}
++		d := Differ{Reach: 1}
++		rememberLyricDamage(t, &d, s)
++		atlas.Put(0, 0, 1, 1, []byte{255}, 1)
++		s.Glyphs[1].Color.A = 255
++		requireLyricDamage(t, &d, s, image.Rect(19, 19, 191, 41))
++	}
++}
++
++// Wide renderers damage changed wide colors even when their nearest sRGB values stay identical.
++func TestGlyphColorDamageWideColors(t *testing.T) {
++	s := lyricDamageScene()
++	s.Glyphs[1].Wide = 1
++	s.Wide = []WideColors{{Color: [4]float32{1.2, 0.3, 0.4, 1}, Set: WideColor}}
++	d := Differ{Reach: 1, Wide: true}
++	rememberLyricDamage(t, &d, s)
++	s.Wide[0].Color[0] = 1.5
++	requireLyricDamage(t, &d, s, image.Rect(99, 19, 111, 41))
++	d.Remember(s)
++	s.Wide = append(s.Wide, s.Wide[0])
++	s.Glyphs[1].Wide = 2
++	requireLyricDamage(t, &d, s)
++}
+diff --git a/internal/gpu/d3d11/glyph_damage_test.go b/internal/gpu/d3d11/glyph_damage_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/gpu/d3d11/glyph_damage_test.go
+@@ -0,0 +1,158 @@
++//go:build windows
++
++package d3d11
++
++import (
++	"bytes"
++	"math"
++	"runtime"
++	"testing"
++
++	"github.com/egoist/mygo/internal/scene"
++)
++
++// Word-color updates used to dirty the whole sentence; their smaller redraw must preserve all outlined, clipped and transformed pixels.
++func TestGlyphColorPartialRedrawMatchesFull(t *testing.T) {
++	runtime.LockOSThread()
++	defer runtime.UnlockOSThread()
++	for _, tc := range []struct {
++		name      string
++		transform scene.Affine
++		clip      bool
++	}{
++		{name: "fractional"},
++		{name: "scaled-clipped", transform: scene.Scaling(1.05, 1.1), clip: true},
++		{name: "rotated-clipped", transform: scene.Rotation(3), clip: true},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			partial, full := glyphDamageRenderer(t), glyphDamageRenderer(t)
++			defer partial.Release()
++			defer full.Release()
++			if partial.ctx1 == 0 {
++				t.Skip("no Direct3D 11.1 partial redraw")
++			}
++			atlas := glyphDamageAtlas()
++			for frame := 0; frame < 6; frame++ {
++				s := glyphDamageScene(atlas, tc.transform, tc.clip, frame)
++				if frame > 0 {
++					partial.held = true
++				}
++				full.held = false
++				if drawn, err := partial.drawFrame(s); err != nil || !drawn {
++					t.Fatalf("partial frame %d: drawn=%v error=%v", frame, drawn, err)
++				}
++				if drawn, err := full.drawFrame(s); err != nil || !drawn {
++					t.Fatalf("full frame %d: drawn=%v error=%v", frame, drawn, err)
++				}
++				// The first two updates change one word's foreground only. The
++				// original whole-op invalidation also matched full pixels, so
++				// require that this regression exercises the smaller redraw.
++				if frame == 1 || frame == 2 {
++					if partial.redrew != redrewPart {
++						t.Fatalf("frame %d did not partially redraw", frame)
++					}
++					area := 0
++					for _, rect := range partial.part.Rects {
++						area += int((rect.Right - rect.Left) * (rect.Bottom - rect.Top))
++					}
++					if area >= 2000 {
++						t.Fatalf("frame %d redrew %d pixels for one word", frame, area)
++					}
++				}
++				got, gs, err := partial.read()
++				if err != nil {
++					t.Fatal(err)
++				}
++				want, ws, err := full.read()
++				if err != nil {
++					t.Fatal(err)
++				}
++				for y := 0; y < s.Height; y++ {
++					if !bytes.Equal(got[y*gs:y*gs+s.Width*4], want[y*ws:y*ws+s.Width*4]) {
++						t.Fatalf("frame %d row %d: partial redraw changed full-render pixels", frame, y)
++					}
++				}
++			}
++		})
++	}
++}
++
++func glyphDamageRenderer(t *testing.T) *Renderer {
++	t.Helper()
++	hwnd, err := newHiddenWindow(320, 128)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { destroyWindow(hwnd) })
++	r, err := New(hwnd)
++	if err != nil {
++		t.Skip("Direct3D 11 unavailable:", err)
++	}
++	return r
++}
++
++func glyphDamageAtlas() *scene.Atlas {
++	a := scene.NewAtlas(1, 32, 32)
++	pix := make([]byte, 12*18)
++	for y := 0; y < 18; y++ {
++		for x := 0; x < 12; x++ {
++			if x >= 1 && x <= 10 && y >= 1 && y <= 16 {
++				pix[y*12+x] = 230
++				if x == 1 || x == 10 || y == 1 || y == 16 {
++					pix[y*12+x] = 105
++				}
++			}
++		}
++	}
++	a.Put(0, 0, 12, 18, pix, 12)
++	return a
++}
++
++func glyphDamageScene(atlas *scene.Atlas, transform scene.Affine, clipped bool, frame int) *scene.Scene {
++	s := &scene.Scene{Width: 320, Height: 128, MaskAtlas: atlas}
++	// A translucent, colored backing catches incorrect clears beneath text.
++	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 5, Y: 5, W: 300, H: 110}, Color: scene.Color{R: 30, G: 70, B: 95, A: 80}})
++	if clipped {
++		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 27.25, Y: 24.5, W: 222.5, H: 47.25}})
++	}
++	addLine := func(dx, dy float32, color scene.Color, foreground bool) {
++		start := len(s.Glyphs)
++		for i := 0; i < 8; i++ {
++			g := scene.Glyph{X: 18.25 + float32(i)*30 + dx, Y: 32.5 + dy, W: 12, H: 18, UW: 12, VH: 18, Color: color}
++			if i == 4 {
++				g.Transform = scene.Translation(0.25, -0.5)
++			}
++			if foreground {
++				if frame >= 1 && i == 3 {
++					g.Color = scene.Color{R: 230, G: 180, B: 20, A: 180}
++				}
++				if frame >= 2 && i == 3 {
++					g.Color.A = 230
++				}
++				if frame >= 3 && i == 3 {
++					g.Color.A = 0
++				}
++				// Whole-line fades and a real geometry change retain their
++				// conservative fallback while matching a complete redraw.
++				if frame >= 4 {
++					g.Color.A /= 2
++				}
++				if frame >= 5 && i == 5 {
++					g.X += 3.75
++				}
++			}
++			s.Glyphs = append(s.Glyphs, g)
++		}
++		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: int32(start), End: int32(len(s.Glyphs)), Transform: transform})
++	}
++	addLine(0, 2, scene.Color{A: 100}, false)
++	for i := 0; i < 8; i++ {
++		angle := float64(i) * math.Pi / 4
++		addLine(float32(math.Cos(angle))*0.8, float32(math.Sin(angle))*0.8, scene.Color{A: 240}, false)
++	}
++	addLine(0, 0, scene.Color{R: 100, G: 220, B: 200, A: 122}, true)
++	if clipped {
++		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPopClip})
++	}
++	return s
++}

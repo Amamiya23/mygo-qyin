@@ -13,14 +13,15 @@ const desktopLyricsWidth = 760
 // desktopLyrics owns a panel independently of the main window's visibility.
 // All its state and callbacks belong to MyGo's main thread.
 type desktopLyrics struct {
-	a                *app
-	win              *mygo.Window
-	offDisplays      func()
-	width            float64
-	desiredHeight    int
-	revision         uint64
-	workAreaOverride func(mygo.Rectangle) mygo.Rectangle
-	stopWorkArea     func()
+	translationPolicy lyricTranslationPolicy
+	a                 *app
+	win               *mygo.Window
+	offDisplays       func()
+	width             float64
+	desiredHeight     int
+	revision          uint64
+	workAreaOverride  func(mygo.Rectangle) mygo.Rectangle
+	stopWorkArea      func()
 }
 
 func supportsDesktopLyrics() bool {

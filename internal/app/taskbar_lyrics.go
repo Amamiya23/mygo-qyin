@@ -11,21 +11,22 @@ import (
 // taskbarLyrics owns the Explorer child used by the taskbar lyrics mode.
 // Only the taskbar monitor works off-thread. Window and player state stay on main.
 type taskbarLyrics struct {
-	a            *app
-	win          *mygo.Window
-	coverWin     *mygo.Window
-	controls     *mygo.Window
-	controlsOpen bool
-	coverReady   bool
-	scrub        scrubState
-	stop         func()
-	placement    taskbarLyricsPlacement
-	parent       uintptr
-	revision     uint64
-	ready        bool
-	visible      bool
-	dark         bool
-	lastError    string
+	translationPolicy lyricTranslationPolicy
+	a                 *app
+	win               *mygo.Window
+	coverWin          *mygo.Window
+	controls          *mygo.Window
+	controlsOpen      bool
+	coverReady        bool
+	scrub             scrubState
+	stop              func()
+	placement         taskbarLyricsPlacement
+	parent            uintptr
+	revision          uint64
+	ready             bool
+	visible           bool
+	dark              bool
+	lastError         string
 }
 
 func supportsTaskbarLyrics() bool { return runtime.GOOS == "windows" }

@@ -193,7 +193,7 @@ func (d *desktopLyrics) view(c *ui.Context) {
 	if tr := d.a.pl.Current(); tr != nil {
 		track, mid = tr.ID, tr.MID
 		lines, loaded := d.a.pl.Lyrics()
-		content = desktopLyricAt(lines, loaded, d.a.pl.Position(), d.a.settings.DesktopLyricsDoubleLine)
+		content = lyricAt(lines, loaded, d.a.pl.Position(), d.a.settings.DesktopLyricsDoubleLine, d.translationPolicy.get(lines, desktopLyricsTranslation))
 	}
 	position := d.a.pl.Position()
 	playing := d.a.pl.Playing()
@@ -300,6 +300,7 @@ type desktopLyricLayouts struct {
 	previewOutline, preview                        *ui.TextLayout
 	originalHeight, height                         float32
 	opacity                                        float32
+	wordColors                                     []ui.Color
 }
 
 func desktopLyricsLayouts(c *ui.Context, content desktopLyricContent, position time.Duration, size, width float32, color ui.Color) desktopLyricLayouts {
@@ -313,16 +314,13 @@ func desktopLyricsLayouts(c *ui.Context, content desktopLyricContent, position t
 	// user's opacity to the complete layer, including its outline, instead.
 	opacity := float32(color.A) / 255
 	color = ui.RGB(color.R, color.G, color.B)
-	var spans []ui.Span
-	if content.line.Timed && len(content.line.Words) > 0 {
-		spans = make([]ui.Span, 0, len(content.line.Words))
-		for _, word := range content.line.Words {
-			spans = append(spans, ui.Span{Text: word.Text, Color: desktopLyricWordColor(color, word.Progress(position))})
-		}
-	}
 	layout := desktopLyricLayouts{outline: retainedLyricText(c, text, font, shape, ui.Color{}), opacity: opacity}
 	if content.line.Timed && len(content.line.Words) > 0 {
-		layout.text = ui.ShapeRichTextWith(spans, font, shape)
+		layout.text = retainedLyricWords(c, content.line.Words, font, shape, false).layout
+		layout.wordColors = make([]ui.Color, len(content.line.Words))
+		for i, word := range content.line.Words {
+			layout.wordColors[i] = desktopLyricWordColor(color, word.Progress(position))
+		}
 	} else {
 		layout.text = retainedLyricText(c, text, font, shape, desktopLyricWordColor(color, 1))
 	}
@@ -347,7 +345,7 @@ func (layout desktopLyricLayouts) draw(p *ui.Painter, r ui.Rect, alpha float32) 
 	if layout.text == nil || alpha <= 0 {
 		return
 	}
-	draw := func(outline, text *ui.TextLayout, y float32, color ui.Color) {
+	draw := func(outline, text *ui.TextLayout, y float32, color ui.Color, colors []ui.Color) {
 		if text == nil {
 			return
 		}
@@ -356,9 +354,9 @@ func (layout desktopLyricLayouts) draw(p *ui.Painter, r ui.Rect, alpha float32) 
 			angle := float64(i) * math.Pi / 4
 			p.TextLayout(outline, r.X+float32(math.Cos(angle))*0.8, y+float32(math.Sin(angle))*0.8, radixBlack(12).Alpha(0.95*alpha))
 		}
-		p.TextLayout(text, r.X, y, color)
+		p.TextLayoutColors(text, r.X, y, color, colors)
 	}
-	draw(layout.outline, layout.text, r.Y, radixWhite(12))
-	draw(layout.translationOutline, layout.translation, r.Y+layout.originalHeight+6, radixGray(true, 12))
-	draw(layout.previewOutline, layout.preview, r.Y+layout.originalHeight+6, radixWhite(12))
+	draw(layout.outline, layout.text, r.Y, radixWhite(12), layout.wordColors)
+	draw(layout.translationOutline, layout.translation, r.Y+layout.originalHeight+6, radixGray(true, 12), nil)
+	draw(layout.previewOutline, layout.preview, r.Y+layout.originalHeight+6, radixWhite(12), nil)
 }

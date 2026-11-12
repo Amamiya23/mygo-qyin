@@ -9,7 +9,7 @@ import (
 	"lilt/internal/lyrics"
 )
 
-// Playback changes used to reshape every layer; only timed foreground colors need a fresh layout.
+// Playback used to reshape timed text; geometry now stays fixed while each frame owns its word colors.
 func TestLyricLayoutsRetainStableLayers(t *testing.T) {
 	for _, timed := range []bool{false, true} {
 		for _, secondary := range []string{"translation", "preview"} {
@@ -34,8 +34,11 @@ func TestLyricLayoutsRetainStableLayers(t *testing.T) {
 				if desktop.outline != firstDesktop.outline || desktop.translation != firstDesktop.translation || desktop.preview != firstDesktop.preview {
 					t.Fatal("playback reshaped a stable desktop lyric layer")
 				}
-				if timed == (desktop.text == firstDesktop.text) {
-					t.Fatal("desktop foreground either lost word colors or reshaped unchanged LRC")
+				if desktop.text != firstDesktop.text {
+					t.Fatal("playback reshaped desktop foreground")
+				}
+				if timed && (desktop.wordColors[0] == firstDesktop.wordColors[0] || firstDesktop.wordColors[0] != desktopLyricWordColor(radixPaper, line.Words[0].Progress(1500*time.Millisecond))) {
+					t.Fatal("desktop word colors are stale or mutated an earlier frame")
 				}
 
 				for _, height := range []float32{28, 42} {
@@ -51,11 +54,83 @@ func TestLyricLayoutsRetainStableLayers(t *testing.T) {
 					if taskbar.outline != firstTaskbar.outline || taskbar.secondary != firstTaskbar.secondary {
 						t.Fatal("playback reshaped a stable taskbar lyric layer")
 					}
-					if timed == (taskbar.text == firstTaskbar.text) || taskbar.progressX <= firstTaskbar.progressX {
+					if taskbar.text != firstTaskbar.text || taskbar.progressX <= firstTaskbar.progressX {
 						t.Fatal("taskbar cached stale brightness or scrolling progress")
+					}
+					if timed && (taskbar.wordColors[0] == firstTaskbar.wordColors[0] || firstTaskbar.wordColors[0] != radixGray(true, 12).Alpha(desktopLyricsRestAlpha+(desktopLyricsSungAlpha-desktopLyricsRestAlpha)*line.Words[0].Progress(1500*time.Millisecond))) {
+						t.Fatal("taskbar word colors are stale or mutated an earlier frame")
 					}
 				}
 			})
+		}
+	}
+}
+
+// Identical joined text can have different word boundaries, so a new timing partition must repaint the right characters.
+func TestTimedLyricWordPartition(t *testing.T) {
+	content := desktopLyricContent{index: 0, text: "office"}
+	content.line = lyrics.Line{Text: content.text, Timed: true, Words: []lyrics.Word{
+		{Text: "of", Start: 0, End: time.Second},
+		{Text: "fice", Start: time.Second, End: 2 * time.Second},
+	}}
+	var desktop desktopLyricLayouts
+	var taskbar taskbarLyricLayout
+	tt := ui.NewTester(func(c *ui.Context) {
+		desktop = desktopLyricsLayouts(c, content, 500*time.Millisecond, 32, 300, radixPaper)
+		taskbar = makeTaskbarLyricLayout(c, content, 500*time.Millisecond, true, 28)
+	}, 320, 160)
+	tt.Frame()
+	firstDesktop, firstTaskbar := desktop, taskbar
+	content.line.Words = []lyrics.Word{
+		{Text: "off", Start: 0, End: time.Second},
+		{Text: "ice", Start: time.Second, End: 2 * time.Second},
+	}
+	tt.Frame()
+	if desktop.text == firstDesktop.text || taskbar.text == firstTaskbar.text {
+		t.Fatal("new word partition reused the previous color boundaries")
+	}
+	firstDesktop, firstTaskbar = desktop, taskbar
+	// The same chorus geometry remains reusable with different timestamps.
+	content.line.Words = []lyrics.Word{
+		{Text: "off", Start: time.Second, End: 2 * time.Second},
+		{Text: "ice", Start: 2 * time.Second, End: 3 * time.Second},
+	}
+	tt.Frame()
+	if desktop.text != firstDesktop.text || taskbar.text != firstTaskbar.text ||
+		desktop.wordColors[0] == firstDesktop.wordColors[0] || taskbar.progressX == firstTaskbar.progressX {
+		t.Fatal("new chorus timings either reshaped text or retained old progress")
+	}
+}
+
+// Taskbar scrolling must use normalized UTF-16 boundaries, including astral and combining characters.
+func TestTaskbarLyricRetainedWordCarets(t *testing.T) {
+	words := []lyrics.Word{
+		{Text: "风😀\r\n", Start: 0, End: time.Second},
+		{Text: "e\u0301\t終", Start: time.Second, End: 2 * time.Second},
+	}
+	content := desktopLyricContent{index: 0, text: "风😀\r\ne\u0301\t終", translation: "translation",
+		line: lyrics.Line{Timed: true, Words: words}}
+	for _, height := range []float32{28, 42} {
+		var layout taskbarLyricLayout
+		tt := ui.NewTester(func(c *ui.Context) {
+			layout = makeTaskbarLyricLayout(c, content, 1500*time.Millisecond, true, height)
+		}, 300, int(height))
+		tt.Frame()
+		left, right := layout.text.Caret(4).X, layout.text.Caret(8).X
+		if layout.progressX != left+(right-left)*0.5 {
+			t.Fatalf("height %v: word scrolling lost UTF-16/newline normalization: %v", height, layout.progressX)
+		}
+	}
+}
+
+// A newly published lyric slice must replace the cached language decision even when its length stays the same.
+func TestLyricTranslationPolicyPublication(t *testing.T) {
+	for _, policy := range []func([]lyrics.Line) bool{desktopLyricsTranslation, taskbarLyricsTranslation} {
+		var cache lyricTranslationPolicy
+		chinese := []lyrics.Line{{Text: "我们"}}
+		japanese := []lyrics.Line{{Text: "かな", Translation: "我们"}}
+		if cache.get(chinese, policy) || !cache.get(japanese, policy) || cache.get(chinese, policy) {
+			t.Fatal("language decision remained attached to an earlier lyric publication")
 		}
 	}
 }
