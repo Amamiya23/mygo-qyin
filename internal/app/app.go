@@ -143,6 +143,7 @@ type app struct {
 	lyricScroll ui.ScrollState
 	lyricGlide  lyricGlide
 	lyricAt     int
+	lyricBrowse bool // the listener scrolled the lyrics: they stay put until told to follow again
 	lyricTrack  int64
 	lyricSize   float32   // size used for the preceding lyrics layout
 	lyricSizeAt time.Time // frame in which the lyrics changed size

@@ -76,6 +76,7 @@ func (a *app) lyricsSizeSlider(c *ui.Context) {
 func (a *app) lyricsSizeChanged() {
 	// A different size changes wrapping and line positions even while paused.
 	a.lyricAt = -2
-	a.lyricGlide = lyricGlide{}
+	// The offset stays where it is, not taken for the listener scrolling.
+	a.lyricGlide = lyricGlide{set: a.lyricScroll.Y}
 	a.settings.save()
 }

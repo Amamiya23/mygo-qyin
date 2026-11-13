@@ -62,9 +62,9 @@ func (a *app) captionsPane(c *ui.Context, tr *qqmusic.Track, h float32) {
 	}
 	if a.lyricTrack != tr.ID {
 		a.lyricTrack, a.lyricAt = tr.ID, -2
-		a.lyricScroll, a.lyricGlide = ui.ScrollState{}, lyricGlide{}
+		a.lyricScroll, a.lyricGlide, a.lyricBrowse = ui.ScrollState{}, lyricGlide{}, false
 	}
-	lag := a.lyricGlide.step(c, &a.lyricScroll)
+	lag := a.lyricStep(c)
 	scroll := ui.Scroll(c.Key("captions")).Grow(1).TrackScroll(&a.lyricScroll).Padding(0, 8, h*0.5, 0)
 	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: 24, weight: 700, lineHeight: 1.4}, func() {
 		if cs.work != nil {
