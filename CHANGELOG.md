@@ -1,5 +1,19 @@
 # 更新日志
 
+## 0.4.4
+
+- 正在播放页面支持自由浏览歌词，点击「回到当前」恢复跟随
+- 优化桌面及任务栏歌词渲染，降低资源占用
+
+### 下载指南
+
+| 处理器架构 | Windows | macOS | Linux |
+| :--- | :--- | :--- | :--- |
+| amd64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.4/lilt-setup-0.4.4-amd64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.4/lilt-0.4.4-amd64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.4/lilt_0.4.4_amd64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.4/lilt-0.4.4-linux-amd64.tar.gz) |
+| arm64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.4/lilt-setup-0.4.4-arm64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.4/lilt-0.4.4-arm64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.4/lilt_0.4.4_arm64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.4.4/lilt-0.4.4-linux-arm64.tar.gz) |
+
+> Linux：Ubuntu / Debian 等支持 deb 的发行版选 `.deb`，其他发行版选 `.tar.gz`。
+
 ## 0.4.3
 
 - 支持搜索自己歌单中的歌曲
