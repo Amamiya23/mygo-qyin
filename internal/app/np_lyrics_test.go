@@ -15,6 +15,53 @@ import (
 	"lilt/internal/qqmusic"
 )
 
+// Paused audio keeps its clock while the minimized window skips frames.
+func TestPausedLyricsAfterLongMinimize(t *testing.T) {
+	for _, reduceMotion := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reduce-motion=%t", reduceMotion), func(t *testing.T) {
+			a := newTestApp()
+			a.settings = defaultSettings()
+			a.win = &mygo.Window{}
+			a.pl.Cue([]qqmusic.Track{{ID: 7, Duration: 400000}})
+			var lrc string
+			for i := 0; i < 13; i++ {
+				lrc += fmt.Sprintf("[%02d:%02d.00]第%d句歌词\n", i/2, i%2*30, i)
+			}
+			a.pl.SetLyrics(lyrics.Build(lrc, "", ""))
+			a.pl.Seek(390 * time.Second)
+			tt := ui.NewTester(func(c *ui.Context) {
+				ui.Column(c).Fill().Background(radixSage(true, 1)).Children(func() { a.lyricsPane(c, a.pl.Current(), 500) })
+			}, 600, 500)
+			tt.SetPreferences(ui.Preferences{ReduceMotion: reduceMotion})
+			tt.Advance(2 * time.Second)
+			if a.lyricAt != 12 || a.lyricScroll.Y <= 0 {
+				t.Fatal("fixture did not follow the paused line")
+			}
+			a.suspendMainWindow()
+			tt.SetWindowHidden(true)
+			tt.Advance(5 * time.Minute)
+			// Reproduce a restored scroll layout reporting the start again,
+			// while the paused audio clock and current lyric stay unchanged.
+			a.lyricScroll.Y = 0
+			tt.SetWindowHidden(false)
+			oldInvalidate := invalidateWindow
+			t.Cleanup(func() { invalidateWindow = oldInvalidate })
+			invalidateWindow = func(*mygo.Window) { tt.Frame() }
+			a.resumeMainWindow()
+			tt.Advance(2 * time.Second)
+			if a.pl.Playing() || a.pl.Position() != 390*time.Second {
+				t.Fatal("window restoration changed paused playback")
+			}
+			if r, ok := tt.Find("第12句歌词"); !ok || r.Y < 0 || r.Y+r.H > 500 || a.lyricBrowse {
+				t.Fatalf("restored lyric is not visible: box=%+v found=%v scroll=%+v line=%d browse=%v", r, ok, a.lyricScroll, a.lyricAt, a.lyricBrowse)
+			}
+			if dir := os.Getenv("NM_FRAMES"); dir != "" {
+				saveLyricsEntryFrame(t, dir, fmt.Sprintf("lyrics-paused-restore-%t.png", reduceMotion), tt)
+			}
+		})
+	}
+}
+
 // Playback can advance without the hidden window receiving a frame. Resuming
 // rebuilds both the clock and the active lyric before the next line's timer.
 func TestLyricsResumeBeforeNextLineTimer(t *testing.T) {
@@ -67,11 +114,11 @@ func TestLyricsResumeBeforeNextLineTimer(t *testing.T) {
 				tt.Frame()
 			}
 			a.resumeMainWindow()
-			if requests != 1 || a.lyricAt != 6 || !tt.HasText("3:10") || tt.Now() != before {
+			if requests != 1 || !tt.HasText("3:10") || tt.Now() != before {
 				t.Fatalf("resume waited for a timer: requests=%d line=%d clock=%v", requests, a.lyricAt, tt.Texts())
 			}
 			tt.Advance(2 * time.Second)
-			if a.lyricScroll.Y <= 0 {
+			if a.lyricAt != 6 || a.lyricScroll.Y <= 0 {
 				t.Fatal("resumed lyrics did not scroll to the current line")
 			}
 			if r, ok := tt.Find("第6句歌词"); !ok || r.Y < 0 || r.Y+r.H > 500 {
@@ -199,6 +246,21 @@ func TestLyricsBrowseAndFollowAgain(t *testing.T) {
 			}
 			if _, ok := tt.Find("回到上方的当前歌词"); !ok {
 				t.Fatal("the line sung, scrolled above, is not pointed up to")
+			}
+			// A real manual scroll remains a browsing choice after a long
+			// minimize; restoration must not force the active line back.
+			a.win = &mygo.Window{}
+			a.suspendMainWindow()
+			tt.SetWindowHidden(true)
+			tt.Advance(5 * time.Minute)
+			tt.SetWindowHidden(false)
+			oldInvalidate := invalidateWindow
+			t.Cleanup(func() { invalidateWindow = oldInvalidate })
+			invalidateWindow = func(*mygo.Window) { tt.Frame() }
+			a.resumeMainWindow()
+			tt.Advance(2 * time.Second)
+			if !a.lyricBrowse || a.lyricScroll.Y != browsed {
+				t.Fatal("restoration discarded the listener's lyric browsing position")
 			}
 			if frames != "" {
 				saveLyricsEntryFrame(t, frames, fmt.Sprintf("lyrics-browse-up-%t.png", reduceMotion), tt)

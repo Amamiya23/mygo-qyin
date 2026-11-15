@@ -559,7 +559,7 @@ func (a *app) lyricsPane(c *ui.Context, tr *qqmusic.Track, h float32) {
 		a.lyricTrack, a.lyricAt = tr.ID, -2
 		a.lyricScroll, a.lyricGlide, a.lyricBrowse = ui.ScrollState{}, lyricGlide{}, false
 	}
-	lag := a.lyricStep(c)
+	lag, resumed := a.lyricStep(c)
 
 	scroll := ui.Scroll(c.Key("lyrics")).Grow(1).TrackScroll(&a.lyricScroll).Padding(0, 8, h*0.5, 0)
 	dim, quiet := a.quietShown(c, scroll, tr, lines, loaded)
@@ -578,7 +578,7 @@ func (a *app) lyricsPane(c *ui.Context, tr *qqmusic.Track, h float32) {
 	// Builds can repeat before layout commits. Keep waiting for that entire
 	// frame, so following uses the new geometry rather than a previous pass.
 	resized := !a.lyricSizeAt.IsZero() && a.lyricSizeAt.Equal(c.Now())
-	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: size, translationSize: 17 * size / lyricsFontSizeDefault, weight: 800, lineHeight: 1.25, quiet: quiet, relayout: resized}, nil)
+	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: size, translationSize: 17 * size / lyricsFontSizeDefault, weight: 800, lineHeight: 1.25, quiet: quiet, relayout: resized || resumed}, nil)
 }
 
 // linesStyle is how timedLines sets its lines: the size, weight and
@@ -791,12 +791,32 @@ func (g *lyricGlide) step(c *ui.Context, s *ui.ScrollState) (lag float32, scroll
 
 // lyricStep steps the glide of the lyrics or captions, and leaves the line
 // sung to the listener once they scroll.
-func (a *app) lyricStep(c *ui.Context) float32 {
+func (a *app) lyricStep(c *ui.Context) (float32, bool) {
+	if c.WindowHidden() {
+		if !a.lyricBrowse {
+			a.lyricResume = true
+		}
+		return 0, true
+	}
+	if a.lyricResume {
+		a.lyricResume = false
+		if !a.lyricBrowse {
+			// Restoration can replace the scroll offset without any user
+			// input. Do not interpret that change as browsing. Follow using
+			// the restored layout's committed bounds in the next frame.
+			a.lyricGlide = lyricGlide{set: a.lyricScroll.Y}
+			a.lyricAt = -2
+			a.lyricResumeAt = c.Now()
+		}
+	}
+	if !a.lyricResumeAt.IsZero() && a.lyricResumeAt.Equal(c.Now()) {
+		return 0, true
+	}
 	lag, scrolled := a.lyricGlide.step(c, &a.lyricScroll)
 	if scrolled {
 		a.lyricBrowse = true
 	}
-	return lag
+	return lag, false
 }
 
 // lyricsFollowButton floats at the foot of the lyrics while the listener

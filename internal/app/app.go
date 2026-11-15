@@ -130,27 +130,29 @@ type app struct {
 	searched      route                 // the search last shown, which the sidebar goes back to
 	suggestions   suggestState          // what the search field's query may be after
 
-	nowPlaying  bool
-	npOpen      bool    // Now Playing as it last showed: open or not
-	npT         float32 // how far open Now Playing last showed, 0 to 1
-	npShift     float32 // how far down it showed while pulled
-	npPull      float32 // how far the pointer has pulled it down
-	npHeld      bool    // whether the pointer is pulling it
-	npStill     bool    // reduced motion: fade in place
-	npFrom      ui.Rect // the player bar's cover, which it grows out of
-	npPane      int     // paneLyrics, paneQueue, paneStage, paneComments, paneProgram or paneCaptions
-	npPaneTop   float32 // how far the cover beside the pane starts below its top
-	lyricScroll ui.ScrollState
-	lyricGlide  lyricGlide
-	lyricAt     int
-	lyricBrowse bool // the listener scrolled the lyrics: they stay put until told to follow again
-	lyricTrack  int64
-	lyricSize   float32   // size used for the preceding lyrics layout
-	lyricSizeAt time.Time // frame in which the lyrics changed size
-	queueList   ui.ListState
-	queueAt     int // the row of the queue pane last scrolled to, -1 while it is hidden
-	comments    commentState
-	tabCount    rollState // the count on the comments' tab, as it rolls
+	nowPlaying    bool
+	npOpen        bool    // Now Playing as it last showed: open or not
+	npT           float32 // how far open Now Playing last showed, 0 to 1
+	npShift       float32 // how far down it showed while pulled
+	npPull        float32 // how far the pointer has pulled it down
+	npHeld        bool    // whether the pointer is pulling it
+	npStill       bool    // reduced motion: fade in place
+	npFrom        ui.Rect // the player bar's cover, which it grows out of
+	npPane        int     // paneLyrics, paneQueue, paneStage, paneComments, paneProgram or paneCaptions
+	npPaneTop     float32 // how far the cover beside the pane starts below its top
+	lyricScroll   ui.ScrollState
+	lyricGlide    lyricGlide
+	lyricAt       int
+	lyricBrowse   bool // the listener scrolled the lyrics: they stay put until told to follow again
+	lyricResume   bool // re-anchor following lyrics after the window restores its layout
+	lyricResumeAt time.Time
+	lyricTrack    int64
+	lyricSize     float32   // size used for the preceding lyrics layout
+	lyricSizeAt   time.Time // frame in which the lyrics changed size
+	queueList     ui.ListState
+	queueAt       int // the row of the queue pane last scrolled to, -1 while it is hidden
+	comments      commentState
+	tabCount      rollState // the count on the comments' tab, as it rolls
 
 	stageStyleOpen    bool // the stage's effect menu shows
 	lyricsSizeOpen    bool // the scrolling lyrics' size popover shows
@@ -236,11 +238,21 @@ func (a *app) redraw() {
 
 var invalidateWindow = (*mygo.Window).Invalidate
 
+// Remember following before a hidden window can discard its scroll layout.
+func (a *app) suspendMainWindow() {
+	if !a.lyricBrowse {
+		a.lyricResume = true
+	}
+}
+
 // resumeMainWindow rebuilds playback UI from the audio clock instead of
 // presenting the frame cached before minimization. Focus is also a resume
 // signal: Wayland does not consistently report iconified/restored states.
 func (a *app) resumeMainWindow() {
 	if a.win != nil {
+		if !a.lyricBrowse {
+			a.lyricResume = true
+		}
 		invalidateWindow(a.win)
 	}
 }
@@ -353,6 +365,8 @@ func Run() error {
 		a.win.OnShow(a.syncDock)
 		a.win.OnShow(a.resumeMainWindow)
 		a.win.OnHide(a.syncDock)
+		a.win.OnHide(a.suspendMainWindow)
+		a.win.OnMinimize(a.suspendMainWindow)
 		a.win.OnRestore(a.resumeMainWindow)
 		// Shown or switched to the morning after, it shows the new day's.
 		a.win.OnFocus(func() {
