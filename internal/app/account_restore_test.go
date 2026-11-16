@@ -26,7 +26,7 @@ func fakeAccountRestore(t *testing.T, saved bool, replies ...accountRestoreReply
 	for _, r := range replies {
 		responses <- r
 	}
-	restoreLoginSession = func() bool { restored <- struct{}{}; return saved }
+	restoreLoginSession = func() (bool, error) { restored <- struct{}{}; return saved, nil }
 	readLoginAccount = func() (*qqmusic.Profile, error) {
 		var r accountRestoreReply
 		select {
@@ -127,7 +127,7 @@ func TestAccountRestoreDoesNotOverrideQRLogin(t *testing.T) {
 	tt.Frame()
 	tt.Click("账户")
 	tt.Frame()
-	if err := tt.Click("重新扫码登录"); err != nil {
+	if err := tt.Click("登录 QQ 音乐"); err != nil {
 		t.Fatal(err)
 	}
 	wait(t, qrAsked, "a replacement QR login")
@@ -205,6 +205,71 @@ func TestAccountRestoreWithoutAccount(t *testing.T) {
 	}
 }
 
+func TestAccountRestoreStorageFailureRetriesRead(t *testing.T) {
+	oldRestore, oldRead := restoreLoginSession, readLoginAccount
+	readErr := &qqmusic.SessionError{Stage: "read", Err: errors.New("private-storage-error")}
+	restored, asked := make(chan error, 2), make(chan struct{}, 1)
+	calls := 0
+	restoreLoginSession = func() (bool, error) {
+		calls++
+		if calls == 1 {
+			restored <- readErr
+			return false, readErr
+		}
+		restored <- nil
+		return true, nil
+	}
+	readLoginAccount = func() (*qqmusic.Profile, error) {
+		asked <- struct{}{}
+		return nil, nil
+	}
+	t.Cleanup(func() { restoreLoginSession, readLoginAccount = oldRestore, oldRead })
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.boot()
+	err := wait(t, restored, "failed credential read")
+	// There is no native window in this test; apply the worker result explicitly.
+	if !a.acceptAccountRestore(a.accountRestore.gen, nil, err) || !a.accountRestore.reload || len(asked) != 0 {
+		t.Fatal("failed credential read was hidden or attempted an anonymous account lookup")
+	}
+	a.homeLoading = false
+	tt := ui.NewTester(a.view, 1000, 700)
+	tt.Frame()
+	tt.Click("账户")
+	tt.Frame()
+	if !tt.HasText(qqmusic.SessionErrorMessage(readErr)) {
+		t.Fatal("credential read failure reason was not shown in the account menu")
+	}
+	if err := tt.Click("重试恢复登录"); err != nil {
+		t.Fatal(err)
+	}
+	if err := wait(t, restored, "retried credential read"); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, asked, "account lookup after the credential read recovered")
+}
+
+func TestAccountRestoreUnrecoverableDataOffersScan(t *testing.T) {
+	for _, stage := range []string{"decode", "unusable"} {
+		t.Run(stage, func(t *testing.T) {
+			a := newTestApp()
+			a.settings = defaultSettings()
+			a.accountRestore = accountRestoreState{gen: 1, loading: true}
+			err := &qqmusic.SessionError{Stage: stage}
+			if !a.acceptAccountRestore(1, nil, err) {
+				t.Fatal("recovery result was discarded")
+			}
+			tt := ui.NewTester(a.view, 1000, 700)
+			tt.Frame()
+			tt.Click("账户")
+			tt.Frame()
+			if !tt.HasText(qqmusic.SessionErrorMessage(err)) || !tt.HasText("重新扫码登录") || tt.HasText("重试恢复登录") {
+				t.Fatal("unusable saved data did not show its reason and a fresh scan action")
+			}
+		})
+	}
+}
+
 // With NM_FRAMES set, saves failed and pending recovery menus in both appearances.
 func TestAccountRestoreFrames(t *testing.T) {
 	dir := os.Getenv("NM_FRAMES")
@@ -214,11 +279,19 @@ func TestAccountRestoreFrames(t *testing.T) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	for _, state := range []string{"failed", "pending"} {
+	for _, state := range []string{"failed", "storage", "rescan", "pending"} {
 		for _, dark := range []bool{false, true} {
 			a := newTestApp()
 			a.settings = defaultSettings()
 			a.accountRestore = accountRestoreState{failed: true, loading: state == "pending"}
+			switch state {
+			case "failed":
+				a.setAccountRestoreError(errors.New("offline"))
+			case "storage":
+				a.setAccountRestoreError(&qqmusic.SessionError{Stage: "read"})
+			case "rescan":
+				a.setAccountRestoreError(&qqmusic.SessionError{Stage: "unusable"})
+			}
 			a.accountOpen = true
 			tt := ui.NewTester(a.view, 1000, 700)
 			tt.SetDark(dark)

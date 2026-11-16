@@ -37,14 +37,19 @@ func fakeAuthServer(t *testing.T, h http.HandlerFunc) {
 	})}
 	authState.Lock()
 	prior := authState.session
+	priorPending := authState.pending
 	priorQR := authState.qr
 	authState.session = Session{}
+	authState.pending = false
+	authState.version++
 	authState.qr = nil
 	authState.Unlock()
 	t.Cleanup(func() {
 		authHTTP = old
 		authState.Lock()
 		authState.session = prior
+		authState.pending = priorPending
+		authState.version++
 		authState.qr = priorQR
 		authState.Unlock()
 	})
@@ -268,7 +273,7 @@ func TestAccountDiscardsRejectedCredential(t *testing.T) {
 			t.Cleanup(func() { deletePersistedSession = oldDelete })
 			setSession(Session{MusicID: "10001", MusicKey: "rejected", LoginType: 2})
 			profile, err := Account()
-			if err != nil || profile != nil || sessionSnapshot().MusicKey != "" || !deleted {
+			if !SessionNeedsLogin(err) || profile != nil || sessionSnapshot().MusicKey != "" || !deleted {
 				t.Fatalf("rejected account was retained: profile=%v err=%v deleted=%v", profile, err, deleted)
 			}
 		})
