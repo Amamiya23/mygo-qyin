@@ -63,6 +63,7 @@ func (a *app) pageState() *pageScrollState {
 
 // app is the state both windows show. Everything in it is read and changed
 // on the main thread: by the views, and by goroutines through post.
+// sessionWrites owns the synchronized state of its persistence worker.
 type app struct {
 	win           *mygo.Window
 	notch         *notch
@@ -105,6 +106,7 @@ type app struct {
 	homeErr     string
 	homeLoading bool
 	homeAt      time.Time // when what the home page shows was asked for
+	homeGen     int
 
 	playlists       map[int64]*qqmusic.Playlist
 	loadingPl       map[int64]bool
@@ -193,9 +195,9 @@ type app struct {
 	cacheMoveDone, cacheMoveTotal int64
 	updates                       bool // the update plugin is used (useUpdater)
 
-	restored     bool   // playback picked up where it was left
-	savedSession string // the session as last kept
-	sessionDue   bool   // a save of the session is due
+	restored      bool // playback picked up where it was left
+	sessionWrites sessionWriter
+	sessionDue    bool // a save of the session is due
 }
 
 // post runs fn on the main thread and redraws both windows. Without a

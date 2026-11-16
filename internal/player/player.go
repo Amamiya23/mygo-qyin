@@ -550,11 +550,11 @@ func (p *Player) RefreshGain() {
 	if p.Normalize == nil || p.Normalize() == NormalizeOff || p.info == nil || p.track == nil {
 		return
 	}
-	// A song loaded with balancing off never waited for measurements. When
-	// enabled mid-song, fetch them without restarting or blocking playback.
+	// Enabling mid-song fetches measurements without restarting playback.
 	t, gen := *p.track, p.gen
+	fetch := songLoudness
 	go func() {
-		v, err := songLoudness(t)
+		v, err := fetch(t)
 		if err != nil {
 			return
 		}
@@ -570,13 +570,25 @@ func (p *Player) RefreshGain() {
 // applyGain sets the volume of what plays: the listener's, which the ear
 // hears in powers, and the track's gain, if normalizing.
 func (p *Player) applyGain() {
+	p.fade.setGain(p.gain())
+}
+
+func (p *Player) gain() float64 {
 	g := p.volume * p.volume
 	if p.Normalize != nil {
 		if mode := p.Normalize(); mode != NormalizeOff {
 			g *= normGain(p.info, mode)
 		}
 	}
-	p.fade.setGain(g)
+	return g
+}
+
+func (p *Player) applyLateLoudness(gen int, v qqmusic.Loudness) {
+	if gen != p.gen || p.info == nil {
+		return
+	}
+	p.info = withLoudness(p.info, v)
+	p.fade.rampGain(p.gain(), 200*time.Millisecond)
 }
 
 // normPreamp lifts balanced playback before peak protection.
@@ -701,7 +713,7 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 	}
 	normalize := p.Normalize != nil && p.Normalize() != NormalizeOff
 	go func() {
-		info, s, err := p.open(t, level, normalize)
+		info, s, loudness, err := p.open(t, level, normalize)
 		p.post(func() {
 			if gen != p.gen {
 				if s != nil {
@@ -762,24 +774,33 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 			}
 			p.sync()
 		})
+		if loudness != nil {
+			if v := <-loudness; v != nil {
+				p.post(func() { p.applyLateLoudness(gen, *v) })
+			}
+		}
 	}()
 }
 
+const loudnessWait = 50 * time.Millisecond
+
 // open opens track t's audio at level: kept in the cache, or else
 // streamed into it, and kept once it has all come in.
-func (p *Player) open(t qqmusic.Track, level string, normalize bool) (*qqmusic.Stream, stream, error) {
+func (p *Player) open(t qqmusic.Track, level string, normalize bool) (*qqmusic.Stream, stream, <-chan *qqmusic.Loudness, error) {
 	// Resolve loudness while the audio opens, including for songs already on
 	// disk. A failed metadata request leaves the stream's gain unchanged.
-	var loudness chan *qqmusic.Loudness
+	var loudness <-chan *qqmusic.Loudness
 	if normalize {
-		loudness = make(chan *qqmusic.Loudness, 1)
+		result := make(chan *qqmusic.Loudness, 1)
+		loudness = result
+		fetch := songLoudness
 		go func() {
-			v, err := songLoudness(t)
+			v, err := fetch(t)
 			if err != nil {
-				loudness <- nil
+				result <- nil
 				return
 			}
-			loudness <- &v
+			result <- &v
 		}()
 	}
 	dl, info, ok := p.Cache.lookup(t.ID, level)
@@ -787,21 +808,28 @@ func (p *Player) open(t qqmusic.Track, level string, normalize bool) (*qqmusic.S
 		var err error
 		info, err = qqmusic.SongURL(t.ID, level)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		dl = p.Cache.download(t.ID, info)
 	}
 	s, err := openStream(dl, t.Duration)
 	if err != nil {
 		dl.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if loudness != nil {
-		if v := <-loudness; v != nil {
-			info = withLoudness(info, *v)
+		timer := time.NewTimer(loudnessWait)
+		defer timer.Stop()
+		select {
+		case v := <-loudness:
+			if v != nil {
+				info = withLoudness(info, *v)
+			}
+			loudness = nil
+		case <-timer.C:
 		}
 	}
-	return info, s, nil
+	return info, s, loudness, nil
 }
 
 var songLoudness = qqmusic.SongLoudness
@@ -825,14 +853,29 @@ type Session struct {
 	Radio    string          `json:"radio,omitempty"`
 }
 
-// Session returns where playback is, or false with nothing queued.
+// Session returns an independent snapshot, or false with nothing queued.
+// Its slices and metadata may be encoded while the queue changes.
 func (p *Player) Session() (Session, bool) {
 	if p.track == nil || p.at < 0 {
 		return Session{}, false
 	}
+	queue := slices.Clone(p.queue)
+	for i := range queue {
+		t := &queue[i]
+		t.Artists = slices.Clone(t.Artists)
+		t.Alias = slices.Clone(t.Alias)
+		if t.Privilege != nil {
+			privilege := *t.Privilege
+			t.Privilege = &privilege
+		}
+		if t.Volume != nil {
+			volume := *t.Volume
+			t.Volume = &volume
+		}
+	}
 	return Session{
-		Queue:    p.queue,
-		Order:    p.order,
+		Queue:    queue,
+		Order:    slices.Clone(p.order),
 		At:       p.at,
 		Shuffle:  p.shuffle,
 		Repeat:   p.repeat,

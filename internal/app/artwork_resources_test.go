@@ -7,12 +7,40 @@ import (
 	"image/jpeg"
 	"image/png"
 	"runtime"
+	"slices"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 )
+
+type genericImage struct{ image.Image }
+
+func TestShrinkPreservesSampleColors(t *testing.T) {
+	rgba := image.NewRGBA(image.Rect(3, 5, 51, 53))
+	nrgba := image.NewNRGBA(rgba.Bounds())
+	ycbcr := image.NewYCbCr(rgba.Bounds(), image.YCbCrSubsampleRatio420)
+	for y := 5; y < 53; y++ {
+		for x := 3; x < 51; x++ {
+			c := color.NRGBA{R: uint8(x * 3), G: uint8(y * 4), B: 80, A: uint8(x + y)}
+			rgba.Set(x, y, c)
+			nrgba.SetNRGBA(x, y, c)
+			ycbcr.Y[ycbcr.YOffset(x, y)] = uint8(x * 3)
+			i := ycbcr.COffset(x, y)
+			ycbcr.Cb[i], ycbcr.Cr[i] = uint8(y*3), 150
+		}
+	}
+	for _, img := range []image.Image{rgba, nrgba, ycbcr} {
+		fast, generic := shrink(img, 24), shrink(genericImage{img}, 24)
+		if !slices.Equal(fast.Pix, generic.Pix) {
+			t.Fatalf("typed sampling changed %T colors", img)
+		}
+	}
+	if allocs := testing.AllocsPerRun(10, func() { shrink(ycbcr, 24) }); allocs > 4 {
+		t.Fatalf("YCbCr sampling allocates %.0f objects", allocs)
+	}
+}
 
 func coverData(t testing.TB) []byte {
 	t.Helper()

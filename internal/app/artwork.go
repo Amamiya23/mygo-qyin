@@ -359,6 +359,7 @@ func firstWebPFrame(b []byte) []byte {
 // shrink averages img down to n×n pixels.
 func shrink(img image.Image, n int) *image.RGBA {
 	b := img.Bounds()
+	rgba64, _ := img.(image.RGBA64Image)
 	out := image.NewRGBA(image.Rect(0, 0, n, n))
 	for y := range n {
 		for x := range n {
@@ -367,7 +368,13 @@ func shrink(img image.Image, n int) *image.RGBA {
 			var r, g, bl, cnt uint32
 			for yy := y0; yy < max(y1, y0+1); yy += max(1, (y1-y0)/4) {
 				for xx := x0; xx < max(x1, x0+1); xx += max(1, (x1-x0)/4) {
-					cr, cg, cb, _ := img.At(xx, yy).RGBA()
+					var cr, cg, cb uint32
+					if rgba64 != nil {
+						p := rgba64.RGBA64At(xx, yy)
+						cr, cg, cb = uint32(p.R), uint32(p.G), uint32(p.B)
+					} else {
+						cr, cg, cb, _ = img.At(xx, yy).RGBA()
+					}
 					r, g, bl, cnt = r+cr>>8, g+cg>>8, bl+cb>>8, cnt+1
 				}
 			}

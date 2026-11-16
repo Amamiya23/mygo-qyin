@@ -1,6 +1,7 @@
 package player
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"encoding/binary"
@@ -37,8 +38,9 @@ type download struct {
 	cancel context.CancelFunc
 	// part is the file's path until the cache keeps it, which keep does
 	// once the song has all come in: the path it is at then.
-	part string
-	keep func(part string, n int64) (string, bool)
+	part      string
+	keep      func(part string, n int64) (string, bool)
+	afterKeep func(string)
 	// users counts what reads or writes the song: the stream decoding it,
 	// until it closes, and the goroutine fetching it. The last to go
 	// closes the file, and removes it unless the cache kept it.
@@ -50,13 +52,13 @@ var streamHTTP = &http.Client{Transport: network.Transport()}
 
 // startDownload fetches url, of size bytes if known, into part, a file
 // that keep keeps once it has all come in: or into memory, without one.
-func startDownload(url string, size int64, part *os.File, keep func(string, int64) (string, bool)) *download {
+func startDownload(url string, size int64, part *os.File, keep func(string, int64) (string, bool), afterKeep func(string)) *download {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &download{size: size, cancel: cancel, users: 2}
 	d.cond.L = &d.mu
 	switch {
 	case part != nil:
-		d.file, d.part, d.keep = part, part.Name(), keep
+		d.file, d.part, d.keep, d.afterKeep = part, part.Name(), keep, afterKeep
 	case size > 0:
 		d.data = make([]byte, 0, prealloc(size))
 	}
@@ -118,10 +120,15 @@ func (d *download) run(ctx context.Context, url string) {
 		}
 		if err == io.EOF {
 			// Whole if as long as promised: the cache's.
+			var path string
+			var handErr error
 			if d.keep != nil && d.part != "" && (d.size <= 0 || d.n == d.size) {
-				d.hand()
+				path, handErr = d.hand()
 			}
-			finish(nil)
+			finish(handErr)
+			if path != "" && d.afterKeep != nil {
+				d.afterKeep(path)
+			}
 			return
 		}
 		if err != nil {
@@ -165,7 +172,7 @@ func (d *download) toMemory() {
 // hand gives the song, all in, to the cache, and reads it from where it
 // is kept. Windows moves no file that is open: it closes the file first,
 // and opens it again where it went, while no one reads it.
-func (d *download) hand() {
+func (d *download) hand() (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.file.Close()
@@ -173,12 +180,14 @@ func (d *download) hand() {
 	f, err := os.Open(path)
 	if err != nil {
 		d.file, d.n, d.done, d.err = nil, 0, true, err
-		return
+		return "", err
 	}
 	d.file = f
 	if ok {
 		d.part = ""
+		return path, nil
 	}
+	return "", nil
 }
 
 // Close stops the download and wakes its readers: the stream lets the
@@ -385,7 +394,7 @@ func openMP3Stream(dl *download, durationMs int64) (*mp3Stream, error) {
 
 func openMP3StreamMeasured(dl *download, durationMs int64, measure bool) (*mp3Stream, error) {
 	s := &mp3Stream{dl: dl, drop: dl.Close}
-	dec, err := gomp3.NewDecoder(&downloadReader{d: dl})
+	dec, err := gomp3.NewDecoder(bufio.NewReaderSize(&downloadReader{d: dl}, 64<<10))
 	if err != nil {
 		return nil, err
 	}
@@ -461,7 +470,7 @@ func (s *mp3Stream) SetPosition(frame int64) error {
 		off = s.start + int64(float64(size-s.start)*float64(from)/float64(s.frames))
 		off = findFrame(s.dl, off)
 	}
-	dec, err := gomp3.NewDecoder(&downloadReader{d: s.dl, pos: off})
+	dec, err := gomp3.NewDecoder(bufio.NewReaderSize(&downloadReader{d: s.dl, pos: off}, 64<<10))
 	if err != nil {
 		return err
 	}

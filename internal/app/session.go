@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -26,20 +27,77 @@ func sessionPath() (string, error) {
 
 // saveSession keeps where playback is, if it moved on since last kept.
 func (a *app) saveSession() {
+	if a.quitting {
+		defer a.sessionWrites.wait()
+	}
 	s, ok := a.pl.Session()
 	if !ok {
-		return
-	}
-	b, err := json.Marshal(s)
-	if err != nil || string(b) == a.savedSession {
 		return
 	}
 	path, err := sessionPath()
 	if err != nil {
 		return
 	}
-	if os.WriteFile(path+".part", b, 0o600) == nil && os.Rename(path+".part", path) == nil {
-		a.savedSession = string(b)
+	a.sessionWrites.submit(path, s)
+}
+
+type sessionSave struct {
+	path  string
+	state player.Session
+}
+
+// One worker writes snapshots in order, replacing queued work with the latest
+// snapshot. Shutdown waits on done without requiring a main-thread callback.
+type sessionWriter struct {
+	mu      sync.Mutex
+	pending *sessionSave
+	done    chan struct{}
+	saved   string
+}
+
+func (w *sessionWriter) submit(path string, s player.Session) <-chan struct{} {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pending = &sessionSave{path, s}
+	if w.done == nil {
+		w.done = make(chan struct{})
+		go w.run()
+	}
+	return w.done
+}
+
+func (w *sessionWriter) wait() {
+	w.mu.Lock()
+	done := w.done
+	w.mu.Unlock()
+	if done != nil {
+		<-done
+	}
+}
+
+func (w *sessionWriter) run() {
+	for {
+		w.mu.Lock()
+		job, saved := w.pending, w.saved
+		if job == nil {
+			close(w.done)
+			w.done = nil
+			w.mu.Unlock()
+			return
+		}
+		w.pending = nil
+		w.mu.Unlock()
+
+		b, err := json.Marshal(job.state)
+		if err != nil || string(b) == saved {
+			continue
+		}
+		if os.WriteFile(job.path+".part", b, 0o600) != nil || os.Rename(job.path+".part", job.path) != nil {
+			continue
+		}
+		w.mu.Lock()
+		w.saved = string(b)
+		w.mu.Unlock()
 	}
 }
 
@@ -88,7 +146,9 @@ func (a *app) restoreSession() {
 	if json.Unmarshal(b, &s) != nil {
 		return
 	}
-	a.savedSession = string(b)
+	a.sessionWrites.mu.Lock()
+	a.sessionWrites.saved = string(b)
+	a.sessionWrites.mu.Unlock()
 	qqmusic.RememberTracks(s.Queue)
 	a.pl.Restore(s)
 	if s.Radio != "" && a.pl.Current() != nil {

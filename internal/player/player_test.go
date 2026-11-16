@@ -229,7 +229,8 @@ func TestCache(t *testing.T) {
 		f := c.part(st)
 		f.Write(make([]byte, n))
 		f.Close()
-		c.keep(id, st, f.Name(), int64(n))
+		path, _ := c.keep(id, st, f.Name(), int64(n))
+		c.prune(path)
 	}
 	store(1, &qqmusic.Stream{Level: "lossless", Type: "flac", Gain: -3}, 100)
 	dl, st, ok := c.lookup(1, "exhigh")

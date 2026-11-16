@@ -328,12 +328,66 @@ func TestCacheKeepsOnlyKnownLevels(t *testing.T) {
 func TestStreamSizeIsNotTrusted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("short")) }))
 	defer srv.Close()
-	dl := startDownload(srv.URL, 1<<40, nil, nil)
+	dl := startDownload(srv.URL, 1<<40, nil, nil, nil)
 	defer dl.Close()
 	dl.mu.Lock()
 	n := cap(dl.data)
 	dl.mu.Unlock()
 	if n > maxPrealloc {
 		t.Errorf("set aside %d bytes", n)
+	}
+}
+
+func TestCachePruneDoesNotBlockReads(t *testing.T) {
+	data, err := os.ReadFile("testdata/seek.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(data)
+	}))
+	defer srv.Close()
+	c := NewCache(t.TempDir(), 1<<30)
+	st := &qqmusic.Stream{Size: int64(len(data)), Level: "exhigh", Type: "mp3"}
+	part := c.part(st)
+	if part == nil {
+		t.Fatal("no cache file")
+	}
+	pruning, resume, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	dl := startDownload(srv.URL, st.Size, part, func(path string, n int64) (string, bool) {
+		return c.keep(1, st, path, n)
+	}, func(path string) {
+		defer close(finished)
+		close(pruning)
+		<-resume
+		c.prune(path)
+	})
+	defer func() {
+		close(resume)
+		dl.Close()
+		select {
+		case <-finished:
+		case <-time.After(2 * time.Second):
+			t.Error("cache cleanup did not finish")
+		}
+	}()
+	select {
+	case <-pruning:
+	case <-time.After(2 * time.Second):
+		t.Fatal("download did not reach cache cleanup")
+	}
+	read := make(chan error, 1)
+	go func() {
+		var b [4]byte
+		_, err := (&downloadReader{d: dl}).Read(b[:])
+		read <- err
+	}()
+	select {
+	case err := <-read:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cache cleanup holds the download read lock")
 	}
 }
