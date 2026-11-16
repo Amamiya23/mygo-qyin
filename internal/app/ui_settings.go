@@ -198,7 +198,7 @@ func (a *app) settingsContent(c *ui.Context) {
 			})
 		}
 
-		row("音质", "按 QQ 音乐账号权限播放 MP3 或 FLAC，下一首生效", func() {
+		row("音质", "按 QQ 音乐账号权限播放，优先使用所选音质，不可用时自动降低音质；下一首生效", func() {
 			labels := make([]string, len(qualityLevels))
 			chosen := qualityLevels[1].label
 			for i, q := range qualityLevels {
@@ -207,13 +207,14 @@ func (a *app) settingsContent(c *ui.Context) {
 					chosen = q.label
 				}
 			}
-			if ui.Select(c.Key("quality"), &chosen, labels).Label("音质").Width(150).Changed() {
+			if ui.Select(c.Key("quality"), &chosen, labels).Label("选择音质").Width(150).Changed() {
 				for _, q := range qualityLevels {
 					if q.label == chosen {
 						s.Quality = q.level
 					}
 				}
-				a.changed()
+				s.save()
+				a.redraw()
 			}
 		})
 		row("音量平衡", "", func() {

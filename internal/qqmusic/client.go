@@ -369,6 +369,7 @@ func parseTrack(o object) Track {
 	t.Size128 = number(file, "size_128mp3")
 	t.Size320 = number(file, "size_320mp3")
 	t.SizeFLAC = number(file, "size_flac")
+	t.SizeHiRes = number(file, "size_hires")
 	if t.Size128 == 0 {
 		t.Size128 = number(o, "size128")
 	}

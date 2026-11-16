@@ -24,6 +24,7 @@ type Track struct {
 	MediaMID    string     `json:"mediaMid,omitempty"`
 	Size128     int64      `json:"size128,omitempty"`
 	Size320     int64      `json:"size320,omitempty"`
+	SizeHiRes   int64      `json:"sizeHiRes,omitempty"`
 	SizeFLAC    int64      `json:"sizeFlac,omitempty"`
 	Name        string     `json:"name"`
 	Artists     []Artist   `json:"ar"`
@@ -131,6 +132,7 @@ type AlbumProfile struct {
 	PublishTime int64    `json:"publishTime"`
 	Size        int      `json:"size"`
 	Description string   `json:"description"`
+	Company     string   `json:"company,omitempty"`
 	Songs       []Track  `json:"-"`
 }
 

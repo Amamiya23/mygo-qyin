@@ -10,7 +10,7 @@ import (
 	"lilt/internal/qqmusic"
 )
 
-// albumDetail loads an album from NetEase; tests replace it.
+// albumDetail loads an album from QQ Music; tests replace it.
 var albumDetail = qqmusic.AlbumDetail
 
 // albumData is what the app has of an album.
@@ -61,7 +61,19 @@ func (a *app) albumPage(c *ui.Context) {
 		a.trackSkeleton(c, s, false, func(c *ui.Context) { a.playlistHeaderSkeleton(c, s) })
 		return
 	}
-	a.trackRows(c, d.album.Songs, false, func(c *ui.Context) { a.albumHeader(c, d.album) })
+	var footer []func(c *ui.Context)
+	if albumCreditsEnabled && strings.TrimSpace(d.album.Company) != "" {
+		footer = append(footer, func(c *ui.Context) { a.albumCredits(c, d.album.Company) })
+	}
+	a.trackRows(c, d.album.Songs, false, func(c *ui.Context) { a.albumHeader(c, d.album) }, footer...)
+}
+
+// Company can contain a complete rights notice, including years and track numbers.
+func (a *app) albumCredits(c *ui.Context, notice string) {
+	ui.Column(c.Key("album-credits")).Padding(24, 0, 0, 0).Children(func() {
+		ui.Text(c, notice).WidthPercent(100).MaxWidth(760).MinWidth(0).
+			FontSize(12.5).LineHeight(1.5).TextColor(a.pal.muted)
+	})
 }
 
 func (a *app) albumHeader(c *ui.Context, al *qqmusic.AlbumProfile) {

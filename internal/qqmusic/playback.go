@@ -2,9 +2,11 @@ package qqmusic
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -33,6 +35,16 @@ func SongURL(id int64, level string) (*Stream, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Queues saved before Hi-Res support may have all other playback fields.
+	if level == "hires" && sessionSnapshot().MusicKey != "" && t.SizeHiRes == 0 {
+		tracks, err := SongDetails([]int64{id})
+		if err != nil {
+			return nil, err
+		}
+		if len(tracks) > 0 {
+			t = tracks[0]
+		}
+	}
 	type quality struct {
 		prefix, extension, level string
 		size                     int64
@@ -41,6 +53,9 @@ func SongURL(id int64, level string) (*Stream, error) {
 	if sessionSnapshot().MusicKey != "" {
 		if Lossless(level) {
 			qualities = append([]quality{{"F000", "flac", "lossless", t.SizeFLAC}, {"M800", "mp3", "exhigh", t.Size320}}, qualities...)
+			if level == "hires" {
+				qualities = append([]quality{{"RS01", "flac", "hires", t.SizeHiRes}}, qualities...)
+			}
 		} else if level == "higher" || level == "exhigh" {
 			qualities = append([]quality{{"M800", "mp3", "exhigh", t.Size320}}, qualities...)
 		}
@@ -61,15 +76,21 @@ func SongURL(id int64, level string) (*Stream, error) {
 		s := sessionSnapshot()
 		param := map[string]any{"filename": []string{q.prefix + t.MID + media + "." + q.extension}, "guid": guid, "songmid": []string{t.MID}, "songtype": []int{0}, "uin": s.MusicID}
 		module, method := "music.vkey.GetVkey", "UrlGetVkey"
-		if s.MusicKey == "" {
+		if s.MusicKey == "" || q.level == "hires" {
 			module, method = "vkey.GetVkeyServer", "CgiGetVkey"
-			param["uin"] = "0"
+			if s.MusicKey == "" {
+				param["uin"] = "0"
+			}
 			param["loginflag"] = 1
 			param["platform"] = "20"
 		} else {
 			param["ctx"] = 0
 		}
 		if err := rpc(module, method, param, &data); err != nil {
+			var protocol *ProtocolError
+			if q.level == "hires" && errors.As(err, &protocol) {
+				continue
+			}
 			return nil, err
 		}
 		for _, entry := range data.Entries {
@@ -102,7 +123,27 @@ func SongURL(id int64, level string) (*Stream, error) {
 			if err != nil {
 				return nil, err
 			}
-			stream := &Stream{URL: u.ResolveReference(p).String(), Type: q.extension, Level: q.level, Size: q.size}
+			streamURL := u.ResolveReference(p).String()
+			size := q.size
+			if q.level == "hires" {
+				if p.IsAbs() || p.Host != "" || !strings.HasPrefix(path.Base(p.Path), "RS01") {
+					continue
+				}
+				info, actualSize, err := inspectFLACStream(streamURL)
+				if errors.Is(err, ErrUnavailable) {
+					continue
+				}
+				if err != nil {
+					return nil, err
+				}
+				if info.BitsPerSample < 24 || info.SampleRate < 44100 {
+					continue
+				}
+				if actualSize > 0 {
+					size = actualSize
+				}
+			}
+			stream := &Stream{URL: streamURL, Type: q.extension, Level: q.level, Size: size}
 			if t.Volume != nil {
 				stream.Gain, stream.Peak = t.Volume.Gain, t.Volume.Peak
 			}
