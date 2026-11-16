@@ -17,17 +17,6 @@ Lilt 是基于 MyGo 云音乐改造的第三方 QQ 音乐客户端，使用 Go �
 
 > 未登录可浏览和播放 QQ 允许匿名收听的歌曲。左下角「登录 QQ 音乐」可选择使用手机 QQ 或微信扫码。会员与版权权限由 QQ 音乐服务决定。
 
-## Hi-Res 音质
-
-在「设置 → 音质」选择「Hi-Res（FLAC）」，下一首生效。播放页标识显示实际使用的音质；不可用时尝试普通无损或 MP3。
-
-详见 [Hi-Res：使用、实现与验证](docs/hires.md)；接口探测和完整解码测试见 [Hi-Res 测试指南](docs/hires-probe.md)。
-
-## Linux 桌面歌词
-
-Wayland 下建议安装 **GTK 3 版 `gtk-layer-shell`**；任务栏区域避让目前针对 KDE Plasma Wayland 适配。
-详见 [Linux 桌面歌词：依赖、安装与限制](docs/linux-desktop-lyrics.md)，包含 RPM 体系（Fedora、RHEL 兼容发行版、openSUSE）、Debian / Ubuntu 和 Arch 系的安装示例。
-
 ## 构建
 
 需要 Go 1.27.3+，无需 C 工具链。
