@@ -429,33 +429,71 @@ func (a *app) centered(c *ui.Context, err string, retry func()) {
 
 // Loading what the pages show.
 
+var (
+	homeFeatured    = qqmusic.FeaturedPlaylists
+	homeCharts      = qqmusic.Charts
+	homeDaily       = qqmusic.DailySongs
+	homeRecommended = qqmusic.RecommendedPlaylists
+)
+
+type homeLoad struct {
+	gen              int
+	at               time.Time
+	pending          int
+	cataloguePending int
+	catalogueOK      bool
+}
+
+func (h *homeLoad) answered(a *app, apply func(), err error, catalogue bool) {
+	if h.gen != a.homeGen {
+		return
+	}
+	if err == nil {
+		apply()
+	}
+	if catalogue {
+		h.cataloguePending--
+		h.catalogueOK = h.catalogueOK || err == nil
+		if h.cataloguePending == 0 {
+			if h.catalogueOK {
+				a.homeAt = h.at
+			} else if len(a.featured) == 0 && len(a.charts) == 0 {
+				a.homeErr = "无法连接 QQ 音乐，请检查网络"
+			}
+		}
+	}
+	h.pending--
+	a.homeLoading = h.pending > 0
+}
+
 func (a *app) loadHome() {
 	a.homeLoading, a.homeErr = true, ""
+	a.homeGen++
 	a.loadSongShelves()
 	signedIn := a.profile != nil
-	at := time.Now()
+	h := &homeLoad{gen: a.homeGen, at: time.Now(), pending: 3, cataloguePending: 2}
+	if signedIn {
+		h.pending++
+	}
+	featured, charts, daily, recommended := homeFeatured, homeCharts, homeDaily, homeRecommended
 	go func() {
-		featured, err1 := qqmusic.FeaturedPlaylists(30)
-		charts, err2 := qqmusic.Charts()
-		daily, _ := qqmusic.DailySongs()
-		var rec []qqmusic.Playlist
-		if signedIn {
-			rec, _ = qqmusic.RecommendedPlaylists()
-		}
-		a.post(func() {
-			a.homeLoading = false
-			if err1 != nil && err2 != nil {
-				// Loading the new day's again, what shows stays, to try
-				// once more.
-				if len(a.featured) == 0 && len(a.charts) == 0 {
-					a.homeErr = "无法连接 QQ 音乐，请检查网络"
-				}
-				return
-			}
-			a.featured, a.charts, a.daily, a.recPlaylists = featured, charts, daily, rec
-			a.homeAt = at
-		})
+		lists, err := featured(30)
+		a.post(func() { h.answered(a, func() { a.featured = lists }, err, true) })
 	}()
+	go func() {
+		lists, err := charts()
+		a.post(func() { h.answered(a, func() { a.charts = lists }, err, true) })
+	}()
+	go func() {
+		songs, err := daily()
+		a.post(func() { h.answered(a, func() { a.daily = songs }, err, false) })
+	}()
+	if signedIn {
+		go func() {
+			lists, err := recommended()
+			a.post(func() { h.answered(a, func() { a.recPlaylists = lists }, err, false) })
+		}()
+	}
 }
 
 // freshenHome loads the home page again once NetEase has picked the day's

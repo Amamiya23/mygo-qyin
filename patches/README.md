@@ -16,6 +16,7 @@
 | `mygo-v0.8.3-render-resource-lifetime.patch` | 在预算压力下跨开关复用闲置遮罩，固定坐标裁剪保留可复用尺寸；D3D11 / GL / Metal 在完成绘制或提交后清理退场的临时遮罩纹理及离屏层。 |
 | `mygo-v0.8.3-retained-text-colors.patch` | 为保留的 TextLayout 缓存原绘制元数据并增加逐 span 前景色覆盖，外部歌词逐字淡入及重复描边时复用整行 shaping 与静态绘制信息。 |
 | `mygo-v0.8.3-glyph-color-damage.patch` | 字形几何与 atlas 不变时，将单纯前景色变化的重绘区域细化到变化字形；保留原场景、字形顺序与绘制效果。 |
+| `mygo-v0.8.3-bitmap-source.patch` | 位图首次解码返回可复用的原始图像，供封面取色及背景生成使用；保留 EXIF 显示方向和压缩数据恢复，避免重复解码。 |
 
 重新生成 vendor 后，在项目根目录应用全部补丁：
 

@@ -20,8 +20,9 @@ import (
 type Cache struct {
 	dir string
 
-	mu    sync.Mutex
-	limit int64 // in bytes; 0 keeps nothing
+	mu      sync.Mutex
+	limit   int64 // in bytes; 0 keeps nothing
+	pruneMu sync.Mutex
 }
 
 // NewCache returns a cache in dir of limit bytes.
@@ -89,11 +90,11 @@ func (c *Cache) download(id int64, st *qqmusic.Stream) *download {
 	part := c.part(st)
 	if part == nil {
 		part, _ = temporaryDownloadFile()
-		return startDownload(st.URL, st.Size, part, nil)
+		return startDownload(st.URL, st.Size, part, nil, nil)
 	}
 	return startDownload(st.URL, st.Size, part, func(path string, n int64) (string, bool) {
 		return c.keep(id, st, path, n)
-	})
+	}, c.prune)
 }
 
 // part makes a file for a song of the stream st to come into, or returns
@@ -121,8 +122,8 @@ func (c *Cache) part(st *qqmusic.Stream) *os.File {
 }
 
 // keep keeps the song of the stream st, n bytes, from the file part, which
-// is closed, and drops what is over the limit then. It returns where the
-// song is: kept, or still at part.
+// is closed. It returns where the song is: kept, or still at part.
+// Pruning waits until the download has reopened it and released its lock.
 func (c *Cache) keep(id int64, st *qqmusic.Stream, part string, n int64) (string, bool) {
 	c.mu.Lock()
 	limit := c.limit
@@ -145,7 +146,6 @@ func (c *Cache) keep(id int64, st *qqmusic.Stream, part string, n int64) (string
 		return part, false
 	}
 	os.WriteFile(filepath.Join(c.dir, key+".json"), meta, 0o600)
-	c.prune(path)
 	return path, true
 }
 
@@ -196,8 +196,11 @@ func (c *Cache) remove(path string) {
 // prune drops the songs played longest ago until the rest fit the limit,
 // but keep, the song just kept.
 func (c *Cache) prune(keep string) {
+	c.pruneMu.Lock()
+	defer c.pruneMu.Unlock()
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	limit := c.limit
+	c.mu.Unlock()
 	c.dropParts()
 	songs := c.songs()
 	slices.SortFunc(songs, func(a, b cachedSong) int { return a.used.Compare(b.used) })
@@ -206,7 +209,7 @@ func (c *Cache) prune(keep string) {
 		total += f.size
 	}
 	for _, f := range songs {
-		if total <= c.limit {
+		if total <= limit {
 			return
 		}
 		if f.path != keep {

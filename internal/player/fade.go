@@ -29,6 +29,11 @@ type fader struct {
 	start time.Time
 	dur   time.Duration
 	gen   int // counts fades, to stop the goroutine of one overtaken
+
+	gainFrom  float64
+	gainStart time.Time
+	gainDur   time.Duration
+	gainGen   int
 }
 
 // level returns the level at now, easing in and out.
@@ -42,7 +47,7 @@ func (f *fader) level(now time.Time) float64 {
 
 func (f *fader) apply(now time.Time) {
 	if f.out != nil {
-		f.out.SetVolume(f.gain * f.level(now))
+		f.out.SetVolume(f.currentGain(now) * f.level(now))
 	}
 }
 
@@ -51,6 +56,8 @@ func (f *fader) attach(out *audio.Player, level float64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.gen++
+	f.gainGen++
+	f.gainDur = 0
 	f.out, f.from, f.to, f.dur = out, level, level, 0
 	f.apply(time.Now())
 }
@@ -60,7 +67,56 @@ func (f *fader) setGain(g float64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.gain = g
+	f.gainGen++
+	f.gainDur = 0
 	f.apply(time.Now())
+}
+
+func (f *fader) currentGain(now time.Time) float64 {
+	if f.gainDur <= 0 {
+		return f.gain
+	}
+	t := min(1, max(0, now.Sub(f.gainStart).Seconds()/f.gainDur.Seconds()))
+	return f.gainFrom + (f.gain-f.gainFrom)*(0.5-0.5*math.Cos(math.Pi*t))
+}
+
+// Gain ramps are independent of pause fades, including their completion callbacks.
+func (f *fader) rampGain(g float64, d time.Duration) {
+	f.mu.Lock()
+	now := time.Now()
+	f.gainFrom = f.currentGain(now)
+	f.gain, f.gainStart, f.gainDur = g, now, d
+	f.gainGen++
+	gen := f.gainGen
+	if f.gainFrom == g || d <= 0 {
+		f.gainDur = 0
+		f.apply(now)
+		f.mu.Unlock()
+		return
+	}
+	f.apply(now)
+	f.mu.Unlock()
+	go func() {
+		tick := time.NewTicker(8 * time.Millisecond)
+		defer tick.Stop()
+		for range tick.C {
+			f.mu.Lock()
+			if f.gainGen != gen {
+				f.mu.Unlock()
+				return
+			}
+			now := time.Now()
+			f.apply(now)
+			finished := now.Sub(f.gainStart) >= f.gainDur
+			if finished {
+				f.gainDur = 0
+			}
+			f.mu.Unlock()
+			if finished {
+				return
+			}
+		}
+	}()
 }
 
 // silent reports whether the level is at nothing, faded out.

@@ -8,6 +8,31 @@ import (
 	"lilt/internal/qqmusic"
 )
 
+func TestSessionSnapshotIsIndependent(t *testing.T) {
+	p := &Player{at: -1}
+	p.Cue([]qqmusic.Track{{
+		ID: 1, Name: "original",
+		Artists: []qqmusic.Artist{{Name: "artist"}},
+		Alias:   []string{"alias"}, Privilege: &qqmusic.Privilege{Pl: 1},
+		Volume: &qqmusic.Loudness{Gain: -6},
+	}})
+	s, ok := p.Session()
+	if !ok {
+		t.Fatal("no session")
+	}
+	p.queue[0].Name = "changed"
+	p.queue[0].Artists[0].Name = "changed"
+	p.queue[0].Alias[0] = "changed"
+	p.queue[0].Privilege.Pl = 0
+	p.queue[0].Volume.Gain = 0
+	p.order[0] = 9
+	tr := s.Queue[0]
+	if tr.Name != "original" || tr.Artists[0].Name != "artist" || tr.Alias[0] != "alias" ||
+		tr.Privilege.Pl != 1 || tr.Volume.Gain != -6 || s.Order[0] != 0 {
+		t.Fatalf("queue mutation changed the session snapshot: %+v", s)
+	}
+}
+
 // Playing a song next inserts one occurrence after the current song without reordering the rest.
 func TestPlayNextOrder(t *testing.T) {
 	for _, tc := range []struct {

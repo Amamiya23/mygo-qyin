@@ -40,7 +40,7 @@ func TestStreamLive(t *testing.T) {
 		t.Fatal("QQ returned no public MP3 long enough to seek")
 	}
 	start := time.Now()
-	dl := startDownload(st.URL, st.Size, nil, nil)
+	dl := startDownload(st.URL, st.Size, nil, nil, nil)
 	s, err := openMP3Stream(dl, duration)
 	if err != nil {
 		t.Fatal(err)
