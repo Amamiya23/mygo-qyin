@@ -1,6 +1,8 @@
 package player
 
 import (
+	"bytes"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -282,5 +284,179 @@ func TestEndRadio(t *testing.T) {
 	p.refill()
 	if asked != 0 {
 		t.Error("asked the radio after leaving it")
+	}
+}
+
+func TestCacheCoversAndLyricsShareSpace(t *testing.T) {
+	dir := t.TempDir()
+	c := NewCache(dir, 500)
+	// Store a song (100B), a cover (90B), and lyrics (< 125B).
+	st := &qqmusic.Stream{Level: "exhigh", Type: "mp3"}
+	f := c.part(st)
+	if f == nil {
+		t.Fatal("no song part")
+	}
+	f.Write(make([]byte, 100))
+	f.Close()
+	songPath, ok := c.keep(1, st, f.Name(), 100)
+	if !ok {
+		t.Fatal("failed to keep song")
+	}
+	c.prune(songPath)
+
+	coverData := bytes.Repeat([]byte("img"), 30) // 90 bytes
+	if !c.KeepCover("https://example.com/cover1.jpg", coverData) {
+		t.Fatal("failed to keep cover")
+	}
+	if !c.KeepLyrics(1, "[00:01.00]hello", "[00:01.00]你好", "") {
+		t.Fatal("failed to keep lyrics")
+	}
+
+	// Reopen from disk to verify persistence and shared Size().
+	reopened := NewCache(dir, 500)
+	if got, ok := reopened.LookupCover("https://example.com/cover1.jpg"); !ok || !bytes.Equal(got, coverData) {
+		t.Fatalf("persisted cover mismatch: ok=%v len=%d", ok, len(got))
+	}
+	if got, ok := reopened.LookupLyrics(1); !ok || got.LRC != "[00:01.00]hello" || got.Translation != "[00:01.00]你好" {
+		t.Fatalf("persisted lyrics mismatch: ok=%v got=%+v", ok, got)
+	}
+	if reopened.Size() <= 190 {
+		t.Fatalf("shared cache size = %d, expected song + cover + lyrics > 190", reopened.Size())
+	}
+
+	// Make the song the oldest item and tighten the shared limit so it is evicted
+	// while the more recently used cover and lyrics stay.
+	old := time.Now().Add(-2 * time.Hour)
+	os.Chtimes(songPath, old, old)
+	reopened.SetLimit(reopened.Size() - 50)
+	if _, _, ok := reopened.lookup(1, "standard"); ok {
+		t.Fatal("expected oldest song to be evicted when shared limit tightened")
+	}
+	if _, ok := reopened.LookupCover("https://example.com/cover1.jpg"); !ok {
+		t.Fatal("expected newer cover to stay after evicting older song")
+	}
+	if _, ok := reopened.LookupLyrics(1); !ok {
+		t.Fatal("expected newer lyrics to stay after evicting older song")
+	}
+
+	// Lowering limit to 0 disables persistence and drops existing entries.
+	reopened.SetLimit(0)
+	if reopened.Size() != 0 {
+		t.Fatalf("expected size 0 after SetLimit(0), got %d", reopened.Size())
+	}
+	if reopened.KeepCover("https://example.com/cover2.jpg", coverData) {
+		t.Fatal("kept cover while cache limit was 0")
+	}
+	if reopened.KeepLyrics(2, "[00:01.00]disabled", "", "") {
+		t.Fatal("kept lyrics while cache limit was 0")
+	}
+
+	// Clear() removes all songs, covers and lyrics.
+	reopened.SetLimit(1024)
+	reopened.KeepCover("https://example.com/cover3.jpg", coverData)
+	reopened.KeepLyrics(3, "[00:01.00]x", "", "")
+	reopened.Clear()
+	if reopened.Size() != 0 {
+		t.Fatalf("expected size 0 after Clear(), got %d", reopened.Size())
+	}
+}
+
+func TestPlayerLoadsCachedCoverAndLyrics(t *testing.T) {
+	audioData, err := os.ReadFile("testdata/seek.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	c := NewCache(dir, 10<<20)
+	st := &qqmusic.Stream{Size: int64(len(audioData)), Level: "exhigh", Type: "mp3"}
+	f := c.part(st)
+	if f == nil {
+		t.Fatal("no cache part")
+	}
+	if _, err := f.Write(audioData); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if _, ok := c.keep(42, st, f.Name(), st.Size); !ok {
+		t.Fatal("not cached")
+	}
+
+	origCover, origLyrics := fetchCover, songLyrics
+	t.Cleanup(func() { fetchCover, songLyrics = origCover, origLyrics })
+
+	coverCalls, lyricCalls := 0, 0
+	coverBytes := []byte("fake-jpeg-bytes")
+	fetchCover = func(url string) ([]byte, error) {
+		coverCalls++
+		return coverBytes, nil
+	}
+	songLyrics = func(id int64) (string, string, string, error) {
+		lyricCalls++
+		return "[00:01.00]line one", "[00:01.00]第一行", "", nil
+	}
+
+	track := qqmusic.Track{
+		ID:       42,
+		MID:      "mid42",
+		Duration: 5000,
+		Album:    qqmusic.Album{PicURL: "https://y.gtimg.cn/music/photo_new/T002R500x500M000test.jpg"},
+	}
+
+	// First play populates cover and lyrics in the shared disk cache.
+	ch := make(chan func(), 16)
+	p1 := New(func(fn func()) { ch <- fn })
+	p1.Cache = c
+	p1.PlayQueue([]qqmusic.Track{track}, 0)
+	deadline := time.After(2 * time.Second)
+	for !(p1.Ready() && func() bool { _, loaded := p1.Lyrics(); return loaded }()) {
+		select {
+		case fn := <-ch:
+			fn()
+		case <-deadline:
+			t.Fatal("timed out waiting for first playback load")
+		}
+	}
+	p1.stop()
+	if coverCalls != 1 || lyricCalls != 1 {
+		t.Fatalf("first load calls: cover=%d lyrics=%d, want 1/1", coverCalls, lyricCalls)
+	}
+	// Wait briefly for KeepCover/KeepLyrics if posted just around Ready.
+	coverURL := qqmusic.Sized(track.Album.PicURL, 600)
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+		if _, ok := c.LookupCover(coverURL); ok {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Second play in a new Player with failing network functions must reuse cached cover & lyrics.
+	fetchCover = func(url string) ([]byte, error) {
+		coverCalls++
+		return nil, errors.New("offline")
+	}
+	songLyrics = func(id int64) (string, string, string, error) {
+		lyricCalls++
+		return "", "", "", errors.New("offline")
+	}
+	ch2 := make(chan func(), 16)
+	p2 := New(func(fn func()) { ch2 <- fn })
+	p2.Cache = NewCache(dir, 10<<20)
+	p2.PlayQueue([]qqmusic.Track{track}, 0)
+	deadline2 := time.After(2 * time.Second)
+	for !(p2.Ready() && func() bool { _, loaded := p2.Lyrics(); return loaded }()) {
+		select {
+		case fn := <-ch2:
+			fn()
+		case <-deadline2:
+			t.Fatal("timed out waiting for cached playback load")
+		}
+	}
+	p2.stop()
+	if coverCalls != 1 || lyricCalls != 1 {
+		t.Fatalf("offline replay hit network: cover=%d lyrics=%d", coverCalls, lyricCalls)
+	}
+	lines, loaded := p2.Lyrics()
+	if !loaded || len(lines) != 1 || lines[0].Text != "line one" || lines[0].Translation != "第一行" {
+		t.Fatalf("cached lyrics mismatch: loaded=%v lines=%+v", loaded, lines)
 	}
 }

@@ -47,6 +47,12 @@ type artRequest struct {
 	want artNeeds
 }
 
+type coverDiskCache interface {
+	LookupCover(url string) ([]byte, bool)
+	KeepCover(url string, data []byte) bool
+	DropCover(url string)
+}
+
 // artCache loads covers on goroutines and keeps them, up to artLimit
 // bytes: their pixels on the GPU while they show, and on the CPU only
 // their data, which takes a fraction of the pixels. Its methods run on
@@ -61,6 +67,7 @@ type artCache struct {
 	sem     chan struct{}
 	post    func(func())
 	fetch   func(string) ([]byte, error)
+	disk    coverDiskCache
 	release func(*ui.Bitmap)
 	now     func() time.Time
 	size    int // the bytes the covers in art keep
@@ -173,15 +180,29 @@ func (c *artCache) load(url string, a *artwork, need artNeeds) {
 	if a != nil {
 		data = a.data
 	}
-	fetch := c.fetch
+	fetch, disk := c.fetch, c.disk
 	go func() {
 		c.sem <- struct{}{}
 		var result *artwork
 		var err error
 		if a == nil {
-			data, err = fetch(url)
-			if err == nil {
-				result, err = decodeArt(data, need)
+			if disk != nil {
+				if cached, ok := disk.LookupCover(url); ok {
+					result, err = decodeArt(cached, need)
+					if err != nil {
+						disk.DropCover(url)
+						result, err = nil, nil
+					}
+				}
+			}
+			if result == nil {
+				data, err = fetch(url)
+				if err == nil {
+					result, err = decodeArt(data, need)
+					if err == nil && disk != nil {
+						disk.KeepCover(url, data)
+					}
+				}
 			}
 		} else {
 			result, err = deriveArt(data, need)

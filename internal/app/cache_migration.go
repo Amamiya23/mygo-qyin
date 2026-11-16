@@ -59,6 +59,9 @@ func (a *app) commitCacheDirectory(root string, cache *player.Cache) error {
 		return err
 	}
 	a.settings, a.pl.Cache = next, cache
+	if a.art != nil {
+		a.art.disk = cache
+	}
 	a.cacheDirError, a.cacheUsed = "", -1
 	a.applyCacheLimit()
 	return nil

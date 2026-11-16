@@ -268,3 +268,40 @@ func writeCacheFixture(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestCacheLimitSettingsLabelAndSharedUsage(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.CacheDir = t.TempDir()
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	a.pl.Cache = newSongCache(a.settings)
+	a.art.disk = a.pl.Cache
+	if !a.pl.Cache.KeepCover("https://example.com/cover.jpg", []byte("cover-bytes")) {
+		t.Fatal("failed to cache cover")
+	}
+	if !a.pl.Cache.KeepLyrics(1, "[00:01.00]test", "", "") {
+		t.Fatal("failed to cache lyrics")
+	}
+	a.cacheUsed = a.pl.Cache.Size()
+	if a.cacheUsed <= 0 {
+		t.Fatalf("expected shared cache usage > 0, got %d", a.cacheUsed)
+	}
+	tt := ui.NewTester(a.settingsView, 560, 2000)
+	tt.Frame()
+	if _, ok := tt.Find("歌曲缓存"); ok {
+		t.Fatal("old label 歌曲缓存 is still present")
+	}
+	if _, ok := tt.Find("缓存上限"); !ok {
+		t.Fatal("new label 缓存上限 not found")
+	}
+	if err := tt.Click("选择缓存上限"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("关闭"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.settings.CacheMB != 0 {
+		t.Fatalf("CacheMB = %d, want 0", a.settings.CacheMB)
+	}
+}

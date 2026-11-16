@@ -200,3 +200,33 @@ func TestCacheCopyToMissingSource(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCacheCopyToMigratesCoversAndLyrics(t *testing.T) {
+	root := t.TempDir()
+	sourceDir, targetDir := filepath.Join(root, "old"), filepath.Join(root, "new")
+	source := NewCache(sourceDir, 1<<20)
+	target := NewCache(targetDir, 1<<20)
+	coverData := []byte("cover-image-bytes")
+	if !source.KeepCover("https://example.com/a.jpg", coverData) {
+		t.Fatal("failed to seed cover")
+	}
+	if !source.KeepLyrics(99, "[00:01.00]lyric", "[00:01.00]歌词", "") {
+		t.Fatal("failed to seed lyrics")
+	}
+	cleanup, err := source.CopyTo(target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := target.LookupCover("https://example.com/a.jpg"); !ok || !bytes.Equal(got, coverData) {
+		t.Fatalf("migrated cover mismatch: ok=%v", ok)
+	}
+	if got, ok := target.LookupLyrics(99); !ok || got.LRC != "[00:01.00]lyric" || got.Translation != "[00:01.00]歌词" {
+		t.Fatalf("migrated lyrics mismatch: ok=%v got=%+v", ok, got)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if source.Size() != 0 {
+		t.Fatalf("expected source cache size 0 after cleanup, got %d", source.Size())
+	}
+}

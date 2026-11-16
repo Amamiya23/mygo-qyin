@@ -317,6 +317,7 @@ func Run() error {
 		a.pl.Normalize = func() string { return a.settings.volumeBalance() }
 		a.pl.PlaybackFade = func() bool { return a.settings.PlaybackFade }
 		a.pl.Cache = newSongCache(a.settings)
+		a.art.disk = a.pl.Cache
 		a.cacheMoving = a.settings.PendingCacheDir != nil
 		a.pl.Changed = a.playerChanged
 		a.volume = a.settings.Volume
