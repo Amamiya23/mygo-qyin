@@ -67,7 +67,7 @@ func TestQQWebLoginLoadsAccountProfile(t *testing.T) {
 			t.Fatal(err)
 		}
 		setSession(Session{})
-		if !RestoreSession() {
+		if ok, err := RestoreSession(); !ok || err != nil {
 			t.Fatal("saved QQ web credential could not be restored")
 		}
 		restored := sessionSnapshot()

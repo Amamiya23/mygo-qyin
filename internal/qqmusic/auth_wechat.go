@@ -202,7 +202,7 @@ func refreshSession(ctx context.Context, s Session) (Session, error) {
 		var err error
 		device, err = bootstrapWechatDeviceContext(ctx)
 		if err != nil {
-			return Session{}, err
+			return Session{}, loginFailure("device-bootstrap", err)
 		}
 	}
 	param := map[string]any{"openid": s.OpenID, "refresh_token": s.RefreshToken, "str_musicid": s.MusicID, "musickey": s.MusicKey, "unionid": s.UnionID, "refresh_key": s.RefreshKey, "loginMode": 2}
@@ -212,6 +212,9 @@ func refreshSession(ctx context.Context, s Session) (Session, error) {
 	refreshed, err := exchangeSession(ctx, param, &s, device)
 	if err != nil {
 		return Session{}, err
+	}
+	if refreshed.MusicID != s.MusicID {
+		return Session{}, &loginResponseError{Kind: "id"}
 	}
 	if refreshed.OpenID == "" {
 		refreshed.OpenID = s.OpenID
