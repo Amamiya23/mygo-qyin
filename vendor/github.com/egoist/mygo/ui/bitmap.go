@@ -119,39 +119,25 @@ func weakOf[T any, P interface {
 // says. The bitmap keeps data, without a copy, to decode it again after
 // ReleasePixels.
 func DecodeBitmap(data []byte) (*Bitmap, error) {
-	b, _, err := DecodeBitmapWithImage(data)
-	return b, err
-}
-
-// DecodeBitmapWithImage also returns the decoder's source image for analysis.
-// The source keeps its original orientation; the bitmap follows EXIF as usual.
-// Neither the source pixels nor data may be changed. The bitmap retains only
-// data for restoration after ReleasePixels, not the source image.
-func DecodeBitmapWithImage(data []byte) (*Bitmap, image.Image, error) {
-	s, img, err := decodeImageWithSource(data)
+	s, err := decodeImage(data)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return &Bitmap{img: s, w: s.W, h: s.H, remake: func() (*scene.Image, error) { return decodeImage(data) }}, img, nil
+	return &Bitmap{img: s, w: s.W, h: s.H, remake: func() (*scene.Image, error) { return decodeImage(data) }}, nil
 }
 
 // decodeImage decodes the bytes to a premultiplied RGBA bitmap, upright
 // as a JPEG's EXIF orientation says.
 func decodeImage(data []byte) (*scene.Image, error) {
-	s, _, err := decodeImageWithSource(data)
-	return s, err
-}
-
-func decodeImageWithSource(data []byte) (*scene.Image, image.Image, error) {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	s := scene.NewImage(img)
 	if o := exifOrientation(data); o > 1 {
 		s = orient(s, o)
 	}
-	return s, img, nil
+	return s, nil
 }
 
 // Update shows img in place of the bitmap's picture, for one that changes
