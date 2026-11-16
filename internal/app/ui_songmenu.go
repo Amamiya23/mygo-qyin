@@ -18,6 +18,22 @@ func (a *app) songMenu(c *ui.Context, tr *qqmusic.Track, size float32, color ui.
 	return b
 }
 
+// queueSongItems extends songItems with queue removal for the playback queue list.
+func (a *app) queueSongItems(tr *qqmusic.Track, queueIndex int) func(m *ui.Menu) {
+	base := a.songItems(tr, 0)
+	return func(m *ui.Menu) {
+		base(m)
+		m.Separator()
+		if m.Item("移除歌曲").Chosen() {
+			a.pl.Remove(queueIndex)
+			if a.pl.Current() == nil {
+				a.nowPlaying = false
+				a.queueOpen = false
+			}
+		}
+	}
+}
+
 // songItems builds the menu of what can be done with tr, behind its dots
 // or a right click on its row: playing it next, copying its title, its title
 // with its artists, or the link to its page, opening its artists' or album's, and,

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image/png"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"lilt/internal/player"
 	"lilt/internal/qqmusic"
 )
 
@@ -173,3 +175,132 @@ func TestPurchasedFrames(t *testing.T) {
 		}
 	}
 }
+
+func TestPurchasedDiskCacheOfflineAndRefresh(t *testing.T) {
+	origSongs, origAlbums := readPurchasedSongs, readPurchasedAlbums
+	t.Cleanup(func() { readPurchasedSongs, readPurchasedAlbums = origSongs, origAlbums })
+
+	cacheDir := t.TempDir()
+	cache := player.NewCache(cacheDir, 4<<20)
+
+	songCalls, albumCalls := 0, 0
+	offline := false
+	readPurchasedSongs = func(limit, offset int) ([]qqmusic.Track, bool, error) {
+		songCalls++
+		if offline {
+			return nil, false, errors.New("offline")
+		}
+		if offset == 0 {
+			return []qqmusic.Track{{ID: 101, MID: "s101", Name: "已购一"}}, true, nil
+		}
+		return []qqmusic.Track{{ID: 102, MID: "s102", Name: "已购二"}}, false, nil
+	}
+	readPurchasedAlbums = func(limit, offset int) ([]qqmusic.AlbumProfile, bool, error) {
+		albumCalls++
+		if offline {
+			return nil, false, errors.New("offline")
+		}
+		return []qqmusic.AlbumProfile{{Album: qqmusic.Album{ID: 201, MID: "a201", Name: "已购专辑一"}}}, false, nil
+	}
+
+	posted := make(chan func(), 32)
+	a1 := newTestApp()
+	a1.pl.Cache = cache
+	a1.postFn = func(fn func()) { posted <- fn }
+	a1.profile = &qqmusic.Profile{UserID: 77}
+
+	// First load fetches page 0 and persists to disk.
+	a1.loadPurchased(purchasedSongs, false)
+	pumpPosted(t, posted, func() bool {
+		d := a1.purchased[purchasedSongs]
+		return d != nil && d.page.loaded && !d.page.loading
+	})
+	a1.morePurchased(purchasedSongs, a1.purchased[purchasedSongs])
+	pumpPosted(t, posted, func() bool {
+		d := a1.purchased[purchasedSongs]
+		return d != nil && !d.page.loading && len(d.songs) == 2
+	})
+	a1.loadPurchased(purchasedAlbums, false)
+	pumpPosted(t, posted, func() bool {
+		d := a1.purchased[purchasedAlbums]
+		return d != nil && d.page.loaded && !d.page.loading
+	})
+
+	// Wait briefly for async disk writes to finish.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		s, _, _, okS := cache.LookupPurchasedSongs(77)
+		al, _, _, okA := cache.LookupPurchasedAlbums(77)
+		if okS && len(s) == 2 && okA && len(al) == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Fresh app in offline mode loads both tabs from disk without network calls.
+	offline = true
+	beforeSongs, beforeAlbums := songCalls, albumCalls
+	a2 := newTestApp()
+	a2.pl.Cache = player.NewCache(cacheDir, 4<<20)
+	a2.postFn = func(fn func()) { posted <- fn }
+	a2.profile = &qqmusic.Profile{UserID: 77}
+
+	a2.loadPurchased(purchasedSongs, false)
+	pumpPosted(t, posted, func() bool {
+		d := a2.purchased[purchasedSongs]
+		return d != nil && d.page.loaded && !d.page.loading
+	})
+	a2.loadPurchased(purchasedAlbums, false)
+	pumpPosted(t, posted, func() bool {
+		d := a2.purchased[purchasedAlbums]
+		return d != nil && d.page.loaded && !d.page.loading
+	})
+	drainPosted(posted, 40*time.Millisecond)
+	if songCalls != beforeSongs || albumCalls != beforeAlbums {
+		t.Fatalf("offline load within TTL hit network: songs %d->%d albums %d->%d", beforeSongs, songCalls, beforeAlbums, albumCalls)
+	}
+	if len(a2.purchased[purchasedSongs].songs) != 2 || a2.purchased[purchasedSongs].page.err != "" {
+		t.Fatalf("offline songs mismatch: %+v", a2.purchased[purchasedSongs])
+	}
+	if len(a2.purchased[purchasedAlbums].albums) != 1 || a2.purchased[purchasedAlbums].page.err != "" {
+		t.Fatalf("offline albums mismatch: %+v", a2.purchased[purchasedAlbums])
+	}
+
+	// Simulate an expired cache entry on disk (cachedAt older than TTL):
+	// loads cached data immediately, attempts silent refresh while offline without
+	// clearing cached items or setting an error, then succeeds when online.
+	expiredData, err := jsonMarshalExpiredPurchasedSongs([]qqmusic.Track{{ID: 101, MID: "s101", Name: "旧已购"}}, false, time.Now().Add(-purchasedRefreshTTL-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a2.pl.Cache.KeepPurchasedSongsData(77, expiredData) {
+		t.Fatal("KeepPurchasedSongsData failed")
+	}
+
+	a3 := newTestApp()
+	a3.pl.Cache = player.NewCache(cacheDir, 4<<20)
+	a3.postFn = func(fn func()) { posted <- fn }
+	a3.profile = &qqmusic.Profile{UserID: 77}
+
+	a3.loadPurchased(purchasedSongs, false)
+	pumpPosted(t, posted, func() bool {
+		d := a3.purchased[purchasedSongs]
+		return d != nil && d.page.loaded && !d.refreshing
+	})
+	if a3.purchased[purchasedSongs].page.err != "" || len(a3.purchased[purchasedSongs].songs) != 1 || a3.purchased[purchasedSongs].songs[0].Name != "旧已购" {
+		t.Fatalf("failed background refresh disturbed cached purchased songs: %+v", a3.purchased[purchasedSongs])
+	}
+
+	// Recover network and revisit stale tab: silently refreshes to latest songs.
+	offline = false
+	a3.loadPurchased(purchasedSongs, false)
+	pumpPosted(t, posted, func() bool {
+		d := a3.purchased[purchasedSongs]
+		return d != nil && !d.refreshing && !d.stale && len(d.songs) > 0 && d.songs[0].Name == "已购一"
+	})
+}
+
+func jsonMarshalExpiredPurchasedSongs(songs []qqmusic.Track, more bool, at time.Time) ([]byte, error) {
+	return json.Marshal(player.CachedPurchasedSongs{Songs: songs, More: more, CachedAt: at})
+}
+

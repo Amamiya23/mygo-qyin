@@ -166,3 +166,92 @@ func TestPlayNextTwice(t *testing.T) {
 		t.Fatalf("latest choice did not play next: %v", ids)
 	}
 }
+
+func TestRemoveQueueTracks(t *testing.T) {
+	t.Run("before and after current preserve playback and snapshot immutability", func(t *testing.T) {
+		p := New(func(func()) {})
+		p.Cue([]qqmusic.Track{{ID: 1}, {ID: 2}, {ID: 3}, {ID: 4}})
+		// Shuffled order: 3 -> 1 -> 4 -> 2; current is index 0 (ID 1) at pos 1.
+		p.order, p.at, p.shuffle = []int{2, 0, 3, 1}, 1, true
+		p.track = &p.queue[0]
+		p.Hold(25 * time.Second)
+		p.playing = true
+		changed := 0
+		p.Changed = func() { changed++ }
+
+		oldQueue := p.Queue()
+		oldOrder, _ := p.PlayOrder()
+		oldQueueCopy := slices.Clone(oldQueue)
+		oldOrderCopy := slices.Clone(oldOrder)
+		cur := p.Current()
+
+		// Remove queue index 2 (ID 3), which sits before current (pos 0 < 1).
+		p.Remove(2)
+		if !slices.EqualFunc(oldQueue, oldQueueCopy, func(a, b qqmusic.Track) bool { return a.ID == b.ID }) || !slices.Equal(oldOrder, oldOrderCopy) {
+			t.Fatal("Remove mutated previously returned Queue or PlayOrder slices")
+		}
+		if p.Current() != cur || p.Current().ID != 1 || p.at != 0 || !p.Playing() || p.Position() != 25*time.Second {
+			t.Fatalf("removing earlier track disrupted current track: cur=%v at=%d playing=%v pos=%v", p.Current(), p.at, p.Playing(), p.Position())
+		}
+		// Remaining queue: [ID 1 (0), ID 2 (1), ID 4 (2)]; order should be [0, 2, 1].
+		order, at := p.PlayOrder()
+		if at != 0 || !slices.Equal(order, []int{0, 2, 1}) {
+			t.Fatalf("order=%v at=%d, want [0 2 1] at 0", order, at)
+		}
+
+		// Remove queue index 1 (ID 2), which sits after current (pos 2 > 0).
+		p.Remove(1)
+		if p.Current() != cur || p.at != 0 || len(p.Queue()) != 2 {
+			t.Fatalf("removing later track disrupted current track: cur=%v at=%d len=%d", p.Current(), p.at, len(p.Queue()))
+		}
+		order, at = p.PlayOrder()
+		if at != 0 || !slices.Equal(order, []int{0, 1}) || p.Queue()[1].ID != 4 {
+			t.Fatalf("unexpected remaining queue=%v order=%v at=%d", p.Queue(), order, at)
+		}
+		if changed != 2 {
+			t.Fatalf("Changed called %d times, want 2", changed)
+		}
+	})
+
+	t.Run("removing current track advances to next and wraps at end", func(t *testing.T) {
+		p := New(func(func()) {})
+		p.Cue([]qqmusic.Track{{ID: 10}, {ID: 20}, {ID: 30}})
+		p.at, p.track = 1, &p.queue[1]
+		p.playing = false
+
+		// Remove middle current track (ID 20): should load ID 30 at index 1 without auto-playing.
+		p.Remove(1)
+		if p.Current() == nil || p.Current().ID != 30 || p.at != 1 || p.Playing() {
+			t.Fatalf("removing current middle track: cur=%v at=%d playing=%v", p.Current(), p.at, p.Playing())
+		}
+
+		// Remove last current track (ID 30): should wrap to ID 10 at index 0.
+		p.playing = true
+		p.Remove(1)
+		if p.Current() == nil || p.Current().ID != 10 || p.at != 0 || !p.Playing() {
+			t.Fatalf("removing last current track: cur=%v at=%d playing=%v", p.Current(), p.at, p.Playing())
+		}
+
+		// Remove only remaining track: clears player state and ends radio.
+		p.AttachRadio("fm:DEFAULT", func(func([]qqmusic.Track)) {})
+		p.Remove(0)
+		order, at := p.PlayOrder()
+		if p.Current() != nil || len(p.Queue()) != 0 || len(order) != 0 || at != -1 || p.Playing() || p.Loading() || p.Radio() != "" {
+			t.Fatalf("removing final track left stale state: cur=%v len=%d at=%d playing=%v loading=%v radio=%q", p.Current(), len(p.Queue()), at, p.Playing(), p.Loading(), p.Radio())
+		}
+		if _, ok := p.Session(); ok {
+			t.Fatal("empty player still reported a session")
+		}
+	})
+
+	t.Run("out of bounds is a no-op", func(t *testing.T) {
+		p := New(func(func()) {})
+		p.Cue([]qqmusic.Track{{ID: 1}, {ID: 2}})
+		p.Remove(-1)
+		p.Remove(2)
+		if len(p.Queue()) != 2 || p.Current().ID != 1 {
+			t.Fatalf("out-of-bounds Remove mutated queue: %v", p.Queue())
+		}
+	})
+}
+

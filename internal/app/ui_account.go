@@ -119,10 +119,10 @@ func (a *app) signedIn(prof *qqmusic.Profile) {
 	a.likedScroll = likedScrollState{}
 	// What the listener may play, and follows, changed: load the pages
 	// again.
-	a.playlists = map[int64]*qqmusic.Playlist{}
-	a.plErr = map[int64]string{}
+	a.resetPlaylistCacheState()
 	a.artists, a.albums, a.users, a.podcasts = map[int64]*artistData{}, map[int64]*albumData{}, map[int64]*userData{}, map[int64]*podcastData{}
 	a.podcastTab = &podcastTab{}
+	a.purchasedEpoch++
 	a.purchased = [2]*purchasedData{}
 	a.purchasedScroll = [2]listScrollState{}
 	a.searches = map[route]*searchData{}

@@ -34,7 +34,7 @@ func TestDailyRecordFrameBudget(t *testing.T) {
 
 // Hovering a paused player control stops requesting frames once its feedback settles.
 func TestPlayerBarHoverFrameBudget(t *testing.T) {
-	for _, label := range []string{"打开正在播放", "上一首", "播放/暂停", "待播清单", "音量"} {
+	for _, label := range []string{"打开正在播放", "上一首", "播放/暂停", "播放列表", "音量"} {
 		t.Run(label, func(t *testing.T) {
 			a := newTestApp()
 			a.settings = defaultSettings()
@@ -61,7 +61,7 @@ func TestPlayerBarHoverFrameBudget(t *testing.T) {
 func TestPlayerQueuePopoverFrameBudget(t *testing.T) {
 	a := queuePopupApp(30)
 	tt := ui.NewTester(a.view, 1180, 700)
-	if err := tt.Click("待播清单"); err != nil {
+	if err := tt.Click("播放列表"); err != nil {
 		t.Fatal(err)
 	}
 	r, ok := tt.Find(a.pl.Queue()[2].Name)

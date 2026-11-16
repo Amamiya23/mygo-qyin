@@ -70,6 +70,22 @@ func RememberTracks(tracks []Track) {
 		}
 	}
 }
+
+// RememberAlbums restores QQ's album and artist MIDs when loading cached album lists.
+func RememberAlbums(albums []AlbumProfile) {
+	mediaRegistry.Lock()
+	defer mediaRegistry.Unlock()
+	for _, al := range albums {
+		if al.ID > 0 && al.MID != "" {
+			mediaRegistry.albums[al.ID] = al.Album
+		}
+		for _, a := range al.Artists {
+			if a.ID > 0 && a.MID != "" {
+				mediaRegistry.artists[a.ID] = a
+			}
+		}
+	}
+}
 func knownTrack(id int64) (Track, bool) {
 	mediaRegistry.RLock()
 	defer mediaRegistry.RUnlock()

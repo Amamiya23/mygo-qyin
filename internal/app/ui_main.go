@@ -518,34 +518,6 @@ func dailyRenewed(loaded, now time.Time) bool {
 	return loaded.Before(six)
 }
 
-func (a *app) loadPlaylist(id int64, thenPlay bool) {
-	if pl := a.playlists[id]; pl != nil {
-		if thenPlay {
-			a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
-		}
-		return
-	}
-	if a.loadingPl[id] {
-		return
-	}
-	a.loadingPl[id] = true
-	delete(a.plErr, id)
-	go func() {
-		pl, err := qqmusic.PlaylistDetail(id)
-		a.post(func() {
-			delete(a.loadingPl, id)
-			if err != nil {
-				a.plErr[id] = "歌单加载失败"
-				return
-			}
-			a.playlists[id] = pl
-			if thenPlay {
-				a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
-			}
-		})
-	}()
-}
-
 func firstPlayable(tracks []qqmusic.Track) int {
 	for i := range tracks {
 		if tracks[i].Playable() {

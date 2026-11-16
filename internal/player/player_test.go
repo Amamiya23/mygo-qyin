@@ -460,3 +460,118 @@ func TestPlayerLoadsCachedCoverAndLyrics(t *testing.T) {
 		t.Fatalf("cached lyrics mismatch: loaded=%v lines=%+v", loaded, lines)
 	}
 }
+
+func TestCachePlaylistsAndUserLists(t *testing.T) {
+	dir := t.TempDir()
+	c := NewCache(dir, 64<<10)
+
+	pl := &qqmusic.Playlist{
+		ID:          777,
+		Name:        "测试歌单",
+		TrackCount:  2,
+		Tracks:      []qqmusic.Track{{ID: 1, Name: "歌1"}, {ID: 2, Name: "歌2"}},
+		Description: "desc",
+	}
+	if !c.KeepPlaylist(pl) {
+		t.Fatal("KeepPlaylist failed")
+	}
+	made := []qqmusic.Playlist{{ID: 777, Name: "测试歌单", TrackCount: 2}}
+	saved := []qqmusic.Playlist{{ID: 888, Name: "收藏歌单", TrackCount: 10}}
+	if !c.KeepUserPlaylists(12345, made, saved) {
+		t.Fatal("KeepUserPlaylists failed")
+	}
+
+	reopened := NewCache(dir, 64<<10)
+	gotPl, cachedAt, ok := reopened.LookupPlaylist(777)
+	if !ok || gotPl == nil || gotPl.Name != "测试歌单" || len(gotPl.Tracks) != 2 || cachedAt.IsZero() {
+		t.Fatalf("LookupPlaylist mismatch: ok=%v pl=%+v cachedAt=%v", ok, gotPl, cachedAt)
+	}
+	gotMade, gotSaved, ok := reopened.LookupUserPlaylists(12345)
+	if !ok || len(gotMade) != 1 || gotMade[0].ID != 777 || len(gotSaved) != 1 || gotSaved[0].ID != 888 {
+		t.Fatalf("LookupUserPlaylists mismatch: ok=%v made=%+v saved=%+v", ok, gotMade, gotSaved)
+	}
+	if reopened.Size() <= 0 {
+		t.Fatalf("expected non-zero cache size, got %d", reopened.Size())
+	}
+
+	// Dropping removes individual entries.
+	reopened.DropPlaylist(777)
+	if _, _, ok := reopened.LookupPlaylist(777); ok {
+		t.Fatal("DropPlaylist did not remove playlist")
+	}
+	reopened.DropUserPlaylists(12345)
+	if _, _, ok := reopened.LookupUserPlaylists(12345); ok {
+		t.Fatal("DropUserPlaylists did not remove user playlists")
+	}
+
+	// Re-seed and verify Clear() removes playlists as well.
+	if !reopened.KeepPlaylist(pl) || !reopened.KeepUserPlaylists(12345, made, saved) {
+		t.Fatal("failed to re-seed playlists")
+	}
+	reopened.Clear()
+	if reopened.Size() != 0 {
+		t.Fatalf("expected size 0 after Clear(), got %d", reopened.Size())
+	}
+	if _, _, ok := reopened.LookupPlaylist(777); ok {
+		t.Fatal("Clear() left cached playlist")
+	}
+	if _, _, ok := reopened.LookupUserPlaylists(12345); ok {
+		t.Fatal("Clear() left cached user playlists")
+	}
+
+	// Cache limit 0 disables persistence.
+	reopened.SetLimit(0)
+	if reopened.KeepPlaylist(pl) || reopened.KeepUserPlaylists(12345, made, saved) {
+		t.Fatal("kept playlists while cache limit was 0")
+	}
+}
+
+func TestCachePurchasedSongsAndAlbums(t *testing.T) {
+	dir := t.TempDir()
+	c := NewCache(dir, 64<<10)
+
+	songs := []qqmusic.Track{{ID: 11, MID: "m11", Name: "已购单曲"}}
+	albums := []qqmusic.AlbumProfile{{Album: qqmusic.Album{ID: 22, MID: "a22", Name: "已购专辑"}}}
+	if !c.KeepPurchasedSongs(99, songs, true) {
+		t.Fatal("KeepPurchasedSongs failed")
+	}
+	if !c.KeepPurchasedAlbums(99, albums, false) {
+		t.Fatal("KeepPurchasedAlbums failed")
+	}
+
+	reopened := NewCache(dir, 64<<10)
+	gotSongs, moreSongs, songsAt, ok := reopened.LookupPurchasedSongs(99)
+	if !ok || !moreSongs || len(gotSongs) != 1 || gotSongs[0].MID != "m11" || songsAt.IsZero() {
+		t.Fatalf("LookupPurchasedSongs mismatch: ok=%v more=%v songs=%+v at=%v", ok, moreSongs, gotSongs, songsAt)
+	}
+	gotAlbums, moreAlbums, albumsAt, ok := reopened.LookupPurchasedAlbums(99)
+	if !ok || moreAlbums || len(gotAlbums) != 1 || gotAlbums[0].MID != "a22" || albumsAt.IsZero() {
+		t.Fatalf("LookupPurchasedAlbums mismatch: ok=%v more=%v albums=%+v at=%v", ok, moreAlbums, gotAlbums, albumsAt)
+	}
+	if reopened.Size() <= 0 {
+		t.Fatalf("expected non-zero cache size, got %d", reopened.Size())
+	}
+
+	reopened.DropPurchased(99)
+	if _, _, _, ok := reopened.LookupPurchasedSongs(99); ok {
+		t.Fatal("DropPurchased left songs")
+	}
+	if _, _, _, ok := reopened.LookupPurchasedAlbums(99); ok {
+		t.Fatal("DropPurchased left albums")
+	}
+
+	if !reopened.KeepPurchasedSongs(99, songs, false) || !reopened.KeepPurchasedAlbums(99, albums, true) {
+		t.Fatal("failed to re-seed purchased cache")
+	}
+	reopened.Clear()
+	if reopened.Size() != 0 {
+		t.Fatalf("expected size 0 after Clear(), got %d", reopened.Size())
+	}
+
+	reopened.SetLimit(0)
+	if reopened.KeepPurchasedSongs(99, songs, false) || reopened.KeepPurchasedAlbums(99, albums, false) {
+		t.Fatal("kept purchased cache while limit was 0")
+	}
+}
+
+

@@ -9,7 +9,7 @@ func (a *app) queueButton(c *ui.Context) {
 	if a.queueOpen {
 		surface = playerSelectedSurface
 	}
-	b := iconButton(c.Key("queue"), iconQueue, 16, p.muted, "待播清单", surface).
+	b := iconButton(c.Key("queue"), iconQueue, 16, p.muted, "播放列表", surface).
 		Disabled(a.pl.Current() == nil)
 	if b.Clicked() {
 		a.queueOpen = !a.queueOpen
@@ -26,12 +26,12 @@ func (a *app) queueButton(c *ui.Context) {
 		panel.AttachTo(b, ui.AnchorTopEnd, ui.AnchorBottomEnd).
 			Margin(0, 0, (playerBarHeight-32)/2+8, 0).Size(min(320, w-32), height).
 			Padding(8, 0).Radius(14).Background(pop.fill).TextColor(p.text).Border(0.5, pop.edge).
-			Shadow(0, 8, 24, -4, radixInk.Alpha(0.2)).Label("待播清单")
+			Shadow(0, 8, 24, -4, radixInk.Alpha(0.2)).Label("播放列表")
 		// Overlay content sits outside the page's Space shortcut scope.
 		panel.OnShortcut(0, ui.KeySpace, a.pl.TogglePlay)
 		// Align the heading with the covers inside the rows' 10-DIP padding.
 		ui.Row(c).Height(40).PaddingX(inset + 10).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "待播清单").FontSize(15).FontWeight(700)
+			ui.Text(c, "播放列表").FontSize(15).FontWeight(700)
 			ui.Textf(c, "%d", len(a.pl.Queue())).FontSize(12).FontFeatures("tnum").TextColor(p.muted)
 		})
 		// Equal gutters keep highlights centered and leave the scrollbar outside song hit targets.

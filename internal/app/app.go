@@ -108,9 +108,18 @@ type app struct {
 	homeAt      time.Time // when what the home page shows was asked for
 	homeGen     int
 
-	playlists       map[int64]*qqmusic.Playlist
-	loadingPl       map[int64]bool
-	plErr           map[int64]string
+	playlists    map[int64]*qqmusic.Playlist
+	playlistLRU  []int64
+	plSynced     map[int64]bool
+	plSyncedAt   map[int64]time.Time
+	plStale      map[int64]bool
+	refreshingPl map[int64]bool
+	plGen        map[int64]int
+	plEpoch      int
+	playAfterPl  map[int64]bool
+	loadingPl    map[int64]bool
+	plErr        map[int64]string
+	postFn       func(func()) // test hook for main-thread callbacks without a window
 	artists         map[int64]*artistData
 	artistTab       int // what an artist's page lists: artistHot, artistLatest, artistAlbums or artistEvents
 	albums          map[int64]*albumData
@@ -119,6 +128,7 @@ type app struct {
 	podcastTab      *podcastTab // the podcasts tab's lists
 	purchased       [2]*purchasedData
 	purchasedScroll [2]listScrollState
+	purchasedEpoch  int
 	// Each page keeps its place when navigating or while Now Playing covers it.
 	pageStates map[route]*pageScrollState
 	navScroll  ui.ScrollState
@@ -205,6 +215,10 @@ type app struct {
 // post runs fn on the main thread and redraws both windows. Without a
 // window, as in tests, it drops fn.
 func (a *app) post(fn func()) {
+	if a.postFn != nil {
+		a.postFn(fn)
+		return
+	}
 	if a.win == nil {
 		return
 	}

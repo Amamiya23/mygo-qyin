@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"lilt/internal/player"
 	"lilt/internal/qqmusic"
 )
 
@@ -62,8 +63,27 @@ func (a *app) savedPlaylist(id int64) *qqmusic.Playlist {
 
 // loadMine loads the playlists the listener uid made and saved.
 func (a *app) loadMine(uid int64) {
+	var cache *player.Cache
+	if a.pl != nil {
+		cache = a.pl.Cache
+	}
 	go func() {
-		made, saved, err := qqmusic.UserPlaylists(uid)
+		if cache != nil {
+			if made, saved, ok := cache.LookupUserPlaylists(uid); ok {
+				for _, p := range made {
+					qqmusic.RememberOwnedPlaylist(p.ID)
+				}
+				a.post(func() {
+					if a.profile != nil && a.profile.UserID == uid && a.mine == nil && a.saved == nil {
+						a.mine, a.saved = made, saved
+					}
+				})
+			}
+		}
+		made, saved, err := userPlaylists(uid)
+		if err == nil && cache != nil {
+			cache.KeepUserPlaylists(uid, made, saved)
+		}
 		a.post(func() {
 			if err == nil && a.profile != nil && a.profile.UserID == uid {
 				a.mine, a.saved = made, saved
@@ -75,7 +95,7 @@ func (a *app) loadMine(uid int64) {
 // playlistChanged forgets what was loaded of playlist id, which NetEase
 // changed: loaded anew if shown, and the sidebar's covers with it.
 func (a *app) playlistChanged(id int64) {
-	delete(a.playlists, id)
+	a.invalidatePlaylist(id)
 	if a.route.page == pagePlaylist && a.route.id == id {
 		a.loadPlaylist(id, false)
 	}
@@ -123,7 +143,9 @@ func (a *app) submitName() {
 				if err != nil {
 					a.setPlaylistName(id, old)
 					a.toast = "重命名失败，请稍后再试"
+					return
 				}
+				a.saveUserPlaylistsCache()
 			})
 		}()
 		return
@@ -146,7 +168,10 @@ func (a *app) submitName() {
 			}
 			a.mine = slices.Insert(a.mine, at, *pl)
 			pl.Tracks = nil
-			a.playlists[pl.ID] = pl
+			a.markPlaylistSynced(pl.ID)
+			a.putPlaylist(pl)
+			a.savePlaylistCache(pl)
+			a.saveUserPlaylistsCache()
 			a.open(route{page: pagePlaylist, id: pl.ID})
 			if add != nil {
 				a.addTo(pl.ID, add)
@@ -209,7 +234,8 @@ func (a *app) finishPlaylistRemoval(pl qqmusic.Playlist, saved bool, index int, 
 		*lists = slices.Insert(*lists, min(index, len(*lists)), pl)
 		return
 	}
-	delete(a.playlists, pl.ID)
+	a.invalidatePlaylist(pl.ID)
+	a.saveUserPlaylistsCache()
 	a.toast = "已删除歌单"
 	if saved {
 		a.toast = "已取消收藏"
@@ -222,6 +248,7 @@ func (a *app) setPlaylistName(id int64, name string) {
 	}
 	if pl := a.playlists[id]; pl != nil {
 		pl.Name = name
+		a.savePlaylistCache(pl)
 	}
 }
 
@@ -264,6 +291,9 @@ func (a *app) removeFrom(pid int64, tr *qqmusic.Track) {
 				}
 				a.toast = "移除失败，请稍后再试"
 				return
+			}
+			if pl != nil && a.playlists[pid] == pl {
+				a.savePlaylistCache(pl)
 			}
 			// The songs listed are right: only the sidebar's covers may
 			// have changed.

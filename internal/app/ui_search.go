@@ -148,10 +148,12 @@ func (a *app) searchMine(r route, d *searchData) {
 			missing = append(missing, pl.ID)
 		}
 	}
-	finish := func(failed int) {
+	finish := func(extra map[int64]*qqmusic.Playlist, failed int) {
 		lists := make([]*qqmusic.Playlist, 0, len(a.mine))
 		for _, pl := range a.mine {
 			if p := a.playlists[pl.ID]; p != nil {
+				lists = append(lists, p)
+			} else if p := extra[pl.ID]; p != nil {
 				lists = append(lists, p)
 			}
 		}
@@ -163,11 +165,12 @@ func (a *app) searchMine(r route, d *searchData) {
 		}
 	}
 	if len(missing) == 0 {
-		finish(0)
+		finish(nil, 0)
 		return
 	}
 	d.page.loading, d.page.err = true, ""
 	fetch := mineDetail
+	cache := a.pl.Cache
 	go func() {
 		loaded := make([]*qqmusic.Playlist, len(missing))
 		// A few at a time, so a long list of playlists doesn't flood QQ Music.
@@ -178,7 +181,17 @@ func (a *app) searchMine(r route, d *searchData) {
 			slots <- struct{}{}
 			go func() {
 				defer func() { <-slots; wg.Done() }()
+				if cache != nil {
+					if cachedPl, _, ok := cache.LookupPlaylist(id); ok {
+						qqmusic.RememberTracks(cachedPl.Tracks)
+						loaded[i] = cachedPl
+						return
+					}
+				}
 				if pl, err := fetch(id); err == nil {
+					if cache != nil && pl != nil {
+						cache.KeepPlaylist(pl)
+					}
 					loaded[i] = pl
 				}
 			}()
@@ -186,14 +199,18 @@ func (a *app) searchMine(r route, d *searchData) {
 		wg.Wait()
 		a.post(func() {
 			failed := 0
+			extra := make(map[int64]*qqmusic.Playlist, len(missing))
 			for i, pl := range loaded {
 				if pl == nil {
 					failed++
-				} else if a.playlists[missing[i]] == nil {
-					a.playlists[missing[i]] = pl
+					continue
+				}
+				extra[missing[i]] = pl
+				if a.playlists[missing[i]] == nil && len(a.playlists) < maxCachedPlaylists {
+					a.putPlaylist(pl)
 				}
 			}
-			finish(failed)
+			finish(extra, failed)
 		})
 	}()
 }

@@ -213,6 +213,18 @@ func TestCacheCopyToMigratesCoversAndLyrics(t *testing.T) {
 	if !source.KeepLyrics(99, "[00:01.00]lyric", "[00:01.00]歌词", "") {
 		t.Fatal("failed to seed lyrics")
 	}
+	if !source.KeepPlaylist(&qqmusic.Playlist{ID: 55, Name: "迁移歌单", Tracks: []qqmusic.Track{{ID: 1, Name: "曲1"}}}) {
+		t.Fatal("failed to seed playlist")
+	}
+	if !source.KeepUserPlaylists(7, []qqmusic.Playlist{{ID: 55, Name: "迁移歌单"}}, nil) {
+		t.Fatal("failed to seed user playlists")
+	}
+	if !source.KeepPurchasedSongs(7, []qqmusic.Track{{ID: 66, Name: "迁移单曲"}}, false) {
+		t.Fatal("failed to seed purchased songs")
+	}
+	if !source.KeepPurchasedAlbums(7, []qqmusic.AlbumProfile{{Album: qqmusic.Album{ID: 77, Name: "迁移专辑"}}}, true) {
+		t.Fatal("failed to seed purchased albums")
+	}
 	cleanup, err := source.CopyTo(target, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -222,6 +234,18 @@ func TestCacheCopyToMigratesCoversAndLyrics(t *testing.T) {
 	}
 	if got, ok := target.LookupLyrics(99); !ok || got.LRC != "[00:01.00]lyric" || got.Translation != "[00:01.00]歌词" {
 		t.Fatalf("migrated lyrics mismatch: ok=%v got=%+v", ok, got)
+	}
+	if got, _, ok := target.LookupPlaylist(55); !ok || got.Name != "迁移歌单" || len(got.Tracks) != 1 {
+		t.Fatalf("migrated playlist mismatch: ok=%v got=%+v", ok, got)
+	}
+	if made, _, ok := target.LookupUserPlaylists(7); !ok || len(made) != 1 || made[0].ID != 55 {
+		t.Fatalf("migrated user playlists mismatch: ok=%v made=%+v", ok, made)
+	}
+	if songs, _, _, ok := target.LookupPurchasedSongs(7); !ok || len(songs) != 1 || songs[0].ID != 66 {
+		t.Fatalf("migrated purchased songs mismatch: ok=%v songs=%+v", ok, songs)
+	}
+	if albums, more, _, ok := target.LookupPurchasedAlbums(7); !ok || !more || len(albums) != 1 || albums[0].ID != 77 {
+		t.Fatalf("migrated purchased albums mismatch: ok=%v more=%v albums=%+v", ok, more, albums)
 	}
 	if err := cleanup(); err != nil {
 		t.Fatal(err)

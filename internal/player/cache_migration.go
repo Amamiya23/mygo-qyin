@@ -101,8 +101,18 @@ func (c *Cache) CopyTo(target *Cache, progress func(done, total int64)) (cleanup
 	if err != nil {
 		return nil, err
 	}
+	playlistAssets, playlistBytes, err := collectMigrationAssets(filepath.Join(sourceDir, playlistsSubdir), playlistsSubdir, playlistExt, false)
+	if err != nil {
+		return nil, err
+	}
+	purchasedAssets, purchasedBytes, err := collectMigrationAssets(filepath.Join(sourceDir, purchasedSubdir), purchasedSubdir, purchasedExt, false)
+	if err != nil {
+		return nil, err
+	}
 	assets := append(covers, lyricsAssets...)
-	total += coverBytes + lyricBytes
+	assets = append(assets, playlistAssets...)
+	assets = append(assets, purchasedAssets...)
+	total += coverBytes + lyricBytes + playlistBytes + purchasedBytes
 	var done int64
 	advance := func(n int64) {
 		done += n

@@ -205,7 +205,7 @@ func TestNowPlayingTabsStayPut(t *testing.T) {
 	for _, tab := range []struct {
 		label string
 		pane  int
-	}{{"律动", paneStage}, {"待播清单", paneQueue}, {"选歌", paneWall}, {"评论", paneComments}, {"歌词", paneLyrics}} {
+	}{{"律动", paneStage}, {"播放列表", paneQueue}, {"选歌", paneWall}, {"评论", paneComments}, {"歌词", paneLyrics}} {
 		if err := tt.Click(tab.label); err != nil {
 			t.Fatal(err)
 		}
@@ -257,7 +257,7 @@ func TestNowPlayingFrames(t *testing.T) {
 		{name: "more-hover", w: 1200, h: 800, hover: "更多"},
 		{name: "mute-hover", w: 1200, h: 800, hover: "静音"},
 		{name: "volume-hover", w: 1200, h: 800, hover: "音量"},
-		{name: "tab-hover", w: 1200, h: 800, hover: "待播清单"},
+		{name: "tab-hover", w: 1200, h: 800, hover: "播放列表"},
 		{name: "wide", w: 1920, h: 1080},
 		{name: "stage", w: 1200, h: 800, pane: paneStage},
 		{name: "stage-play-hover", w: 1200, h: 800, pane: paneStage, hover: "播放/暂停"},

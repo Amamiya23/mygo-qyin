@@ -17,10 +17,14 @@ import (
 )
 
 const (
-	coversSubdir = "covers"
-	lyricsSubdir = "lyrics"
-	coverExt     = ".img"
-	lyricExt     = ".json"
+	coversSubdir    = "covers"
+	lyricsSubdir    = "lyrics"
+	playlistsSubdir = "playlists"
+	purchasedSubdir = "purchased"
+	coverExt        = ".img"
+	lyricExt        = ".json"
+	playlistExt     = ".json"
+	purchasedExt    = ".json"
 )
 
 // CachedLyrics holds a track's raw lyric payloads kept on disk.
@@ -30,11 +34,39 @@ type CachedLyrics struct {
 	Timed       string `json:"timed,omitempty"`
 }
 
-// Cache keeps the songs, covers and lyrics played on disk, so that they
-// play again at once, and without the network: songs as <id>-<level>.mp3
-// or .flac with <id>-<level>.json, covers under covers/<hash>.img, and
-// lyrics under lyrics/<id>.json. Once they take more than the limit, those
-// used longest ago go first.
+// CachedPlaylist holds a playlist detail snapshot and when it was fetched.
+type CachedPlaylist struct {
+	Playlist qqmusic.Playlist `json:"playlist"`
+	CachedAt time.Time        `json:"cachedAt"`
+}
+
+// CachedUserPlaylists holds a user's made and saved playlist lists.
+type CachedUserPlaylists struct {
+	Made     []qqmusic.Playlist `json:"made,omitempty"`
+	Saved    []qqmusic.Playlist `json:"saved,omitempty"`
+	CachedAt time.Time          `json:"cachedAt"`
+}
+
+// CachedPurchasedSongs holds an account's cached purchased single tracks.
+type CachedPurchasedSongs struct {
+	Songs    []qqmusic.Track `json:"songs,omitempty"`
+	More     bool            `json:"more,omitempty"`
+	CachedAt time.Time       `json:"cachedAt"`
+}
+
+// CachedPurchasedAlbums holds an account's cached purchased albums.
+type CachedPurchasedAlbums struct {
+	Albums   []qqmusic.AlbumProfile `json:"albums,omitempty"`
+	More     bool                   `json:"more,omitempty"`
+	CachedAt time.Time              `json:"cachedAt"`
+}
+
+// Cache keeps the songs, covers, lyrics, playlists and purchased music on disk,
+// so that they load and play at once, and without the network: songs as
+// <id>-<level>.mp3 or .flac with <id>-<level>.json, covers under
+// covers/<hash>.img, lyrics under lyrics/<id>.json, playlists under
+// playlists/<id>.json, and purchased lists under purchased/*.json. Once they
+// take more than the limit, those used longest ago go first.
 type Cache struct {
 	dir string
 
@@ -72,6 +104,22 @@ func (c *Cache) coverPath(url string) string {
 
 func (c *Cache) lyricPath(id int64) string {
 	return filepath.Join(c.dir, lyricsSubdir, strconv.FormatInt(id, 10)+lyricExt)
+}
+
+func (c *Cache) playlistPath(id int64) string {
+	return filepath.Join(c.dir, playlistsSubdir, strconv.FormatInt(id, 10)+playlistExt)
+}
+
+func (c *Cache) userPlaylistsPath(uid int64) string {
+	return filepath.Join(c.dir, playlistsSubdir, "user-"+strconv.FormatInt(uid, 10)+playlistExt)
+}
+
+func (c *Cache) purchasedSongsPath(uid int64) string {
+	return filepath.Join(c.dir, purchasedSubdir, "songs-"+strconv.FormatInt(uid, 10)+purchasedExt)
+}
+
+func (c *Cache) purchasedAlbumsPath(uid int64) string {
+	return filepath.Join(c.dir, purchasedSubdir, "albums-"+strconv.FormatInt(uid, 10)+purchasedExt)
 }
 
 func (c *Cache) currentLimit() int64 {
@@ -188,6 +236,214 @@ func (c *Cache) KeepLyrics(id int64, lrc, translation, timed string) bool {
 		c.prune(path)
 	}
 	return ok
+}
+
+// MarshalPlaylist encodes pl with its fetch timestamp for disk storage.
+func MarshalPlaylist(pl *qqmusic.Playlist) ([]byte, error) {
+	return json.Marshal(CachedPlaylist{Playlist: *pl, CachedAt: time.Now()})
+}
+
+// LookupPlaylist returns a cached playlist detail and its fetch time,
+// refreshing its LRU timestamp on disk.
+func (c *Cache) LookupPlaylist(id int64) (*qqmusic.Playlist, time.Time, bool) {
+	if c == nil || id <= 0 {
+		return nil, time.Time{}, false
+	}
+	path := c.playlistPath(id)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, time.Time{}, false
+	}
+	var cached CachedPlaylist
+	if json.Unmarshal(b, &cached) != nil || cached.Playlist.ID != id {
+		return nil, time.Time{}, false
+	}
+	now := time.Now()
+	os.Chtimes(path, now, now)
+	pl := cached.Playlist
+	return &pl, cached.CachedAt, true
+}
+
+// KeepPlaylist stores a playlist detail snapshot on disk within the shared cache limit.
+func (c *Cache) KeepPlaylist(pl *qqmusic.Playlist) bool {
+	if c == nil || pl == nil || pl.ID <= 0 {
+		return false
+	}
+	b, err := MarshalPlaylist(pl)
+	if err != nil {
+		return false
+	}
+	return c.KeepPlaylistData(pl.ID, b)
+}
+
+// KeepPlaylistData stores pre-marshaled playlist bytes on disk within the shared cache limit.
+func (c *Cache) KeepPlaylistData(id int64, data []byte) bool {
+	if c == nil || id <= 0 || len(data) == 0 {
+		return false
+	}
+	path, ok := c.writeAsset(c.playlistPath(id), data)
+	if ok {
+		c.prune(path)
+	}
+	return ok
+}
+
+// DropPlaylist removes any cached detail for playlist id.
+func (c *Cache) DropPlaylist(id int64) {
+	if c == nil || id <= 0 {
+		return
+	}
+	os.Remove(c.playlistPath(id))
+}
+
+// LookupUserPlaylists returns cached made and saved playlist lists for uid.
+func (c *Cache) LookupUserPlaylists(uid int64) (made, saved []qqmusic.Playlist, ok bool) {
+	if c == nil || uid <= 0 {
+		return nil, nil, false
+	}
+	path := c.userPlaylistsPath(uid)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, false
+	}
+	var cached CachedUserPlaylists
+	if json.Unmarshal(b, &cached) != nil {
+		return nil, nil, false
+	}
+	now := time.Now()
+	os.Chtimes(path, now, now)
+	return cached.Made, cached.Saved, true
+}
+
+// KeepUserPlaylists stores a user's made and saved playlist lists on disk.
+func (c *Cache) KeepUserPlaylists(uid int64, made, saved []qqmusic.Playlist) bool {
+	if c == nil || uid <= 0 {
+		return false
+	}
+	b, err := json.Marshal(CachedUserPlaylists{Made: made, Saved: saved, CachedAt: time.Now()})
+	if err != nil {
+		return false
+	}
+	path, ok := c.writeAsset(c.userPlaylistsPath(uid), b)
+	if ok {
+		c.prune(path)
+	}
+	return ok
+}
+
+// DropUserPlaylists removes any cached playlist list for uid.
+func (c *Cache) DropUserPlaylists(uid int64) {
+	if c == nil || uid <= 0 {
+		return
+	}
+	os.Remove(c.userPlaylistsPath(uid))
+}
+
+// MarshalPurchasedSongs encodes purchased single tracks with their fetch time.
+func MarshalPurchasedSongs(songs []qqmusic.Track, more bool) ([]byte, error) {
+	return json.Marshal(CachedPurchasedSongs{Songs: songs, More: more, CachedAt: time.Now()})
+}
+
+// LookupPurchasedSongs returns cached purchased single tracks for uid and refreshes
+// the entry's disk LRU timestamp.
+func (c *Cache) LookupPurchasedSongs(uid int64) (songs []qqmusic.Track, more bool, cachedAt time.Time, ok bool) {
+	if c == nil || uid <= 0 {
+		return nil, false, time.Time{}, false
+	}
+	path := c.purchasedSongsPath(uid)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false, time.Time{}, false
+	}
+	var cached CachedPurchasedSongs
+	if json.Unmarshal(b, &cached) != nil {
+		return nil, false, time.Time{}, false
+	}
+	now := time.Now()
+	os.Chtimes(path, now, now)
+	return cached.Songs, cached.More, cached.CachedAt, true
+}
+
+// KeepPurchasedSongs stores purchased single tracks for uid on disk.
+func (c *Cache) KeepPurchasedSongs(uid int64, songs []qqmusic.Track, more bool) bool {
+	if c == nil || uid <= 0 {
+		return false
+	}
+	b, err := MarshalPurchasedSongs(songs, more)
+	if err != nil {
+		return false
+	}
+	return c.KeepPurchasedSongsData(uid, b)
+}
+
+// KeepPurchasedSongsData stores pre-marshaled purchased songs bytes on disk.
+func (c *Cache) KeepPurchasedSongsData(uid int64, data []byte) bool {
+	if c == nil || uid <= 0 || len(data) == 0 {
+		return false
+	}
+	path, ok := c.writeAsset(c.purchasedSongsPath(uid), data)
+	if ok {
+		c.prune(path)
+	}
+	return ok
+}
+
+// MarshalPurchasedAlbums encodes purchased albums with their fetch time.
+func MarshalPurchasedAlbums(albums []qqmusic.AlbumProfile, more bool) ([]byte, error) {
+	return json.Marshal(CachedPurchasedAlbums{Albums: albums, More: more, CachedAt: time.Now()})
+}
+
+// LookupPurchasedAlbums returns cached purchased albums for uid and refreshes
+// the entry's disk LRU timestamp.
+func (c *Cache) LookupPurchasedAlbums(uid int64) (albums []qqmusic.AlbumProfile, more bool, cachedAt time.Time, ok bool) {
+	if c == nil || uid <= 0 {
+		return nil, false, time.Time{}, false
+	}
+	path := c.purchasedAlbumsPath(uid)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false, time.Time{}, false
+	}
+	var cached CachedPurchasedAlbums
+	if json.Unmarshal(b, &cached) != nil {
+		return nil, false, time.Time{}, false
+	}
+	now := time.Now()
+	os.Chtimes(path, now, now)
+	return cached.Albums, cached.More, cached.CachedAt, true
+}
+
+// KeepPurchasedAlbums stores purchased albums for uid on disk.
+func (c *Cache) KeepPurchasedAlbums(uid int64, albums []qqmusic.AlbumProfile, more bool) bool {
+	if c == nil || uid <= 0 {
+		return false
+	}
+	b, err := MarshalPurchasedAlbums(albums, more)
+	if err != nil {
+		return false
+	}
+	return c.KeepPurchasedAlbumsData(uid, b)
+}
+
+// KeepPurchasedAlbumsData stores pre-marshaled purchased albums bytes on disk.
+func (c *Cache) KeepPurchasedAlbumsData(uid int64, data []byte) bool {
+	if c == nil || uid <= 0 || len(data) == 0 {
+		return false
+	}
+	path, ok := c.writeAsset(c.purchasedAlbumsPath(uid), data)
+	if ok {
+		c.prune(path)
+	}
+	return ok
+}
+
+// DropPurchased removes cached purchased songs and albums for uid.
+func (c *Cache) DropPurchased(uid int64) {
+	if c == nil || uid <= 0 {
+		return
+	}
+	os.Remove(c.purchasedSongsPath(uid))
+	os.Remove(c.purchasedAlbumsPath(uid))
 }
 
 func (c *Cache) writeAsset(path string, data []byte) (string, bool) {
@@ -335,6 +591,8 @@ func (c *Cache) items() []cachedItem {
 	out := c.songs()
 	out = appendDirItems(out, filepath.Join(c.dir, coversSubdir), coverExt)
 	out = appendDirItems(out, filepath.Join(c.dir, lyricsSubdir), lyricExt)
+	out = appendDirItems(out, filepath.Join(c.dir, playlistsSubdir), playlistExt)
+	out = appendDirItems(out, filepath.Join(c.dir, purchasedSubdir), purchasedExt)
 	return out
 }
 
@@ -389,7 +647,7 @@ func (c *Cache) prune(keep string) {
 
 // dropParts removes temporary partial files left by an app that quit mid-write.
 func (c *Cache) dropParts() {
-	for _, dir := range []string{c.dir, filepath.Join(c.dir, coversSubdir), filepath.Join(c.dir, lyricsSubdir)} {
+	for _, dir := range []string{c.dir, filepath.Join(c.dir, coversSubdir), filepath.Join(c.dir, lyricsSubdir), filepath.Join(c.dir, playlistsSubdir), filepath.Join(c.dir, purchasedSubdir)} {
 		parts, _ := filepath.Glob(filepath.Join(dir, "*.part"))
 		for _, path := range parts {
 			if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) > time.Hour {

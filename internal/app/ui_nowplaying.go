@@ -389,9 +389,9 @@ func (a *app) npTabs() []npTab {
 		if a.captionsShown() {
 			tabs = append(tabs, npTab{paneCaptions, "字幕"})
 		}
-		return append(tabs, npTab{paneQueue, "待播清单"}, npTab{paneComments, "评论"})
+		return append(tabs, npTab{paneQueue, "播放列表"}, npTab{paneComments, "评论"})
 	}
-	return []npTab{{paneLyrics, "歌词"}, {paneStage, "律动"}, {paneQueue, "待播清单"}, {paneWall, "选歌"}, {paneComments, "评论"}}
+	return []npTab{{paneLyrics, "歌词"}, {paneStage, "律动"}, {paneQueue, "播放列表"}, {paneWall, "选歌"}, {paneComments, "评论"}}
 }
 
 func (a *app) paneTabs(c *ui.Context) {
@@ -875,6 +875,7 @@ func (a *app) queuePane(c *ui.Context) {
 // queueTracks shares playback and menus between the page and its floating queue.
 func (a *app) queueTracks(c *ui.Context, list *ui.ListState, lastAt *int, p palette) ui.Element {
 	pl := a.pl
+	queue := pl.Queue()
 	order, at := pl.PlayOrder()
 	// Opened, it shows the track playing at its top; after, it follows it
 	// as little as keeps it in view.
@@ -889,10 +890,10 @@ func (a *app) queueTracks(c *ui.Context, list *ui.ListState, lastAt *int, p pale
 	list.Key = func(row int) any { return order[row] }
 	return ui.List(c.Key("queue"), list, len(order), func(r int) {
 		i := order[r]
-		tr := &pl.Queue()[i]
+		tr := &queue[i]
 		playing := r == at
 		row := ui.ButtonBase(c.Key(i)).Height(58).PaddingX(10).Gap(14).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
-			ContextMenu(a.songItems(tr, 0))
+			ContextMenu(a.queueSongItems(tr, i))
 		switch {
 		case playing:
 			row.Background(p.press)

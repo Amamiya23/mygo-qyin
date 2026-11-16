@@ -314,7 +314,7 @@ func (a *app) toggleLike(tr *qqmusic.Track) {
 			// The liked songs' playlist changed: load it anew when shown.
 			for _, pl := range a.mine {
 				if pl.SpecialType == 5 {
-					delete(a.playlists, pl.ID)
+					a.invalidatePlaylist(pl.ID)
 					if a.route.page == pagePlaylist && a.route.id == pl.ID {
 						a.loadPlaylist(pl.ID, false)
 					}
