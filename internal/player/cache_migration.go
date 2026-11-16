@@ -13,9 +13,10 @@ import (
 	"lilt/internal/qqmusic"
 )
 
-// CopyTo copies complete songs into target before playback starts. The caller
-// commits the new cache setting before calling cleanup to remove the old files.
-// A same-name target is replaced only after its source has been fully copied.
+// CopyTo copies complete songs, covers and lyrics into target before playback
+// starts. The caller commits the new cache setting before calling cleanup to
+// remove the old files. A same-name target is replaced only after its source
+// has been fully copied.
 func (c *Cache) CopyTo(target *Cache, progress func(done, total int64)) (cleanup func() error, err error) {
 	if c == nil || target == nil {
 		return nil, errors.New("cache migration requires a source and target")
@@ -92,6 +93,16 @@ func (c *Cache) CopyTo(target *Cache, progress func(done, total int64)) (cleanup
 		songs = append(songs, song)
 		total += song.audio.size + song.meta.size
 	}
+	covers, coverBytes, err := collectMigrationAssets(filepath.Join(sourceDir, coversSubdir), coversSubdir, coverExt, false)
+	if err != nil {
+		return nil, err
+	}
+	lyricsAssets, lyricBytes, err := collectMigrationAssets(filepath.Join(sourceDir, lyricsSubdir), lyricsSubdir, lyricExt, true)
+	if err != nil {
+		return nil, err
+	}
+	assets := append(covers, lyricsAssets...)
+	total += coverBytes + lyricBytes
 	var done int64
 	advance := func(n int64) {
 		done += n
@@ -107,6 +118,15 @@ func (c *Cache) CopyTo(target *Cache, progress func(done, total int64)) (cleanup
 			}
 		}
 	}
+	for _, asset := range assets {
+		destDir := filepath.Join(targetDir, asset.subDir)
+		if err := os.MkdirAll(destDir, 0o700); err != nil {
+			return nil, fmt.Errorf("create cache dir %s: %w", asset.subDir, err)
+		}
+		if err := asset.file.copyTo(destDir, advance); err != nil {
+			return nil, fmt.Errorf("copy cache %s: %w", filepath.Base(asset.file.path), err)
+		}
+	}
 	return func() error {
 		var failures []error
 		for _, song := range songs {
@@ -118,6 +138,11 @@ func (c *Cache) CopyTo(target *Cache, progress func(done, total int64)) (cleanup
 				failures = append(failures, err)
 			}
 		}
+		for _, asset := range assets {
+			if err := os.Remove(asset.file.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				failures = append(failures, err)
+			}
+		}
 		return errors.Join(failures...)
 	}, nil
 }
@@ -126,10 +151,56 @@ type cacheMigrationSong struct {
 	audio, meta cacheMigrationFile
 }
 
+type cacheMigrationAsset struct {
+	subDir string
+	file   cacheMigrationFile
+}
+
 type cacheMigrationFile struct {
 	path     string
 	size     int64
 	modified time.Time
+}
+
+func collectMigrationAssets(dir, subDir, wantExt string, validateLyrics bool) ([]cacheMigrationAsset, int64, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, 0, nil
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	var out []cacheMigrationAsset
+	var total int64
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != wantExt {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil, 0, err
+		}
+		if !info.Mode().IsRegular() || info.Size() == 0 {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if validateLyrics {
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return nil, 0, err
+			}
+			var cached CachedLyrics
+			if json.Unmarshal(b, &cached) != nil {
+				continue
+			}
+		}
+		out = append(out, cacheMigrationAsset{
+			subDir: subDir,
+			file:   cacheMigrationFile{path, info.Size(), info.ModTime()},
+		})
+		total += info.Size()
+	}
+	return out, total, nil
 }
 
 func (f cacheMigrationFile) copyTo(dir string, progress func(int64)) error {

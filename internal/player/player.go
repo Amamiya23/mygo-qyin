@@ -681,19 +681,41 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 	p.announce(&t, nil)
 	p.refill()
 
-	go func() {
-		cover, err := qqmusic.Fetch(qqmusic.Sized(t.Album.PicURL, 600))
-		if err == nil {
-			p.post(func() {
-				if gen == p.gen {
-					p.announce(&t, cover)
+	cache := p.Cache
+	coverURL := qqmusic.Sized(t.Album.PicURL, 600)
+	if coverURL != "" {
+		go func() {
+			var cover []byte
+			var err error
+			if cached, ok := cache.LookupCover(coverURL); ok {
+				cover = cached
+			} else {
+				cover, err = fetchCover(coverURL)
+				if err == nil {
+					cache.KeepCover(coverURL, cover)
 				}
-			})
-		}
-	}()
+			}
+			if err == nil && len(cover) > 0 {
+				p.post(func() {
+					if gen == p.gen {
+						p.announce(&t, cover)
+					}
+				})
+			}
+		}()
+	}
 
 	go func() {
-		lrc, trans, timed, err := qqmusic.Lyrics(t.ID)
+		var lrc, trans, timed string
+		var err error
+		if cached, ok := cache.LookupLyrics(t.ID); ok {
+			lrc, trans, timed = cached.LRC, cached.Translation, cached.Timed
+		} else {
+			lrc, trans, timed, err = songLyrics(t.ID)
+			if err == nil {
+				cache.KeepLyrics(t.ID, lrc, trans, timed)
+			}
+		}
 		var lines []lyrics.Line
 		if err == nil {
 			lines = lyrics.Build(lrc, trans, timed)
@@ -832,7 +854,11 @@ func (p *Player) open(t qqmusic.Track, level string, normalize bool) (*qqmusic.S
 	return info, s, loudness, nil
 }
 
-var songLoudness = qqmusic.SongLoudness
+var (
+	fetchCover   = qqmusic.Fetch
+	songLyrics   = qqmusic.Lyrics
+	songLoudness = qqmusic.SongLoudness
+)
 
 func withLoudness(info *qqmusic.Stream, v qqmusic.Loudness) *qqmusic.Stream {
 	// Downloads keep their own metadata on completion; do not mutate the

@@ -250,7 +250,7 @@ func (a *app) settingsContent(c *ui.Context) {
 			}
 		})
 
-		row("歌曲缓存", a.cacheUsage(), func() {
+		row("缓存上限", a.cacheUsage(), func() {
 			labels := make([]string, len(cacheLimits))
 			chosen := cacheLimits[2].label
 			for i, l := range cacheLimits {
@@ -259,13 +259,14 @@ func (a *app) settingsContent(c *ui.Context) {
 					chosen = l.label
 				}
 			}
-			if ui.Select(c.Key("cache"), &chosen, labels).Label("歌曲缓存").Width(150).Disabled(a.cacheMoving).Changed() {
+			if ui.Select(c.Key("cache"), &chosen, labels).Label("选择缓存上限").Width(150).Disabled(a.cacheMoving).Changed() {
 				for _, l := range cacheLimits {
 					if l.label == chosen {
 						s.CacheMB = l.mb
 					}
 				}
-				a.changed()
+				s.save()
+				a.redraw()
 				a.applyCacheLimit()
 			}
 		})
