@@ -132,7 +132,6 @@ type AlbumProfile struct {
 	PublishTime int64    `json:"publishTime"`
 	Size        int      `json:"size"`
 	Description string   `json:"description"`
-	Company     string   `json:"company,omitempty"`
 	Songs       []Track  `json:"-"`
 }
 
