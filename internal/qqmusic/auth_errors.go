@@ -63,6 +63,10 @@ func LoginErrorMessage(err error) string {
 	if err == nil {
 		return ""
 	}
+	var session *SessionError
+	if errors.As(err, &session) {
+		return SessionErrorMessage(err)
+	}
 	var response *loginResponseError
 	if errors.As(err, &response) {
 		return response.message()

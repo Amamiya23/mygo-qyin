@@ -68,7 +68,7 @@ func TestExpiredQQSessionRestoresAndRefreshes(t *testing.T) {
 			t.Cleanup(func() {
 				readPersistedSession, writePersistedSession, deletePersistedSession = oldRead, oldWrite, oldDelete
 			})
-			if !RestoreSession() {
+			if ok, err := RestoreSession(); !ok || err != nil {
 				t.Fatal("refreshable expired QQ credential was discarded")
 			}
 			profile, err := Account()
@@ -143,7 +143,7 @@ func TestQQRefreshFailurePreservesRecoverableSession(t *testing.T) {
 			t.Cleanup(func() {
 				readPersistedSession, writePersistedSession, deletePersistedSession = oldRead, oldWrite, oldDelete
 			})
-			if !RestoreSession() {
+			if ok, err := RestoreSession(); !ok || err != nil {
 				t.Fatal("expired QQ session was not restored for renewal")
 			}
 			original := sessionSnapshot()

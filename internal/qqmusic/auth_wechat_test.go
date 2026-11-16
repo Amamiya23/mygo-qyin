@@ -206,7 +206,7 @@ func TestExpiredWechatSessionRestoresAndRefreshes(t *testing.T) {
 	readPersistedSession = func() ([]byte, error) { return stored, nil }
 	writePersistedSession = func(b []byte) error { stored = bytes.Clone(b); return nil }
 	t.Cleanup(func() { readPersistedSession, writePersistedSession = oldRead, oldWrite })
-	if !RestoreSession() {
+	if ok, err := RestoreSession(); !ok || err != nil {
 		t.Fatal("refreshable expired credential was discarded")
 	}
 	p, err := Account()
@@ -221,7 +221,7 @@ func TestExpiredWechatSessionRestoresAndRefreshes(t *testing.T) {
 	readPersistedSession = func() ([]byte, error) {
 		return []byte(`{"musicid":"10001","musickey":"old","loginType":3,"musickeyCreateTime":1,"keyExpiresIn":1,"refresh_key":"ignored"}`), nil
 	}
-	if RestoreSession() {
+	if ok, err := RestoreSession(); ok || err == nil {
 		t.Fatal("restored an unsupported credential family")
 	}
 }

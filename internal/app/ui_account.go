@@ -27,6 +27,9 @@ type accountRestoreState struct {
 	loading bool
 	failed  bool
 	boot    bool
+	reload  bool
+	rescan  bool
+	err     string
 }
 
 // beginLoginQR is replaced by UI tests so retry actions never contact QQ.
@@ -45,7 +48,7 @@ func (a *app) boot() {
 	a.startAccountRestore(true)
 }
 
-// startAccountRestore reads saved credentials at boot; retries use the retained in-memory session.
+// Retries re-read credentials only if storage failed before a session reached memory.
 func (a *app) startAccountRestore(boot bool) {
 	if a.accountRestore.loading {
 		return
@@ -54,10 +57,15 @@ func (a *app) startAccountRestore(boot bool) {
 	a.accountRestore.loading = true
 	a.accountRestore.boot = boot
 	gen := a.accountRestore.gen
+	reload := boot || a.accountRestore.reload
 	go func() {
 		var prof *qqmusic.Profile
 		var err error
-		if !boot || restoreLoginSession() {
+		saved := true
+		if reload {
+			saved, err = restoreLoginSession()
+		}
+		if err == nil && saved {
 			prof, err = readLoginAccount()
 		}
 		a.post(func() {
@@ -66,7 +74,7 @@ func (a *app) startAccountRestore(boot bool) {
 			}
 			if boot || err == nil {
 				applyLoginProfile(a, a.profile)
-				a.accountRestore.failed = err != nil
+				a.setAccountRestoreError(err)
 			}
 		})
 	}()
@@ -79,11 +87,22 @@ func (a *app) acceptAccountRestore(gen int, prof *qqmusic.Profile, err error) bo
 	}
 	a.accountRestore.loading = false
 	a.accountRestore.boot = false
-	a.accountRestore.failed = err != nil
+	a.setAccountRestoreError(err)
 	if err == nil {
 		a.profile = prof
 	}
 	return true
+}
+
+func (a *app) setAccountRestoreError(err error) {
+	r := &a.accountRestore
+	r.failed = err != nil
+	r.reload = qqmusic.SessionNeedsReload(err)
+	r.rescan = qqmusic.SessionNeedsLogin(err)
+	r.err = ""
+	if err != nil {
+		r.err = qqmusic.SessionErrorMessage(err)
+	}
 }
 
 // signedIn shows what is personal to prof, or to nobody.
@@ -376,7 +395,10 @@ func (a *app) accountMenu(c *ui.Context, row ui.Element) {
 		}
 		if a.profile == nil {
 			r := a.accountRestore
-			if r.failed || r.loading {
+			if r.err != "" {
+				ui.Text(c, r.err).FontSize(12).TextColor(a.pal.muted).MaxLines(5).Margin(6, 8)
+			}
+			if (r.failed || r.loading) && !r.rescan {
 				retry := a.menuItem(c, iconRepeat, "重试恢复登录", "").Disabled(r.loading)
 				if !r.loading {
 					retry.AutoFocus()
@@ -387,11 +409,11 @@ func (a *app) accountMenu(c *ui.Context, row ui.Element) {
 				}
 			}
 			label := "登录 QQ 音乐"
-			if r.failed {
+			if r.rescan {
 				label = "重新扫码登录"
 			}
 			scan := a.menuItem(c, iconUser, label, "")
-			if !r.failed || r.loading {
+			if !r.failed || r.loading || r.rescan {
 				scan.AutoFocus()
 			}
 			if scan.Clicked() {

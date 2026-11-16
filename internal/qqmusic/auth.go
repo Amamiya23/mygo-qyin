@@ -46,6 +46,8 @@ type Session struct {
 var authState struct {
 	sync.RWMutex
 	session Session
+	pending bool
+	version uint64
 	qr      map[string]qrLogin
 }
 
@@ -67,7 +69,12 @@ func sessionSnapshot() Session {
 	defer authState.RUnlock()
 	return authState.session
 }
-func setSession(s Session) { authState.Lock(); authState.session = s; authState.Unlock() }
+func setSession(s Session) {
+	authState.Lock()
+	authState.session, authState.pending = s, false
+	authState.version++
+	authState.Unlock()
+}
 func (s Session) valid() bool {
 	if s.MusicKey == "" || s.MusicID == "" || (s.LoginType != 2 && s.LoginType != 1) {
 		return false
@@ -106,31 +113,63 @@ var readPersistedSession = func() ([]byte, error) {
 	return b, err
 }
 
-// RestoreSession retains expired QQ and WeChat credentials when they can refresh.
-func RestoreSession() bool {
+// RestoreSession distinguishes an absent credential from a failed recovery.
+// Expired QQ and WeChat credentials are retained when they can refresh.
+func RestoreSession() (bool, error) {
+	authState.RLock()
+	version := authState.version
+	authState.RUnlock()
 	b, err := readPersistedSession()
 	var s Session
-	if err != nil || json.Unmarshal(b, &s) != nil || (!s.valid() && !s.canRefresh()) {
-		return false
+	if errors.Is(err, mygo.ErrSecretNotFound) || errors.Is(err, os.ErrNotExist) {
+		return false, nil
 	}
-	setSession(s)
-	return true
+	if err != nil {
+		return false, sessionFailure("read", s, err)
+	}
+	if err = json.Unmarshal(b, &s); err != nil {
+		return false, sessionFailure("decode", Session{}, err)
+	}
+	if !s.valid() && !s.canRefresh() {
+		return false, sessionFailure("unusable", s, nil)
+	}
+	authState.Lock()
+	defer authState.Unlock()
+	if authState.version != version {
+		return authState.session.valid() || authState.session.canRefresh(), nil
+	}
+	authState.session, authState.pending = s, false
+	authState.version++
+	return true, nil
 }
 
 func SaveSession() error {
-	s := sessionSnapshot()
-	if !s.valid() {
-		return errors.New("qqmusic: no valid session")
+	authState.Lock()
+	defer authState.Unlock()
+	return saveSessionLocked()
+}
+
+func saveSessionLocked() error {
+	s := authState.session
+	if !s.valid() && !s.canRefresh() {
+		return sessionFailure("unusable", s, nil)
 	}
 	b, err := json.Marshal(s)
 	if err != nil {
-		return err
+		return sessionFailure("save", s, err)
 	}
-	return writePersistedSession(b)
+	if err = writePersistedSession(b); err != nil {
+		return sessionFailure("save", s, err)
+	}
+	authState.pending = false
+	return nil
 }
 
 var writePersistedSession = func(b []byte) error {
 	if !mygo.IsDev() {
+		if len(b) > mygo.MaxSecretSize {
+			return errSessionTooLarge
+		}
 		return mygo.Secrets.Set(qqSessionSecret, b)
 	}
 	path, err := authSessionFile()
@@ -144,17 +183,26 @@ var writePersistedSession = func(b []byte) error {
 }
 
 func ClearSession() {
-	setSession(Session{})
+	authState.Lock()
+	defer authState.Unlock()
+	authState.session, authState.pending = Session{}, false
+	authState.version++
 	deletePersistedSession()
 }
 
 var deletePersistedSession = func() {
 	if !mygo.IsDev() {
-		mygo.Secrets.Delete(qqSessionSecret)
+		if err := mygo.Secrets.Delete(qqSessionSecret); err != nil {
+			sessionFailure("delete", Session{}, err)
+		}
 		return
 	}
 	if path, err := authSessionFile(); err == nil {
-		_ = os.Remove(path)
+		if err = os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			sessionFailure("delete", Session{}, err)
+		}
+	} else {
+		sessionFailure("delete", Session{}, err)
 	}
 }
 
@@ -168,6 +216,9 @@ func Account() (*Profile, error) {
 		return nil, err
 	}
 	if !s.valid() {
+		if s.MusicKey != "" {
+			return nil, sessionFailure("unusable", s, nil)
+		}
 		return nil, nil
 	}
 	var data struct {
@@ -185,8 +236,15 @@ func Account() (*Profile, error) {
 	}
 	if err != nil {
 		if !s.canRefresh() && isCredentialRejection(err) {
-			ClearSession()
-			return nil, nil
+			authState.Lock()
+			defer authState.Unlock()
+			if authState.session != s {
+				return nil, nil
+			}
+			authState.session, authState.pending = Session{}, false
+			authState.version++
+			deletePersistedSession()
+			return nil, sessionFailure("unusable", s, err)
 		}
 		return nil, err
 	}
@@ -353,6 +411,8 @@ func finishQR(key string, s Session) bool {
 		return false
 	}
 	authState.session = s
+	authState.pending = false
+	authState.version++
 	delete(authState.qr, key)
 	return true
 }
