@@ -287,6 +287,9 @@ func searchTracks(entries []object) []Track {
 			if t.Size320 == 0 {
 				t.Size320 = old.Size320
 			}
+			if t.SizeHiRes == 0 {
+				t.SizeHiRes = old.SizeHiRes
+			}
 			if t.SizeFLAC == 0 {
 				t.SizeFLAC = old.SizeFLAC
 			}

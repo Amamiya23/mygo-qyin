@@ -107,6 +107,11 @@ func (s *flacStream) parse(r io.Reader) (*frame.Frame, error) {
 
 func (s *flacStream) Read(dst []float32) (int, error) {
 	for len(s.pend) == 0 {
+		// QQ FLAC files can carry tags after their audio frames. Once the
+		// declared samples are consumed, those bytes are not another frame.
+		if s.info.NSamples > 0 && s.pos >= int64(s.info.NSamples) {
+			return 0, io.EOF
+		}
 		f, err := s.parse(s.r)
 		if err != nil {
 			if err == io.ErrUnexpectedEOF {

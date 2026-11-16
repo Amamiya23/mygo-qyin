@@ -279,6 +279,7 @@ func AlbumDetail(id int64) (*AlbumProfile, error) {
 		a.ID = id
 	}
 	p := &AlbumProfile{Album: a, Size: int(number(data, "total", "songnum")), Description: text(data, "desc"), Songs: convertTracks(objects(data, "list", "songlist"))}
+	p.Company = albumCompany(data)
 	if p.Size == 0 {
 		p.Size = len(p.Songs)
 	}
@@ -295,6 +296,21 @@ func AlbumDetail(id int64) (*AlbumProfile, error) {
 	}
 	return p, nil
 }
+
+// QQ uses "未确定" for missing company metadata. Keep real notices verbatim,
+// including years and track numbers, and try the alternate field if needed.
+func albumCompany(data object) string {
+	for _, company := range []string{text(data, "company"), text(obj(data["company_new"]), "name")} {
+		switch strings.TrimSpace(company) {
+		case "", "未确定", "未確定":
+			continue
+		default:
+			return company
+		}
+	}
+	return ""
+}
+
 func ArtistAlbums(id int64, limit, offset int) ([]AlbumProfile, bool, error) {
 	var data object
 	// This web catalog RPC rejects the logged-in mobile client identity with 104403.

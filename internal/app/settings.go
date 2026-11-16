@@ -267,11 +267,12 @@ func (s settings) applyAppearance() {
 	}
 }
 
-// qualityLevel is the stream level NetEase names a quality by.
+// qualityLevels maps stream levels to their settings labels.
 var qualityLevels = []struct{ level, label string }{
 	{"standard", "标准（128k）"},
 	{"exhigh", "极高（320k）"},
 	{"lossless", "无损（FLAC）"},
+	{"hires", "Hi-Res（FLAC）"},
 }
 
 // cacheLimits are the sizes the song cache may take, in megabytes.
