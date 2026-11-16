@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 	"unsafe"
@@ -23,9 +24,9 @@ var (
 	pulseErr  error
 
 	paSimpleNew   func(server, name *byte, dir int32, dev, stream *byte, spec *paSampleSpec, chmap, attr unsafe.Pointer, err *int32) uintptr
-	paSimpleWrite func(s uintptr, data unsafe.Pointer, bytes uintptr, err *int32) int32
-	paSimpleDrain func(s uintptr, err *int32) int32
+	paSimpleWrite uintptr // through a cCaller, on every write
 	paSimpleFree  func(s uintptr)
+	paSimpleDrain func(s uintptr, err *int32) int32
 	paStrerror    func(err int32) string
 
 	alsaLoad sync.Once
@@ -33,10 +34,9 @@ var (
 
 	sndPcmOpen      func(pcm *uintptr, name *byte, stream int32, mode int32) int32
 	sndPcmSetParams func(pcm uintptr, format, access int32, channels, rate uint32, softResample int32, latency uint32) int32
-	sndPcmWritei    func(pcm uintptr, buf unsafe.Pointer, frames uintptr) int
+	sndPcmWritei    uintptr // through a cCaller, on every write
 	sndPcmRecover   func(pcm uintptr, err int32, silent int32) int32
 	sndPcmDrain     func(pcm uintptr) int32
-	sndPcmPrepare   func(pcm uintptr) int32
 	sndPcmClose     func(pcm uintptr) int32
 	sndStrerror     func(err int32) string
 )
@@ -75,16 +75,20 @@ func appName() string {
 func openDevice(ahead time.Duration, rate int) (device, int, error) {
 	d, perr := openPulse(ahead, rate)
 	if perr == nil {
-		return d, max(rate/100, 1), nil
+		return d, rate / 100, nil
 	}
 	d, aerr := openALSA(ahead, rate)
 	if aerr == nil {
-		return d, max(rate/100, 1), nil
+		return d, rate / 100, nil
 	}
 	return nil, 0, errors.Join(perr, aerr)
 }
 
-type pulseDevice struct{ s uintptr }
+type pulseDevice struct {
+	s    uintptr
+	code int32 // pa_simple_write's error
+	c    cCaller
+}
 
 func openPulse(ahead time.Duration, rate int) (device, error) {
 	pulseLoad.Do(func() {
@@ -94,9 +98,9 @@ func openPulse(ahead time.Duration, rate int) (device, error) {
 			return
 		}
 		purego.RegisterLibFunc(&paSimpleNew, lib, "pa_simple_new")
-		purego.RegisterLibFunc(&paSimpleWrite, lib, "pa_simple_write")
-		purego.RegisterLibFunc(&paSimpleDrain, lib, "pa_simple_drain")
+		paSimpleWrite = cFunc(lib, "pa_simple_write")
 		purego.RegisterLibFunc(&paSimpleFree, lib, "pa_simple_free")
+		purego.RegisterLibFunc(&paSimpleDrain, lib, "pa_simple_drain")
 		purego.RegisterLibFunc(&paStrerror, lib, "pa_strerror")
 	})
 	if pulseErr != nil {
@@ -118,20 +122,25 @@ func openPulse(ahead time.Duration, rate int) (device, error) {
 	if s == 0 {
 		return nil, fmt.Errorf("audio: PulseAudio: %s", paStrerror(code))
 	}
-	return &pulseDevice{s}, nil
+	return &pulseDevice{s: s}, nil
 }
 
 func (d *pulseDevice) write(samples []float32) error {
-	var code int32
-	if paSimpleWrite(d.s, unsafe.Pointer(&samples[0]), uintptr(len(samples)*4), &code) < 0 {
-		return fmt.Errorf("audio: PulseAudio: %s", paStrerror(code))
+	// samples and d.code are on the heap, as a cCaller needs.
+	r := int32(d.c.call(paSimpleWrite, d.s, uintptr(unsafe.Pointer(&samples[0])), uintptr(len(samples)*4), uintptr(unsafe.Pointer(&d.code))))
+	runtime.KeepAlive(samples)
+	if r < 0 {
+		return fmt.Errorf("audio: PulseAudio: %s", paStrerror(d.code))
 	}
 	return nil
 }
 
 func (d *pulseDevice) close() { paSimpleFree(d.s) }
 
-type alsaDevice struct{ pcm uintptr }
+type alsaDevice struct {
+	pcm uintptr
+	c   cCaller
+}
 
 func openALSA(ahead time.Duration, rate int) (device, error) {
 	alsaLoad.Do(func() {
@@ -142,10 +151,9 @@ func openALSA(ahead time.Duration, rate int) (device, error) {
 		}
 		purego.RegisterLibFunc(&sndPcmOpen, lib, "snd_pcm_open")
 		purego.RegisterLibFunc(&sndPcmSetParams, lib, "snd_pcm_set_params")
-		purego.RegisterLibFunc(&sndPcmWritei, lib, "snd_pcm_writei")
+		sndPcmWritei = cFunc(lib, "snd_pcm_writei")
 		purego.RegisterLibFunc(&sndPcmRecover, lib, "snd_pcm_recover")
 		purego.RegisterLibFunc(&sndPcmDrain, lib, "snd_pcm_drain")
-		purego.RegisterLibFunc(&sndPcmPrepare, lib, "snd_pcm_prepare")
 		purego.RegisterLibFunc(&sndPcmClose, lib, "snd_pcm_close")
 		purego.RegisterLibFunc(&sndStrerror, lib, "snd_strerror")
 	})
@@ -169,6 +177,7 @@ func openALSALoaded(ahead time.Duration, rate int) (device, error) {
 	}
 	return nil, errors.Join(err, fallbackErr)
 }
+
 func openALSAPCM(name string, ahead time.Duration, rate int) (device, error) {
 	var pcm uintptr
 	if e := sndPcmOpen(&pcm, cstr(name), sndPcmStreamPlayback, 0); e < 0 {
@@ -178,12 +187,20 @@ func openALSAPCM(name string, ahead time.Duration, rate int) (device, error) {
 		sndPcmClose(pcm)
 		return nil, fmt.Errorf("audio: ALSA: %s", sndStrerror(e))
 	}
-	return &alsaDevice{pcm}, nil
+	return &alsaDevice{pcm: pcm}, nil
+}
+
+// Keep the native write call replaceable for the unsupported-rate fallback test.
+var alsaWriteSamples = func(d *alsaDevice, samples []float32) int {
+	n := int(d.c.call(sndPcmWritei, d.pcm, uintptr(unsafe.Pointer(&samples[0])), uintptr(len(samples)/channels)))
+	runtime.KeepAlive(samples)
+	return n
 }
 
 func (d *alsaDevice) write(samples []float32) error {
 	for len(samples) > 0 {
-		n := sndPcmWritei(d.pcm, unsafe.Pointer(&samples[0]), uintptr(len(samples)/channels))
+		// samples is on the heap, as a cCaller needs.
+		n := alsaWriteSamples(d, samples)
 		if n < 0 {
 			// An underrun or a suspend, recovered from by preparing the
 			// device again.

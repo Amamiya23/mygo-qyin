@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/raster"
 	"github.com/egoist/mygo/internal/scene"
+	"github.com/egoist/mygo/internal/text"
 	"github.com/egoist/mygo/transfer"
 )
 
@@ -21,6 +22,9 @@ type headless struct {
 	// maxButton is where the view shows the maximize button.
 	maxButton Rect
 	img       raster.Renderer
+	// text is the window's text system, its own so that the Tester's
+	// frames shape and paint apart from the other windows' (textSystem).
+	text *text.System
 	// requested is set when the view asks for a frame, from any goroutine
 	// for invalidate.
 	requested atomic.Bool
@@ -39,7 +43,10 @@ type headless struct {
 	opened        []string
 	// escapes counts the Escapes nothing handled.
 	escapes int
-	openErr error
+	// titleDoubles counts the double clicks a DragWindow handle left to
+	// the window.
+	titleDoubles int
+	openErr      error
 	// clipboardErr fails the writes of text to the clipboard
 	// (FailClipboard).
 	clipboardErr error
@@ -49,8 +56,11 @@ type headless struct {
 	bar    TitleBar
 	access *platform.AccessTree
 	// told are the announcements of the trees, and announced those the
-	// view made.
-	told, announced []string
+	// view made; alerts are what the trees told to read at once, and
+	// screenReader is set once assistive technology is on
+	// (Tester.UseScreenReader).
+	told, announced, alerts []string
+	screenReader            bool
 	// menu is the context menu shown, at menuAt, and chosen takes its
 	// choice.
 	menu   *platform.Menu
@@ -98,6 +108,16 @@ func (h *headless) refreshRate() float32              { return h.hz }
 func (h *headless) setFrameRate(fps float32)          { h.frameRate = fps }
 func (h *headless) framesAtOnce() bool                { return h.atOnce }
 func (h *headless) occluded() bool                    { return h.hidden }
+
+// textSystem returns the window's text system, making its own the first
+// time, as a Tester's window shapes and paints apart from the others'
+// shared one (#1722).
+func (h *headless) textSystem() *text.System {
+	if h.text == nil {
+		h.text = text.New()
+	}
+	return h.text
+}
 func (h *headless) present(s *scene.Scene) {
 	h.last = s
 	h.img.Render(s)
@@ -166,7 +186,7 @@ func (h *headless) finishDataDrag(r transfer.Result) {
 		done(r)
 	}
 }
-func (h *headless) titleBarDoubleClicked()            {}
+func (h *headless) titleBarDoubleClicked()            { h.titleDoubles++ }
 func (h *headless) setMaximizeButton(r Rect)          { h.maxButton = r }
 func (h *headless) escape()                           { h.escapes++ }
 func (h *headless) isDark() bool                      { return h.dark }
@@ -215,6 +235,7 @@ func (h *headless) post(func()) { h.requested.Store(true) }
 // announcements.
 func (h *headless) keepAccess(t *platform.AccessTree) {
 	h.access, h.told = t, append(h.told, t.Announcements...)
+	h.alerts = append(h.alerts, t.Alerts...)
 }
 
 func (h *headless) popupMenu(m *platform.Menu, x, y float32, chosen func(int)) {
@@ -353,7 +374,7 @@ func (t *Tester) Advance(d time.Duration) {
 		if t.asked() {
 			// Built anew after invalidate, as a window's.
 			if t.h.invalidated.Swap(false) {
-				t.rt.redraw = false
+				t.rt.buildNext()
 			}
 			t.h.requested.Store(false)
 			t.runLater()
@@ -414,8 +435,30 @@ func (t *Tester) send(ev platform.SurfaceEvent) {
 		// Counted as a backend counts.
 		ev.Clicks = t.clicks.Press(ev.Button, ev.X, ev.Y, uint32(t.now.UnixMilli()), platform.DefaultDoubleClick)
 	}
+	if ev.Kind == platform.KeyPressed && t.composingKey(ev.Mods) {
+		// The input method's, as a platform's filter keeps it.
+		t.settle()
+		return
+	}
 	t.rt.event(ev)
 	t.settle()
+}
+
+// composingKey reports whether a key pressed with mods goes to the input
+// method rather than to the content, as the focused client of text input
+// composes: the Tester's stand-in for the filter of each platform's input
+// method (macOS's keyDown: withholding the key while there is marked
+// text, GTK's input method filter, IMM32's VK_PROCESSKEY, a browser's
+// isComposing), so that Compose then Key shows what users get. As on
+// macOS, chords with Ctrl or Super go to the content, and the composition
+// stays as it is.
+func (t *Tester) composingKey(mods platform.Modifiers) bool {
+	ime := t.h.ime
+	if !ime.Active || ime.NoInputMethod || ime.Client == nil || mods&(platform.ModCtrl|platform.ModSuper) != 0 {
+		return false
+	}
+	_, marked := ime.Client.MarkedRange()
+	return marked
 }
 
 // SetSize resizes the window.
@@ -507,6 +550,7 @@ func platformPreferences(p Preferences) platform.Preferences {
 // draws text as the system does by default.
 func (t *Tester) SetLocale(tag string) {
 	t.h.lang = tag
+	t.rt.text.SetLanguage(tag)
 	t.rt.changed()
 	t.settle()
 }
@@ -627,13 +671,12 @@ func (t *Tester) targetLabelCenter(n *labelNode, button int) (float32, float32, 
 	if button == 0 {
 		for _, id := range hit {
 			st := t.rt.states[id]
-			if st == nil || st.flags&(flagScrollX|flagScrollY) == 0 || !st.barsShown || st.hideScrollbars {
+			if st == nil || !st.barsShown || st.barFlags == 0 {
 				continue
 			}
 			lx, ly := st.local(cx, cy)
 			lx, ly = lx+st.x, ly+st.y
-			g := scrollBars(Rect{st.x, st.y, st.w, st.h}, st.barInset, float32(st.contentW), float32(st.contentH),
-				float32(st.scrollX), float32(st.scrollY), st.flags, st.barWidth, st.rtl)
+			g := st.scrollbarGeometry(st.x, st.y, st.contentW, st.contentH, st.scrollX, st.scrollY)
 			if g.vertical && g.vTrack.Contains(lx, ly) || g.horizontal && g.hTrack.Contains(lx, ly) {
 				return 0, 0, fmt.Errorf("ui: %q is covered by a scroll bar", s)
 			}
@@ -932,6 +975,33 @@ func (t *Tester) Pinch(x, y, scale float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerZoom, X: float64(x), Y: float64(y), Scale: float64(scale)})
 }
 
+// TouchDown puts the finger id down at (x, y) on the touchscreen, which
+// TouchMove moves and TouchUp lifts, as a window's fingers come to the
+// views that follow them (Element.Touches). It sends only the touch: the
+// tap, scroll or pinch a backend makes of fingers comes from Press,
+// Scroll and Pinch. The window gives the finger an ID of its own
+// (Touch.ID); id may be used again once the finger lifts, as a
+// platform's are.
+func (t *Tester) TouchDown(id uint64, x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.TouchDown, ID: id, X: float64(x), Y: float64(y)})
+}
+
+// TouchMove moves the finger id, down since TouchDown, to (x, y).
+func (t *Tester) TouchMove(id uint64, x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.TouchMove, ID: id, X: float64(x), Y: float64(y)})
+}
+
+// TouchUp lifts the finger id at (x, y).
+func (t *Tester) TouchUp(id uint64, x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.TouchUp, ID: id, X: float64(x), Y: float64(y)})
+}
+
+// TouchCancel has the system take the finger id, as for a gesture of its
+// own at the screen's edge (TouchCanceled).
+func (t *Tester) TouchCancel(id uint64) {
+	t.send(platform.SurfaceEvent{Kind: platform.TouchCancel, ID: id})
+}
+
 // HoldModifiers presses or lets go of modifier keys on their own, as holding
 // Cmd does, leaving mods held.
 func (t *Tester) HoldModifiers(mods Modifiers) {
@@ -1007,8 +1077,11 @@ func (t *Tester) SetFocused(focused bool) {
 
 // Compose shows text as an input method's composition, with its caret at
 // rune caret, as while typing in Chinese or Japanese; an empty text ends
-// it. Type commits the text. Nothing is composed while the focused element
-// turned input methods off (InputMethod), as on the desktop.
+// it. Type commits the text. Keys pressed meanwhile without Ctrl or Super
+// go to the input method, as each platform's filter of input methods has
+// them, and the composition stays. Nothing is
+// composed while the focused element turned input methods off
+// (InputMethod), as on the desktop.
 func (t *Tester) Compose(text string, caret int) {
 	if t.h.ime.Active && t.h.ime.NoInputMethod {
 		return
@@ -1072,12 +1145,45 @@ func (t *Tester) FailClipboard(err error) { t.h.clipboardErr = err }
 // those no app opens, or opens them again for nil.
 func (t *Tester) FailOpenURL(err error) { t.h.openErr = err }
 
+// UseScreenReader turns assistive technology on, as a screen reader
+// attaching to the window: from then on every frame's accessibility tree
+// goes to it, and live regions read out what changes after it is on, as
+// ARIA's do (a status, a log, an alert); what showed before is not read.
+// Announcements and Alerts return what it would read.
+func (t *Tester) UseScreenReader() {
+	if t.h.screenReader {
+		return
+	}
+	t.h.screenReader = true
+	// What the view announced before is read by nobody.
+	t.h.announced = nil
+	t.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	t.h.alerts = nil
+}
+
 // Announcements returns what the view asked screen readers to read out
 // (Context.Announce), as a Router the titles of the pages it showed, and
-// forgets it.
+// forgets it. Once UseScreenReader is on it returns what a screen reader
+// reads politely, in order: those announcements, and the text of an ARIA
+// status (RoleStatus) when it changes and of what is added to a log
+// (RoleLog), each once.
 func (t *Tester) Announcements() []string {
 	a := t.h.announced
-	t.h.announced = nil
+	if t.h.screenReader {
+		// Announce texts are in the trees' too.
+		a = t.h.told
+	}
+	t.h.announced, t.h.told = nil, nil
+	return a
+}
+
+// Alerts returns what a screen reader reads at once, interrupting, in
+// order, and forgets it: the text of an ARIA alert (RoleAlert) as it
+// appears and whenever it changes. It is empty unless UseScreenReader is
+// on.
+func (t *Tester) Alerts() []string {
+	a := t.h.alerts
+	t.h.alerts = nil
 	return a
 }
 

@@ -230,6 +230,8 @@ func playOutput() {
 		if primary {
 			naturalTailPlayed = false
 		}
+		// Release the P before the blocking cCaller write, as upstream does.
+		runtime.Gosched()
 		if err := dev.write(buf); err != nil {
 			// Lost, or a null device trying the real one again.
 			sessionErr = err

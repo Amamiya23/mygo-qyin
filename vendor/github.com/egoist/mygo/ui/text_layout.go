@@ -156,7 +156,7 @@ func shapeTextAligned(s string, font Font, shape TextShape, spans []Span) *TextL
 		text.Shared().UseJustify()
 	}
 	if shape.Pretty {
-		linkPretty.Do(text.Shared().UsePretty)
+		text.Shared().UsePretty()
 	}
 	switch {
 	case shape.Align == Center:

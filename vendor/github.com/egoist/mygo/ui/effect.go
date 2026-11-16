@@ -100,16 +100,24 @@ func (p *Painter) paintEffect(e *node) bool {
 		return true // faded out
 	}
 	s := p.scale
+	// A kept layer alone renders at the scale its transform shows it at
+	// (layerScale), ls pixels a DIP; an effect's and a blur's at the
+	// window's.
+	q, still := float32(1), false
+	if e.cache != nil {
+		q, still = p.layerScale(e, from)
+	}
+	ls := s * q
 	var cv *Canvas
 	var x0, y0 float32
 	var w, h int
 	for again := false; ; again = true {
-		if cv, x0, y0, w, h = p.layer(e, from); cv == nil {
+		if cv, x0, y0, w, h = p.layer(e, from, ls); cv == nil {
 			return false // too large to render apart: as it is
 		}
-		render := layerPaint(e, -x0/s, -y0/s, p.lifting, view)
+		render := layerPaint(e, -x0/ls, -y0/ls, p.lifting, view)
 		if e.cache != nil {
-			e.cache.draw(cv, p, s, w, h, render)
+			e.cache.draw(cv, p, ls, w, h, render)
 		} else {
 			cv.drawPart(p, s, w, h, render)
 		}
@@ -118,8 +126,8 @@ func (p *Painter) paintEffect(e *node) bool {
 		}
 		// What it painted beyond the layer, as a shadow or a blur inside
 		// it, which the layer cut: drawn again, holding it.
-		more := grown(inkUnion(content, p.keepInk(e, cv, x0, y0)))
-		if layerHolds(x0, y0, w, h, s, more) {
+		more := grown(inkUnion(content, p.keepInk(e, cv, x0, y0, ls)))
+		if layerHolds(x0, y0, w, h, ls, more) {
 			break
 		}
 		from = more
@@ -132,15 +140,14 @@ func (p *Painter) paintEffect(e *node) bool {
 	}
 	// The canvas, blurred unless kept alone, in its pixels, where it was
 	// drawn from, faded with e's opacity as one image (paintGroup).
-	p.layerOp(cv, x0, y0, w, h, p.opacity*e.fade(), e.blur*s)
+	p.layerOp(cv, x0, y0, w, h, p.opacity*e.fade(), e.blur*s, q, still)
 	return true
 }
 
 // layer returns e's state's canvas, made or resized to hold the pixels
-// of from, an area of e's own space, on the pixel grid: their corner and
-// their size, or a nil canvas when too large to render apart.
-func (p *Painter) layer(e *node, from Rect) (cv *Canvas, x0, y0 float32, w, h int) {
-	s := p.scale
+// of from, an area of e's own space, on the grid of s pixels a DIP: their
+// corner and their size, or a nil canvas when too large to render apart.
+func (p *Painter) layer(e *node, from Rect, s float32) (cv *Canvas, x0, y0 float32, w, h int) {
 	x0 = float32(math.Floor(float64(from.X * s)))
 	y0 = float32(math.Floor(float64(from.Y * s)))
 	x1 := float32(math.Ceil(float64((from.X + from.W) * s)))
@@ -177,25 +184,29 @@ func layerPaint(e *node, dx, dy float32, lifting *node, view Rect) func(cp *Pain
 			cp.clip = Rect{view.X + dx, view.Y + dy, view.W, view.H}
 		}
 		// The subtree in e's own space, moved to the bitmap's corner:
-		// positions shift, and the transforms of those transformed lose
-		// e's own, as a layer of e's content.
+		// positions shift, and the transforms of those transformed are
+		// rebased into the layer's space, losing e's own if it has one,
+		// as a layer of e's content.
 		shift(e, dx, dy)
-		if world.Set {
-			unworld(e, world, dx, dy)
-		}
+		unworld(e, world, dx, dy)
 		cp.element(e)
-		if world.Set {
-			restoreVisual(e)
-		}
+		restoreVisual(e)
 		shift(e, -dx, -dy)
 		e.effecting = false
 	}
 }
 
 // layerOp paints the top left w×h pixels of cv where they were drawn from,
-// at x0, y0 pixels, with opacity and blurred by blur pixels.
-func (p *Painter) layerOp(cv *Canvas, x0, y0 float32, w, h int, opacity, blur float32) {
+// at x0, y0 pixels, with opacity and blurred by blur pixels. Its pixels
+// are q times the painter's (layerScale): drawn q times smaller under the
+// painter's transform, or, still, and then only moved, on whole pixels.
+func (p *Painter) layerOp(cv *Canvas, x0, y0 float32, w, h int, opacity, blur, q float32, still bool) {
 	s := p.scale
+	if q != 1 {
+		p.scaledLayerOp(scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: x0, Y: y0, W: float32(w), H: float32(h)}, Image: cv.img,
+			Src: scene.Rect{W: float32(w), H: float32(h)}, Opacity: opacity, Blur: blur}, q, still)
+		return
+	}
 	area := Rect{X: x0 / s, Y: y0 / s, W: float32(w) / s, H: float32(h) / s}
 	rect := p.snap(area)
 	if p.transform.Set {
@@ -206,7 +217,8 @@ func (p *Painter) layerOp(cv *Canvas, x0, y0 float32, w, h int, opacity, blur fl
 
 // unworld takes off the transform w of e's subtree, laid out as it moved
 // by (dx, dy): each one's maps its layout, moved, as w's inverse does
-// what it mapped before, so that e itself draws untransformed.
+// what it mapped before, so that e itself draws untransformed. An unset w
+// is the identity: the transforms are only conjugated by the shift.
 func unworld(e *node, w scene.Affine, dx, dy float32) {
 	inv, ok := w.Inverse()
 	if !ok {

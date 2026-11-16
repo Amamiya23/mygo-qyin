@@ -259,7 +259,11 @@ func (ed *editor) key(c *context, st *state, k editEvent) {
 			ed.deleteRange(b.prevWord(ed.caret), ed.caret)
 		case ed.caret > 0:
 			ed.record(true)
-			ed.replace(ed.graphemes.prev(b, ed.caret), ed.caret, "")
+			from := ed.graphemes.prev(b, ed.caret)
+			if text.IsCombiningMark(b.runeAt(ed.caret - 1)) {
+				from = ed.caret - 1
+			}
+			ed.replace(from, ed.caret, "")
 		}
 		ed.hasDesired = false
 		return

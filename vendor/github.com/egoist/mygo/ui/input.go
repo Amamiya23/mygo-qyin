@@ -17,9 +17,30 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		// A menu asking about its item changes nothing.
 		return rt.commandEnabled(ev.Text)
 	}
-	if ev.Kind != platform.SurfaceFrame {
-		// Whatever the event changes, the next frame builds anew.
+	if ev.Kind >= platform.TouchDown && ev.Kind <= platform.TouchCancel {
+		// Fingers, which only views that ask follow (Touches): the
+		// pointer events the backend makes of them come on their own.
+		if rt.touchIn != nil {
+			rt.fromWindow(&ev)
+			rt.touchIn.event(rt, ev)
+		}
+		return false
+	}
+	switch ev.Kind {
+	case platform.SurfaceFrame:
+	case platform.PointerMove, platform.PointerLeave:
+		// The frame a drawing that moves asks for builds anew, but a
+		// hover asking for one only painting (askLook) stands: what
+		// else a move changes asks for a frame built anew itself
+		// (setHover, deliver, PointerPosition, a press dragging), and the
+		// modifier keys it brings changing builds one too.
 		rt.redraw = false
+		if Modifiers(ev.Mods) != rt.mods {
+			rt.buildNext()
+		}
+	default:
+		// Whatever the event changes, the next frame builds anew.
+		rt.buildNext()
 	}
 	switch ev.Kind {
 	case platform.SurfaceFrame, platform.SurfaceResize, platform.SurfaceShown, platform.SurfaceHidden:
@@ -211,31 +232,67 @@ func (rt *engine) setHover(chain []uint64) bool {
 	if !changed {
 		return false
 	}
-	// Only elements that look at their hover need a frame.
-	need := rt.watchHover(chain) || rt.watchHover(rt.hover)
+	// Only elements that look at their hover need a frame, and those
+	// that do as they paint alone one that paints.
+	build, look := rt.hoverNeeds(rt.hover, chain)
 	rt.hover = chain
-	if need {
+	switch {
+	case build:
 		rt.requestFrame()
+	case look:
+		rt.askLook()
 	}
 	rt.updateCursor()
 	return true
 }
 
-// watchHover reports whether an element of chain looks at its hover.
-func (rt *engine) watchHover(chain []uint64) bool {
-	for _, id := range chain {
-		if s := rt.states[id]; s != nil && s.flags&(flagHover|flagTrackPointer) != 0 {
-			return true
+// hoverNeeds reports what the hover going from the elements old to those
+// of chain needs: a frame built anew, for an element that read its hover
+// as the view built it (Hovered), shows a tip or follows the pointer, or
+// one only painting the last frame's elements again, for elements whose
+// look alone follows their hover (hoverLook), as a button's background:
+// building every element anew for a button the pointer came over would
+// cost what the whole view does, not what changed. Only the elements
+// that came under the pointer or left it changed, but for those that
+// follow the pointer (flagTrackPointer) and a window the inspector shows,
+// which shows the hover. An element that looks at its hover (flagHover)
+// without telling how is built anew, as it may read it otherwise.
+func (rt *engine) hoverNeeds(old, chain []uint64) (build, look bool) {
+	if rt.insp.open {
+		return true, false
+	}
+	for _, ids := range [2][]uint64{old, chain} {
+		for _, id := range ids {
+			s := rt.states[id]
+			if s == nil {
+				continue
+			}
+			if s.flags&flagTrackPointer != 0 {
+				return true, false
+			}
+			if slices.Contains(old, id) && slices.Contains(chain, id) {
+				continue // hovered still
+			}
+			switch {
+			case s.hoverBuilt || s.tip || s.flags&flagHover != 0 && !s.hoverLook || s.trec != nil:
+				// A Transition moves its colors in frames built anew.
+				return true, false
+			case s.hoverLook:
+				look = true
+			}
 		}
 	}
-	return false
+	return false, look
 }
 
-// rehover makes the elements under the pointer hover after a frame built
-// and laid them out anew, as the row taking the place of one removed: a
-// pointer standing still sends no event that would. It asks for the frame
-// that shows them hovering, which a frame being built cannot.
-func (rt *engine) rehover() {
+// rehover makes the elements under the pointer hover once a frame built
+// and laid them out anew, as the row taking the place of one removed or a
+// row a scroll brought there: a pointer standing still sends no event
+// that would. The frame paints them hovering; it asks for the next to
+// build them so, for what read its hover as it built, which a frame being
+// built cannot. painted tells that the frame painted already: what looks
+// at its hover as it paints alone then asks for one painting again.
+func (rt *engine) rehover(painted bool) {
 	if rt.pressed != nil || rt.scrollDrag.st != nil {
 		// The hover holds the elements under the pointer as the press
 		// began (Hovered).
@@ -246,14 +303,25 @@ func (rt *engine) rehover() {
 		chain = rt.appendHitChain(chain, rt.pointerX, rt.pointerY)
 	}
 	old := rt.hover
+	build, look := rt.hoverNeeds(old, chain)
 	if !rt.setHover(chain) {
 		rt.chain = chain[:0]
 		return
 	}
+	// setHover's frame is dropped while one is built. A look the frame
+	// paints after this needs none.
 	rt.chain = old[:0]
-	if rt.watchHover(chain) {
-		rt.redraw, rt.repaintDue = false, time.Time{}
-		rt.host.requestFrame()
+	switch {
+	case build:
+		rt.repaintDue = time.Time{}
+		rt.askBuild()
+	case look && painted && !rt.buildAsked:
+		// Painting whole the frame asked for to paint drawings that move
+		// (redraw), or one of its own.
+		rt.lookDue = true
+		if !rt.redraw {
+			rt.host.requestFrame()
+		}
 	}
 }
 
@@ -291,28 +359,81 @@ func (rt *engine) unhoverGone() bool {
 		rt.chain = chain[:0]
 		return false
 	}
+	build, _ := rt.hoverNeeds(old, chain)
 	rt.hover, rt.chain = chain, old[:0]
-	return rt.watchHover(chain) || rt.watchHover(old)
+	// What looks at its hover as it paints shows it as this frame paints.
+	return build
+}
+
+// hoverScrolled makes what a scroll since the last frame brings under the
+// pointer hover before the view builds: what is inside a container that
+// scrolled moves by as much as its offset did, so the last frame's layout,
+// moved by that, tells it, as the row a wheel or a touchpad brings under a
+// pointer standing still. What reads its hover as it builds sees the frame
+// that shows the scroll as it is, rather than as it was until the frame
+// after (rehover), which then has nothing to change and asks for none.
+func (rt *engine) hoverScrolled() {
+	if len(rt.hover) == 0 || !rt.pointerIn || rt.pressed != nil || rt.scrollDrag.st != nil {
+		return
+	}
+	moved := false
+	for _, id := range rt.hover {
+		if s := rt.states[id]; s != nil && (s.scrollX != s.laidX || s.scrollY != s.laidY) {
+			moved = true
+			break
+		}
+	}
+	if !moved {
+		return
+	}
+	chain := rt.chain[:0]
+	for i := len(rt.hits) - 1; i >= 0; i-- {
+		h := &rt.hits[i]
+		if !rt.containsScrolled(h.st, h.r, rt.pointerX, rt.pointerY, true) {
+			continue
+		}
+		for s := h.st; s != nil; s = rt.states[s.parent] {
+			chain = append(chain, s.id)
+			if s.parent == 0 {
+				break
+			}
+		}
+		break
+	}
+	old := rt.hover
+	if !rt.setHover(chain) {
+		rt.chain = chain[:0]
+		return
+	}
+	rt.chain = old[:0]
 }
 
 func (rt *engine) pointerMove(x, y float32) {
 	if d := &rt.scrollDrag; d.st != nil {
 		s := d.st
-		g := d.bars(s.barWidth)
+		g := s.scrollbarGeometry(s.x, s.y, d.contentW, d.contentH, s.scrollX, s.scrollY)
 		lx, ly := s.local(x, y)
-		lx += s.x
-		ly += s.y
+		travel := g.vTrack.H - 4 - g.v.H
+		moved := ly + s.y - d.start
+		reach, now := d.contentH-float64(s.h), s.contentH-float64(s.h)
 		if d.horizontal {
-			if travel := g.hTrack.W - 4 - g.h.W; travel > 0 {
-				moved := lx - d.start
-				if s.rtl {
-					// The offset counts from the right.
-					moved = -moved
-				}
-				s.scrollTo(dragTo(d.from, moved, travel, d.contentW-float64(s.w), s.contentW-float64(s.w)), s.scrollY)
+			travel = g.hTrack.W - 4 - g.h.W
+			moved = lx + s.x - d.start
+			reach, now = d.contentW-float64(s.w), s.contentW-float64(s.w)
+			if s.rtl {
+				// The offset counts from the right.
+				moved = -moved
 			}
-		} else if travel := g.vTrack.H - 4 - g.v.H; travel > 0 {
-			s.scrollTo(s.scrollX, dragTo(d.from, ly-d.start, travel, d.contentH-float64(s.h), s.contentH-float64(s.h)))
+		}
+		if travel > 0 {
+			offset := dragTo(d.from, moved, travel, reach, now)
+			x, y := s.scrollX, s.scrollY
+			if d.horizontal {
+				x = offset
+			} else {
+				y = offset
+			}
+			s.scrollTo(x, y)
 		}
 		rt.pointerX, rt.pointerY = x, y
 		rt.requestFrame()
@@ -479,9 +600,12 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 		return
 	}
 	if button == 0 && target.flags&flagDragWindow != 0 && target.flags&(interactive&^flagDragWindow) == 0 {
-		if clicks == 2 {
+		switch {
+		case clicks == 2 && target.handleDoubleClick:
+			target.doubleClicks++
+		case clicks == 2:
 			rt.host.titleBarDoubleClicked()
-		} else {
+		default:
 			rt.host.startDrag()
 		}
 		return
@@ -674,7 +798,11 @@ func (rt *engine) pointerUp(button, clicks int, canceled bool) {
 			if s.dragRec.dragged(rt, s) {
 				break // it moved the element (Draggable): no click
 			}
-			s.click(s.pressMods)
+			if clicks > 1 {
+				s.quietClick(s.pressMods)
+			} else {
+				s.click(s.pressMods)
+			}
 		case 1:
 			r.rightClicks++
 		}
@@ -699,11 +827,12 @@ func (rt *engine) applyRelease(s *state) {
 	s.pressed = rt.pressed == s
 	s.released, s.canceled = r.released, r.canceled
 	s.clicks += r.clicks
+	s.quietClicks += r.quietClicks
 	s.rightClicks += r.rightClicks
 	if r.clicks > 0 {
 		s.clickMods = r.clickMods
 	}
-	r.due, r.canceled, r.clicks, r.rightClicks = false, false, 0, 0
+	r.due, r.canceled, r.clicks, r.quietClicks, r.rightClicks = false, false, 0, 0, 0
 	if rt.pressEnded == s {
 		rt.pressEnded = nil
 	}
@@ -720,6 +849,18 @@ func (s *state) click(mods Modifiers) {
 	}
 	s.clicks++
 	s.clickMods = mods
+}
+
+// quietClick clicks s as click does, with a click its row does not report
+// as one of its own (RowClicked): a later click of a double or triple
+// click, or assistive technology's focus choosing a row.
+func (s *state) quietClick(mods Modifiers) {
+	if r := &s.releaseLater; r.due {
+		r.quietClicks++
+	} else {
+		s.quietClicks++
+	}
+	s.click(mods)
 }
 
 func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool) {
@@ -809,11 +950,16 @@ func dragTo(from float64, moved, travel float32, reach, now float64) float64 {
 	return max(0, min(along, 1)) * now
 }
 
-// bars returns the scroll bars of the container being dragged, with the
-// content's size as the drag started.
-func (d *scrollDrag) bars(width float32) scrollGeometry {
-	s := d.st
-	return scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(d.contentW), float32(d.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, width, s.rtl)
+// keepBarsVisible is separate from the two axis bits in state.barFlags.
+const keepBarsVisible = 1
+
+// scrollbarGeometry lays out both axes before filtering their visibility,
+// so hiding a bar leaves the other track and the shared corner in place.
+func (s *state) scrollbarGeometry(left, top float32, w, h, x, y float64) scrollGeometry {
+	g := scrollBars(Rect{left, top, s.w, s.h}, s.barInset, float32(w), float32(h), float32(x), float32(y), s.flags, *s.barStyle, s.rtl)
+	g.vertical = g.vertical && s.barFlags&flagScrollY != 0
+	g.horizontal = g.horizontal && s.barFlags&flagScrollX != 0
+	return g
 }
 
 // scrollBy scrolls a container by dx, dy within its content, and reports
@@ -1507,15 +1653,27 @@ const (
 // them, as in CSS, and the others hover no more: a button that shows over
 // a row stays as it is pressed, and dragging over other elements does not
 // light them up.
+//
+// Read as the view builds, the pointer coming over the element or leaving
+// it builds the view anew, every element of it; read in a Draw callback,
+// as the window paints, it only paints the last frame's elements again,
+// as the toolkit's controls do for their hovered looks.
 func (e *node) Hovered() bool {
 	if !e.hasState() {
 		return false
 	}
-	e.flags |= flagHover
+	rt := e.c.rt
+	if rt.painting {
+		// Its look follows its hover (hoverNeeds), and the element is as
+		// built.
+		e.st.hoverLook = true
+	} else {
+		e.flags |= flagHover
+		e.st.hoverBuilt = true
+	}
 	if e.IsDisabled() {
 		return false
 	}
-	rt := e.c.rt
 	if rt.insp.isForced(e.id, forceHover) {
 		return true
 	}
@@ -1555,9 +1713,12 @@ func (e *node) Pressed() bool {
 	if !e.hasState() {
 		return false
 	}
-	e.flags |= flagClickable | flagHover
 	s := e.st
 	rt := e.c.rt
+	if !rt.painting {
+		// As it paints, the element is as built.
+		e.flags |= flagClickable | flagHover
+	}
 	if rt.insp.isForced(e.id, forceActive) && !e.disabled() {
 		return true
 	}
@@ -1663,22 +1824,59 @@ func (e *node) FocusWithin() bool {
 
 // Focus gives the element the keyboard focus. Called in every frame, it
 // keeps it there; AutoFocus gives it once. A field around an input, as
-// SearchField's, gives it to its input, where typing goes.
-func (e *node) Focus() *node {
+// SearchField's, gives it to its input, where typing goes. When the focus
+// moves to it, it scrolls the containers around it as little as shows it,
+// as Tab does and the web's focus() does; ScrollIntoView lines it up
+// otherwise. While a pointer button is held it scrolls nothing: what a
+// press focuses, as the line a grip moves, is under the pointer.
+//
+// Its options, as the web's focus() options, keep the scroll where the
+// user left it: the focus returned to a cell of a grid when a dialog
+// closes, without scrolling the grid.
+//
+//	cell.Focus(ui.FocusOptions{PreventScroll: true})
+func (e *node) Focus(options ...FocusOptions) *node {
+	if len(options) > 1 {
+		panic("ui: Focus takes at most one FocusOptions")
+	}
+	var o FocusOptions
+	if len(options) > 0 {
+		o = options[0]
+	}
+	e.focus(!o.PreventScroll)
+	return e
+}
+
+// FocusOptions say how Focus gives the focus, as the web's FocusOptions
+// do. The zero options do what Focus does without them.
+type FocusOptions struct {
+	// PreventScroll keeps the containers around the element where they
+	// are when the focus moves to it, as the web's preventScroll does,
+	// rather than scrolling them as little as shows it.
+	PreventScroll bool
+}
+
+// focus gives the element the keyboard focus, as Focus does, and scrolls
+// it into view when reveal is set and the focus moves to it. A click on a
+// control focuses it where the user scrolled it, as on the web, and so does
+// the focus a page or a transition gives back.
+func (e *node) focus(reveal bool) {
 	if e != nil && e.focusTo != nil {
-		e.focusTo.Focus()
-		return e
+		e.focusTo.focus(reveal)
+		return
 	}
 	if !e.hasState() {
-		return e
+		return
 	}
 	e.flags |= flagFocusable
 	rt := e.c.rt
 	if rt.focused != e.id {
 		rt.focused = e.id
 		rt.blinkStart = rt.now()
+		if reveal && rt.buttons == 0 {
+			rt.reveal(e.id)
+		}
 	}
-	return e
 }
 
 // AutoFocus gives the element the keyboard focus in the frame it appears,
@@ -1923,13 +2121,13 @@ func (e *node) Dismissed() bool { return e.dismissed }
 func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 	for _, id := range chain {
 		s := rt.states[id]
-		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 || !s.barsShown || s.hideScrollbars {
+		if s == nil || !s.barsShown || s.barFlags == 0 {
 			continue
 		}
 		lx, ly := s.local(x, y)
 		lx += s.x
 		ly += s.y
-		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, s.barWidth, s.rtl)
+		g := s.scrollbarGeometry(s.x, s.y, s.contentW, s.contentH, s.scrollX, s.scrollY)
 		d := &rt.scrollDrag
 		w, h := float64(s.w), float64(s.h)
 		s.wheel = nil

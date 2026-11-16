@@ -104,17 +104,20 @@ func (b *Builder) prepare(in *Instance, m scene.Affine, c *clip) bool {
 // Overlapping antialiased edges still need their multiplied pixel mask.
 func (b *Builder) analyticClip() (clip, bool) {
 	var rounded, hard *clip
-	rounds, fractions := 0, 0
 	sc := b.stack[len(b.stack)-1].scissor
 	area := scene.Rect{X: float32(sc.Left), Y: float32(sc.Top), W: float32(sc.Right - sc.Left), H: float32(sc.Bottom - sc.Top)}
 	for i := range b.stack {
 		c := &b.stack[i]
-		if c.radii != [4]float32{} {
-			rounds++
-		} else if integerClip(c.rect) {
+		// Only Metal's shader evaluates continuous corners (SplitCorners):
+		// the other renderers, which never draw them in an app, keep the
+		// mask. On Metal, a pane against the side of a rounded frame, as a
+		// sidebar, cuts the frame's curves in the shader rather than with a
+		// mask of the whole frame (#1511).
+		if continuous(c.radii) && !b.contClips {
+			return clip{}, false
+		}
+		if c.radii == [4]float32{} && integerClip(c.rect) {
 			continue // the batch scissor implements these edges exactly
-		} else {
-			fractions++
 		}
 		if clipOpaqueWithin(c, area) {
 			continue
@@ -137,12 +140,6 @@ func (b *Builder) analyticClip() (clip, bool) {
 		}
 		return clip{rect: area}, true
 	}
-	// Keep the existing single-clip path for continuous corners, but do not
-	// extend it: only Metal currently evaluates their curves in the shader.
-	continuous := rounded.radii[0] < 0 || rounded.radii[1] < 0 || rounded.radii[2] < 0 || rounded.radii[3] < 0
-	if continuous && (rounds != 1 || fractions != 0) {
-		return clip{}, false
-	}
 	if hard != nil {
 		return intersectAnalyticClip(*rounded, hard.rect)
 	}
@@ -158,8 +155,10 @@ func integerClip(r scene.Rect) bool {
 	return true
 }
 
-// clipCornerBounds conservatively encloses each curve and its antialiasing.
-// Continuous corners reach less than two radii along either edge.
+// clipCornerBounds conservatively encloses each curve and its
+// antialiasing: a continuous one (negative radius) reaches contExtent
+// times its radius from its corner, where the shader stops evaluating it
+// (contValue).
 func clipCornerBounds(c *clip) [4]scene.Rect {
 	r := c.rect
 	var boxes [4]scene.Rect
@@ -167,11 +166,10 @@ func clipCornerBounds(c *clip) [4]scene.Rect {
 		if radius == 0 {
 			continue
 		}
-		reach := radius
-		if reach < 0 {
-			reach *= -2
+		reach := radius + 1
+		if radius < 0 {
+			reach = -radius*contExtent + 1
 		}
-		reach++
 		box := scene.Rect{X: r.X, Y: r.Y, W: reach, H: reach}
 		if i == 1 || i == 2 {
 			box.X = r.X + r.W - reach
@@ -231,7 +229,13 @@ func intersectAnalyticClip(c clip, hard scene.Rect) (clip, bool) {
 			c.radii[i] = 0
 		} else if box.W > r.W/2 || box.H > r.H/2 {
 			// Moving a surviving curve across the new midpoint would change
-			// which corner the shader evaluates there.
+			// which corner the shader evaluates there. A continuous curve
+			// keeps its shape too, which depends on the sides and its
+			// neighbors' radii only where they are shorter than
+			// contExtent times the radii they join (the shader's
+			// contCorner): a side the cut leaves is as long as before, with
+			// the same neighbor, and one it shortens is still twice this
+			// box long, its neighbor cut away beyond it.
 			return clip{}, false
 		}
 	}

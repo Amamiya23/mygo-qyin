@@ -66,9 +66,9 @@ func (e *node) inputParams(width float32) text.Params {
 // Each control owns its current layout. Caching changing input strings in
 // the system's display-text cache would retain old documents across edits.
 func (ed *editor) shapeInput(params text.Params) *text.Layout {
-	gen := textSystem().Generation()
+	gen := ed.sys.Generation()
 	if ed.layout == nil || ed.layout.Params != params || ed.layoutGeneration != gen {
-		ed.layout = textSystem().Shape(params)
+		ed.layout = ed.sys.Shape(params)
 		ed.layoutGeneration = gen
 		ed.layoutVersion, ed.layoutCompose, ed.layoutPassword = ed.buf.version, ed.compose, ed.password
 	}
@@ -80,7 +80,7 @@ func (e *node) inputHeight(cw float32) float32 {
 	if ed.area != nil {
 		p := e.textParams(0)
 		p.Text = ""
-		line := textSystem().Layout(p).Lines[0].Height
+		line := ed.sys.Layout(p).Lines[0].Height
 		if lo, hi := ed.lines[0], ed.lines[1]; hi > 0 {
 			// As high as its text wrapped at the width it gets, between its
 			// least and most lines.
@@ -114,9 +114,10 @@ func (e *node) layoutInput(cw, ch float32) {
 	}
 	// Text narrower than the box goes where TextAlign puts it: Start is
 	// the right of an input laid out right to left, whatever its text, as
-	// that of Text.
+	// that of Text. Its last column stays for the caret, as where the text
+	// scrolls: a caret on the box's right edge would be clipped away.
 	rtl := e.rtl()
-	if room := cw - l.Width; room > 0 {
+	if room := cw - l.Width - 1; room > 0 {
 		switch align := e.resolvedText().align; {
 		case align == Center:
 			ed.originX += room / 2
@@ -166,7 +167,7 @@ func (e *node) paintInput(p *Painter) {
 	focused := e.Focused()
 	ts := e.resolvedText()
 	if ed.buf.n == 0 && ed.compose == "" && ed.placeholder != "" {
-		pl := textSystem().Layout(e.placeholderParams(box.W))
+		pl := ed.sys.Layout(e.placeholderParams(box.W))
 		color := t.TextMuted
 		if ed.placeholderColorSet {
 			color = ed.placeholderColor

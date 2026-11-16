@@ -400,6 +400,10 @@ func (b *buffer) wordAt(i int) (start, end int) {
 }
 
 func (b *buffer) runeAt(i int) rune {
+	if !b.indexed {
+		r, _ := utf8.DecodeRuneInString(b.s[b.byteOf(i):])
+		return r
+	}
 	r, _ := rope.TextOf(b.root).RuneAt(rope.ByteOfRune(b.root, i))
 	return r
 }

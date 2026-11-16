@@ -54,6 +54,8 @@ func (ShellModule) ShowItemInFolder(path string) {
 // and leaves the item where it is, when the item cannot go to the trash
 // and would be deleted permanently instead: on Windows one too big for the
 // recycle bin, or on a drive without one, as network shares are.
+// In the rare case Windows deletes it for good all the same, TrashItem
+// fails and says it was deleted.
 func (ShellModule) TrashItem(path string) error {
 	needsApp("Shell.TrashItem")
 	abs, err := filepath.Abs(path)
@@ -61,6 +63,47 @@ func (ShellModule) TrashItem(path string) error {
 		return err
 	}
 	return onMainValue(func() error { return backend().Shell().TrashItem(abs) })
+}
+
+// TrashItemResult moves a file or directory to the trash and returns the
+// path where it landed inside the trash directory, so an app can put it
+// back exactly. A relative path is relative to the working directory.
+//
+// It is supported on macOS only. On Windows, Linux and in browsers it
+// returns ("", ErrUnsupported): Windows's IFileOperation and Linux's
+// g_file_trash do not report the resulting path. Use TrashItem there, and
+// record the original path yourself before trashing, as Finder's "Put
+// Back" does on macOS.
+//
+// On macOS the returned path is where the system left the item, which may
+// not be the same name as the input: Finder renames an item that collides
+// with one already in the trash ("foo.txt" -> "foo 2.txt").
+func (ShellModule) TrashItemResult(path string) (string, error) {
+	needsApp("Shell.TrashItemResult")
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	var trashPath string
+	err = onMainValue(func() error {
+		trashPath, err = backend().Shell().TrashItemResult(abs)
+		return err
+	})
+	return trashPath, err
+}
+
+// PreviewItem shows the item at path in the Quick Look panel, the preview
+// Finder opens with the space bar. A relative path is relative to the
+// working directory.
+//
+// It is supported on macOS only; all other platforms return ErrUnsupported.
+func (ShellModule) PreviewItem(path string) error {
+	needsApp("Shell.PreviewItem")
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	return onMainValue(func() error { return backend().Shell().PreviewItem(abs) })
 }
 
 // FileIcon returns the icon the file manager shows for a file, a folder or
@@ -156,6 +199,22 @@ func (ShellModule) LaunchApp(app InstalledApp) error {
 		return errors.New("mygo: Shell.LaunchApp: the app has no path")
 	}
 	return onMainValue(func() error { return backend().Shell().OpenApplication(app.Path) })
+}
+
+// DefaultApp returns the application the system would use to open url, the
+// default handler for it: the browser for a web URL, the editor for a
+// text file, and so on. url may be a web URL such as https://example.com,
+// a file:// URL, or any URL whose scheme is registered with the system.
+// It is supported on macOS, Linux and Windows; other platforms return
+// ErrUnsupported. It reads system associations: call it from a goroutine of
+// its own, which it does not block the main thread from.
+func (ShellModule) DefaultApp(url string) (InstalledApp, error) {
+	needsApp("Shell.DefaultApp")
+	if !isMainThread() {
+		App.waitReady()
+	}
+	app, err := backend().Shell().DefaultApp(url)
+	return InstalledApp(app), err
 }
 
 // Beep plays the system alert sound.
@@ -636,6 +695,26 @@ type GlobalShortcutModule struct {
 	byKey   map[string]int
 	byID    map[int]func()
 	keyByID map[int]string
+	onKeys  map[int]func(string)
+	keys    map[int]string // what onKeys last heard
+}
+
+// GlobalShortcutOptions describes a shortcut to GlobalShortcut.RegisterWith.
+type GlobalShortcutOptions struct {
+	// Description says what the shortcut does, such as "Stop all". Desktops
+	// that bind shortcuts for apps, as on Wayland, show it where they ask
+	// the user to confirm the shortcut and in their settings; empty, they
+	// show the accelerator there.
+	Description string
+	// OnKeys is called on the main thread with the keys the desktop bound
+	// to the shortcut, written as the desktop writes them ("Ctrl+Alt+."),
+	// and with "" when it bound none: on Wayland the user may decline a
+	// shortcut, which then does nothing, or pick other keys for it. It is
+	// called once the desktop answered, and again when the keys change.
+	// Where the app takes the keys itself (macOS, Windows, X11) it is not
+	// called: the shortcut has its accelerator's keys once Register
+	// returned without an error.
+	OnKeys func(keys string)
 }
 
 // GlobalShortcut registers keyboard shortcuts that work while the app is in
@@ -656,6 +735,12 @@ var GlobalShortcut = &GlobalShortcutModule{}
 // while the desktop binds it, and a second Register of the same
 // accelerator fails.
 func (g *GlobalShortcutModule) Register(acc string, fn func()) error {
+	return g.RegisterWith(acc, GlobalShortcutOptions{}, fn)
+}
+
+// RegisterWith is Register for a shortcut the desktop may show to the
+// user, or bind to other keys than the accelerator's.
+func (g *GlobalShortcutModule) RegisterWith(acc string, opts GlobalShortcutOptions, fn func()) error {
 	needsApp("GlobalShortcut.Register")
 	a, err := accelerator.Parse(acc, runtime.GOOS)
 	if err != nil {
@@ -665,6 +750,7 @@ func (g *GlobalShortcutModule) Register(acc string, fn func()) error {
 	g.mu.Lock()
 	if g.byKey == nil {
 		g.byKey, g.byID, g.keyByID = map[string]int{}, map[int]func(){}, map[int]string{}
+		g.onKeys, g.keys = map[int]func(string){}, map[int]string{}
 	}
 	if _, ok := g.byKey[key]; ok {
 		g.mu.Unlock()
@@ -673,12 +759,18 @@ func (g *GlobalShortcutModule) Register(acc string, fn func()) error {
 	g.next++
 	id := g.next
 	g.byKey[key] = id
+	if opts.OnKeys != nil {
+		// Before the desktop hears of the shortcut: its answer may come
+		// while this call is on its way back.
+		g.onKeys[id] = opts.OnKeys
+	}
 	g.mu.Unlock()
-	if err := onMainValue(func() error { return backend().RegisterHotkey(id, acc) }); err != nil {
+	if err := onMainValue(func() error { return backend().RegisterHotkey(id, acc, opts.Description) }); err != nil {
 		g.mu.Lock()
 		if g.byKey[key] == id {
 			delete(g.byKey, key)
 		}
+		g.forgetKeys(id)
 		g.mu.Unlock()
 		return err
 	}
@@ -686,6 +778,7 @@ func (g *GlobalShortcutModule) Register(acc string, fn func()) error {
 	if g.byKey[key] != id {
 		// Unregistered, or registered again, while the desktop bound it:
 		// give the desktop back the shortcut this call made.
+		g.forgetKeys(id)
 		g.mu.Unlock()
 		onMain(func() { backend().UnregisterHotkey(id) })
 		return errors.New("mygo: shortcut " + key + " was unregistered while it was being registered")
@@ -719,6 +812,7 @@ func (g *GlobalShortcutModule) Unregister(acc string) {
 		delete(g.byKey, a.String())
 		delete(g.byID, id)
 		delete(g.keyByID, id)
+		g.forgetKeys(id)
 	}
 	g.mu.Unlock()
 	if ok {
@@ -734,6 +828,7 @@ func (g *GlobalShortcutModule) UnregisterAll() {
 		ids = append(ids, id)
 	}
 	g.byKey, g.byID, g.keyByID = map[string]int{}, map[int]func(){}, map[int]string{}
+	g.onKeys, g.keys = map[int]func(string){}, map[int]string{}
 	g.mu.Unlock()
 	onMain(func() {
 		for _, id := range ids {
@@ -751,6 +846,29 @@ func (g *GlobalShortcutModule) pressed(id int) {
 	}
 }
 
+// forgetKeys drops what a shortcut that is gone heard of its keys. The
+// caller holds g.mu.
+func (g *GlobalShortcutModule) forgetKeys(id int) {
+	delete(g.onKeys, id)
+	delete(g.keys, id)
+}
+
+// bound tells a shortcut the keys the desktop has for it, when it has not
+// heard of them yet: desktops answer for every shortcut whenever one of
+// the app's shortcuts changes.
+func (g *GlobalShortcutModule) bound(id int, keys string) {
+	g.mu.Lock()
+	fn := g.onKeys[id]
+	last, heard := g.keys[id]
+	if fn != nil {
+		g.keys[id] = keys
+	}
+	g.mu.Unlock()
+	if fn != nil && (!heard || last != keys) {
+		fn(keys)
+	}
+}
+
 // TrayOptions configures NewTray.
 type TrayOptions struct {
 	// ID names the icon across launches, unique among the app's icons: on
@@ -759,17 +877,26 @@ type TrayOptions struct {
 	// items each keep their place. Empty, a new icon goes left of those
 	// already there. On Windows, which places icons itself, the icon keeps
 	// whether the user shows it on the taskbar or in its overflow, as the
-	// app makes it again or makes its icons in another order. It does
-	// nothing on Linux, whose panels place icons themselves.
+	// app makes it again or makes its icons in another order. On Linux it
+	// is the icon's StatusNotifierItem ID, after the program's name, by
+	// which a panel keeps its settings for the icon, as KDE Plasma keeps
+	// whether it shows the icon or hides it.
 	ID string
 	// Icon is a PNG image, ideally 16x16 points (32x32 pixels for Retina).
 	Icon []byte
 	// IconIsTemplate lets macOS tint a black-and-transparent icon to match
-	// the menu bar; Windows shows it white on a dark taskbar.
+	// the menu bar; Windows shows it white on a dark taskbar, and Linux
+	// while the desktop prefers dark.
 	IconIsTemplate bool
 	// Title is shown next to the icon (macOS).
-	Title   string
-	ToolTip string
+	Title string
+	// MonospacedTitle draws the title in the system's monospaced font
+	// (macOS), where every character is as wide as the others: a title of
+	// a fixed number of characters keeps its width whatever they are, as a
+	// rate whose unit changes ("60K", then "1.3M"). Otherwise only its
+	// digits share a width.
+	MonospacedTitle bool
+	ToolTip         string
 	// Menu is shown when the icon is clicked.
 	Menu *Menu
 }
@@ -800,7 +927,7 @@ func NewTray(opts TrayOptions) (*Tray, error) {
 	t := &Tray{menu: opts.Menu}
 	var err error
 	onMain(func() {
-		t.native, err = backend().NewTray(trayHandler{t})
+		t.native, err = backend().NewTray(opts.ID, trayHandler{t})
 		if err != nil {
 			return
 		}
@@ -811,6 +938,9 @@ func NewTray(opts TrayOptions) (*Tray, error) {
 			if err = t.native.SetImage(opts.Icon, opts.IconIsTemplate); err != nil {
 				return
 			}
+		}
+		if opts.MonospacedTitle {
+			t.native.SetTitleMonospaced(true)
 		}
 		if opts.Title != "" {
 			t.native.SetTitle(opts.Title)
@@ -850,7 +980,9 @@ func (t *Tray) SetIcon(png []byte, template bool) error {
 // the same width, so a number that changes, such as a rate, keeps the
 // item's width as long as the text keeps its length: pad the value to a
 // fixed number of characters with figure spaces (U+2007), as wide as a
-// digit, rather than ordinary spaces.
+// digit, rather than ordinary spaces. Letters and punctuation keep their
+// own widths, so text that changes them changes the item's width, unless
+// the tray was made with TrayOptions.MonospacedTitle.
 func (t *Tray) SetTitle(title string) { t.do(func(n platform.Tray) { n.SetTitle(title) }) }
 
 // SetToolTip sets the hover text.
@@ -920,8 +1052,9 @@ func (t *Tray) OnRightClick(fn func()) (off func()) { return t.onRight.add(fn, f
 // Dark reports whether the bar the icon shows on is dark: the macOS menu
 // bar, as AppKit tints its items (by the system's appearance, or the
 // wallpaper under a translucent menu bar), or the Windows taskbar, in
-// the system's mode, which may differ from the apps'. It is false on
-// Linux, where panels draw their icon themes their own way.
+// the system's mode, which may differ from the apps'. On Linux, where
+// AppIndicator tells nothing of the panel, it is the desktop's color
+// scheme (the settings portal's color-scheme), false without a portal.
 //
 // A template icon (TrayOptions.IconIsTemplate) follows the bar by itself:
 // Dark is for an icon in color, as one drawing its measures in theirs,
@@ -1023,7 +1156,8 @@ func NotificationsSupported() bool {
 // Linux by loading WebKitGTK. A runtime that is there but broken still
 // reports true; the window then reports calls that need its page as
 // failed. Once a window showing a page started the runtime, it reports
-// whether that worked.
+// whether that worked. A Windows app built with the tag mygo_nowebview,
+// which leaves WebView2 out, reports false.
 func WebViewAvailable() bool { return backend().WebViewAvailable() }
 
 // NewNotification creates a notification; call Show to display it.

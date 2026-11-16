@@ -3,7 +3,6 @@ package audio
 import (
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -39,6 +38,7 @@ const (
 	kAudioFormatLinearPCM   = 0x6C70636D // 'lpcm'
 	kAudioFormatFlagIsFloat = 1
 	aqFrames                = 512 // per buffer: 10.7 ms, as many as hold ahead
+	dispatchTimeNow         = 0
 )
 
 var (
@@ -47,16 +47,19 @@ var (
 
 	audioQueueNewOutput      func(format *audioStreamBasicDescription, callback uintptr, user uintptr, runLoop, runLoopMode uintptr, flags uint32, out *uintptr) int32
 	audioQueueAllocateBuffer func(q uintptr, size uint32, out **audioQueueBuffer) int32
-	audioQueueEnqueueBuffer  func(q uintptr, b *audioQueueBuffer, n uint32, descs uintptr) int32
 	audioQueueStart          func(q uintptr, at uintptr) int32
-	audioQueueGetProperty    func(q uintptr, property uint32, value *uint32, size *uint32) int32
 	audioQueueStop           func(q uintptr, immediate bool) int32
 	audioQueueDispose        func(q uintptr, immediate bool) int32
+	audioQueueGetProperty    func(q uintptr, id uint32, data *uint32, size *uint32) int32
+	dispatchSemaphoreCreate  func(value int) uintptr
+	dispatchRelease          func(obj uintptr)
 
-	// aqCallback is created once; queues route buffers back to the device
-	// open, through aqCurrent.
-	aqCallback uintptr
-	aqCurrent  atomic.Pointer[aqDevice]
+	// Called on every buffer, through a cCaller.
+	audioQueueEnqueueBuffer uintptr
+	dispatchSemaphoreWait   uintptr
+	dispatchTime            uintptr
+
+	dispatchSemaphoreSignal uintptr // every queue's callback
 )
 
 func loadAudioToolbox() error {
@@ -68,30 +71,33 @@ func loadAudioToolbox() error {
 		}
 		purego.RegisterLibFunc(&audioQueueNewOutput, lib, "AudioQueueNewOutput")
 		purego.RegisterLibFunc(&audioQueueAllocateBuffer, lib, "AudioQueueAllocateBuffer")
-		purego.RegisterLibFunc(&audioQueueEnqueueBuffer, lib, "AudioQueueEnqueueBuffer")
 		purego.RegisterLibFunc(&audioQueueStart, lib, "AudioQueueStart")
-		purego.RegisterLibFunc(&audioQueueGetProperty, lib, "AudioQueueGetProperty")
 		purego.RegisterLibFunc(&audioQueueStop, lib, "AudioQueueStop")
 		purego.RegisterLibFunc(&audioQueueDispose, lib, "AudioQueueDispose")
-		// The queue's own thread calls it when it is done with a buffer.
-		aqCallback = purego.NewCallback(func(user, q uintptr, b *audioQueueBuffer) {
-			if d := aqCurrent.Load(); d != nil && d.q == q {
-				select {
-				case d.free <- b:
-				default:
-				}
-			}
-		})
+		purego.RegisterLibFunc(&audioQueueGetProperty, lib, "AudioQueueGetProperty")
+		purego.RegisterLibFunc(&dispatchSemaphoreCreate, purego.RTLD_DEFAULT, "dispatch_semaphore_create")
+		purego.RegisterLibFunc(&dispatchRelease, purego.RTLD_DEFAULT, "dispatch_release")
+		audioQueueEnqueueBuffer = cFunc(lib, "AudioQueueEnqueueBuffer")
+		dispatchSemaphoreWait = cFunc(purego.RTLD_DEFAULT, "dispatch_semaphore_wait")
+		dispatchSemaphoreSignal = cFunc(purego.RTLD_DEFAULT, "dispatch_semaphore_signal")
+		dispatchTime = cFunc(purego.RTLD_DEFAULT, "dispatch_time")
 	})
 	return aqErr
 }
 
+// An aqDevice is an Audio Queue whose callback is
+// dispatch_semaphore_signal, its semaphore the user data (C on arm64 and
+// x86-64 ignores the queue and buffer passed after it), so no Go runs on
+// the queue's thread. The queue plays buffers in order: each signal frees
+// the oldest.
 type aqDevice struct {
 	q       uintptr
-	free    chan *audioQueueBuffer
-	buffers int
+	sema    uintptr
+	bufs    []*audioQueueBuffer
+	next    int // the buffer written next, the oldest enqueued once all are
 	queued  int // buffers enqueued before the queue started
 	started bool
+	c       cCaller
 }
 
 func openDevice(ahead time.Duration, rate int) (device, int, error) {
@@ -109,39 +115,42 @@ func openDevice(ahead time.Duration, rate int) (device, int, error) {
 		bitsPerChannel:   32,
 	}
 	n := max(2, int((int64(ahead)*int64(rate)/int64(time.Second)+aqFrames-1)/aqFrames))
-	d := &aqDevice{free: make(chan *audioQueueBuffer, n), buffers: n}
-	if st := audioQueueNewOutput(&desc, aqCallback, 0, 0, 0, 0, &d.q); st != 0 {
+	// Fails only for a negative value.
+	d := &aqDevice{sema: dispatchSemaphoreCreate(0), bufs: make([]*audioQueueBuffer, n)}
+	if st := audioQueueNewOutput(&desc, dispatchSemaphoreSignal, d.sema, 0, 0, 0, &d.q); st != 0 {
+		dispatchRelease(d.sema)
 		return nil, 0, fmt.Errorf("audio: AudioQueueNewOutput failed (OSStatus %d)", st)
 	}
-	for range n {
-		var b *audioQueueBuffer
-		if st := audioQueueAllocateBuffer(d.q, aqFrames*channels*4, &b); st != 0 {
-			audioQueueDispose(d.q, true)
+	for i := range d.bufs {
+		if st := audioQueueAllocateBuffer(d.q, aqFrames*channels*4, &d.bufs[i]); st != 0 {
+			d.close()
 			return nil, 0, fmt.Errorf("audio: AudioQueueAllocateBuffer failed (OSStatus %d)", st)
 		}
-		d.free <- b
 	}
-	aqCurrent.Store(d)
 	return d, aqFrames, nil
 }
 
 func (d *aqDevice) write(samples []float32) error {
-	var b *audioQueueBuffer
-	select {
-	case b = <-d.free:
-	case <-time.After(time.Second):
-		// The queue stopped taking buffers, as when its device went.
-		return fmt.Errorf("audio: the audio queue stopped")
+	if d.started {
+		// Wait for the oldest buffer to play.
+		deadline := d.c.call(dispatchTime, dispatchTimeNow, uintptr(time.Second))
+		if d.c.call(dispatchSemaphoreWait, d.sema, deadline) != 0 {
+			// The queue stopped taking buffers, as when its device went.
+			return fmt.Errorf("audio: the audio queue stopped")
+		}
 	}
+	b := d.bufs[d.next]
+	d.next = (d.next + 1) % len(d.bufs)
 	copy(unsafe.Slice((*float32)(b.audioData), len(samples)), samples)
 	b.audioDataByteSize = uint32(len(samples) * 4)
-	if st := audioQueueEnqueueBuffer(d.q, b, 0, 0); st != 0 {
+	// b is C memory, as a cCaller needs.
+	if st := int32(d.c.call(audioQueueEnqueueBuffer, d.q, uintptr(unsafe.Pointer(b)), 0, 0)); st != 0 {
 		return fmt.Errorf("audio: AudioQueueEnqueueBuffer failed (OSStatus %d)", st)
 	}
 	if !d.started {
 		// Start once every buffer holds something, not to begin with an
 		// underrun.
-		if d.queued++; d.queued == d.buffers {
+		if d.queued++; d.queued == len(d.bufs) {
 			if st := audioQueueStart(d.q, 0); st != 0 {
 				return fmt.Errorf("audio: AudioQueueStart failed (OSStatus %d)", st)
 			}
@@ -152,14 +161,16 @@ func (d *aqDevice) write(samples []float32) error {
 }
 
 func (d *aqDevice) close() {
-	aqCurrent.CompareAndSwap(d, nil)
+	// Synchronous: no callback runs once it returns.
 	audioQueueStop(d.q, true)
 	audioQueueDispose(d.q, true)
+	// Never below its initial value, which dispatch_release requires.
+	dispatchRelease(d.sema)
 }
 
 // drain confirms that Stop(false) played the queued tail. Stop may also stop
 // the audio hardware, so request a fresh session and its configured pre-roll.
-// Buffer reuse callbacks alone do NOT mean samples have played.
+// Buffer reuse callbacks alone do not mean samples have played.
 func (d *aqDevice) drain() (bool, error) {
 	if !d.started && d.queued > 0 {
 		if st := audioQueueStart(d.q, 0); st != 0 {

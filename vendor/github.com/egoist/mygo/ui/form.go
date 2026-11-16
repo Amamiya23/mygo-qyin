@@ -37,6 +37,7 @@ func coreForm(c *context, fn func()) *node {
 	f.widget = "Form"
 	fb := &formBuild{}
 	f.form = fb
+	f.special = true // it lays its labels out
 	saved := c.form
 	c.form = fb
 	f.Children(fn)
@@ -59,6 +60,7 @@ func (fb *formBuild) alignLabels() {
 		}
 	}
 	for _, l := range fb.labels {
+		journalKeep(l.c.rt, &l.width)
 		l.width = px(w)
 		l.parent.forgetIntrinsic()
 	}

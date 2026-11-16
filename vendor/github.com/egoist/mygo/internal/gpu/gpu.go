@@ -31,6 +31,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/scene"
@@ -118,8 +119,12 @@ func (s Scissor) Empty() bool { return s.Right <= s.Left || s.Bottom <= s.Top }
 type Batch struct {
 	Start, Count int
 	Scissor      Scissor
-	// Image is the renderer's texture of the batch's image, or 0.
-	Image uintptr
+	// Image is the renderer's texture of the batch's image, or 0, and
+	// Chroma, for a video frame in NV12 (scene.SurfaceNV12), the texture of
+	// its chroma, whose luma Image is: the shaders sample it as their
+	// image's second plane (texture 3), and convert what they sample with
+	// the matrix the instance says (ImageYUV).
+	Image, Chroma uintptr
 	// ClipMask is a cached nested clip texture, sampled in frame coordinates.
 	ClipMask uintptr
 	// Effect is the effect of the batch's one instance, drawn with a
@@ -252,6 +257,10 @@ type Builder struct {
 	// instance (see addCorners), for tests that compare the two.
 	NoCornerSplit bool
 	cutCorners    func(b *Builder, in Instance, image uintptr, m scene.Affine)
+	// contClips tells that the renderer's shader cuts a clip with
+	// continuous corners (SplitCorners), which analyticClip may then
+	// leave to it rather than to a mask.
+	contClips bool
 	// bands are the bands planBands planned last, and bandsTry its scratch.
 	bands, bandsTry []band
 	// NoClasses puts every batch in ClassGeneral, for tests and
@@ -315,7 +324,25 @@ type Builder struct {
 	frame        uint64
 	imageTexture func(*scene.Image) uintptr
 	preparedMask uintptr
+	// Chroma, unless nil, returns the texture of the chroma of an image
+	// showing a frame in NV12 (scene.SurfaceNV12), after the image's
+	// texture, its luma, was asked for: renderers that sample such frames
+	// set it. Without it, or where it returns 0, the image draws from its
+	// pixels in RGBA, as other images do.
+	Chroma func(*scene.Image) uintptr
+	// chroma is the chroma texture of the image an instance being added
+	// draws, for its batch.
+	chroma uintptr
 }
+
+// ImageYUV is the code an image instance's Params[1] holds for a frame of
+// NV12, plus its matrix (scene.YUVMatrix), plus ImageYUVGray for one in
+// grayscale: the shaders sample its chroma from texture 3 and convert.
+// Params[1] is otherwise 1 for grayscale, or 0.
+const (
+	ImageYUV     = 2
+	ImageYUVGray = 8
+)
 
 // Pass is what a pass computing a backdrop reads, the layout of the
 // shaders' Pass: down reads the area from Origin to Limit, frame pixels,
@@ -607,7 +634,10 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 			src := op.Src
 			iw, ih := float32(img.W), float32(img.H)
 			var tex uintptr
-			if op.Blur > 0 && b.BlurredImage != nil {
+			// A video frame sampled as its planes draws unblurred: the
+			// passes blurring an image read its texture as RGBA.
+			yuv := img.Surface != nil && img.Surface.Format == scene.SurfaceNV12 && b.Chroma != nil
+			if op.Blur > 0 && b.BlurredImage != nil && !yuv {
 				// The image's area blurred, which the op samples.
 				bk := scene.ImageBlur(scene.ImageArea(op.Src, img.W, img.H), op.Blur)
 				w, h := bk.Size()
@@ -626,6 +656,12 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 			if op.Grayscale {
 				gray = 1
 			}
+			b.chroma = 0
+			if yuv {
+				if b.chroma = b.Chroma(img); b.chroma != 0 {
+					gray = ImageYUV + float32(img.Surface.Matrix) + ImageYUVGray*gray
+				}
+			}
 			if op.Pixelated {
 				nearest = 1
 			}
@@ -641,6 +677,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 				Params: [4]float32{4, gray, nearest, opacity(op.Opacity)},
 			}
 			b.addCut(in, tex, op.Transform)
+			b.chroma = 0
 		}
 	}
 
@@ -697,6 +734,7 @@ func (b *Builder) joinLast() {
 		last.Count += bt.Count
 		last.Continuous = last.Continuous || bt.Continuous
 		last.Image |= bt.Image
+		last.Chroma |= bt.Chroma
 		b.Batches = b.Batches[:n-1]
 	}
 	b.joinSmall = fits
@@ -817,6 +855,7 @@ func (b *Builder) add(in Instance, image uintptr, m scene.Affine) {
 	}
 	if image != 0 {
 		b.Batches[n-1].Image = image
+		b.Batches[n-1].Chroma = b.chroma
 	}
 	b.Instances = append(b.Instances, in)
 	b.Batches[n-1].Count++
@@ -1079,6 +1118,12 @@ func (b *Builder) addEffect(s *scene.Scene, op *scene.Op) {
 		b.addMaskedEffect(s, op, fx, cur)
 		return
 	}
+	if fx.InstanceCount() > 0 {
+		if add := addInstances.Load(); add != nil {
+			(*add)(b, op, fx, cur)
+		}
+		return
+	}
 	p := &fx.Params
 	in := Instance{
 		Rect: rect(op.Rect), Radii: scene.Corners(op.Rect, op.Radii, op.Continuous),
@@ -1152,6 +1197,64 @@ func (b *Builder) addMaskedEffect(s *scene.Scene, op *scene.Op, fx *scene.Effect
 		if first {
 			batch.ClipMask, first = b.preparedMask, false
 		}
+		b.Instances = append(b.Instances, in)
+		batch.Count++
+	}
+	if batch.Count > 0 {
+		b.Batches = append(b.Batches, batch)
+	}
+}
+
+// addInstances is Builder.addInstances once EnableInstances was called.
+var addInstances atomic.Pointer[func(b *Builder, op *scene.Op, fx *scene.EffectOp, cur *clip)]
+
+// EnableInstances makes builders build the effects that paint quads
+// (scene.EffectOp.Instances), which they leave out before. Package ui calls
+// it as it paints one (Painter.ShaderInstances), on any goroutine: apps
+// that never do carry none of the code.
+func EnableInstances() {
+	if addInstances.Load() == nil {
+		f := (*Builder).addInstances
+		addInstances.CompareAndSwap(nil, &f)
+	}
+}
+
+// addInstances appends the quads of a shader's effect drawing instances
+// (scene.EffectOp.Instances), in a batch of their own, which renderers draw
+// with one instanced draw: each quad's instance its rectangle, rounded by
+// the op's radii, its data in the slots of an effect's parameters (Inner,
+// Color, Color2 and Border, zero beyond the data), and in Grad its size in
+// DIPs, 2 and its index, which the shader's code reads.
+func (b *Builder) addInstances(op *scene.Op, fx *scene.EffectOp, cur *clip) {
+	if fx.Effect.Shader == nil || fx.Effect.Backdrop {
+		return
+	}
+	// What every quad shares: the transform and the clip.
+	shared := Instance{Rect: rect(op.Rect), Params: [4]float32{6, 0, 1, opacity(op.Opacity)}}
+	if !b.prepare(&shared, op.Transform, cur) {
+		return
+	}
+	batch := Batch{Start: len(b.Instances), Scissor: cur.scissor, Effect: fx.Effect, ClipMask: b.preparedMask, Shader: fx, Uniforms: b.uniformsOf(fx)}
+	for i, img := range fx.Images {
+		if img != nil && img.W > 0 && img.H > 0 && b.imageTexture != nil {
+			batch.Textures[i] = b.imageTexture(img)
+		}
+	}
+	for k := range fx.InstanceCount() {
+		quad, size := fx.InstanceRect(k)
+		if quad.Empty() {
+			continue
+		}
+		in := shared
+		in.Rect, in.Radii = rect(quad), scene.Corners(quad, op.Radii, op.Continuous)
+		var data [4][4]float32
+		for j, w := range fx.InstanceData(k) {
+			if j < scene.MaxInstanceData {
+				data[j/4][j%4] = math.Float32frombits(w)
+			}
+		}
+		in.Inner, in.Color, in.Color2, in.Border = data[0], data[1], data[2], data[3]
+		in.Grad = [4]float32{size[0], size[1], 2, float32(int(fx.Instance) + k)}
 		b.Instances = append(b.Instances, in)
 		batch.Count++
 	}

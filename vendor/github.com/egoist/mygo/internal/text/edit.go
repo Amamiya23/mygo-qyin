@@ -105,32 +105,9 @@ func (l *Layout) Caret(index int) (x, y, h float32) {
 	return carets[i], line.Y, line.Height
 }
 
-// IndexAt returns the rune index of the caret position closest to (x, y).
-func (l *Layout) IndexAt(x, y float32) int {
-	if len(l.Lines) == 0 {
-		return 0
-	}
-	li := len(l.Lines) - 1
-	for i := range l.Lines {
-		if y < l.Lines[i].Y+l.Lines[i].Height {
-			li = i
-			break
-		}
-	}
-	line := &l.Lines[li]
-	carets := line.lineCarets()
-	best, bestDist := 0, float32(-1)
-	for i, cx := range carets {
-		d := cx - x
-		if d < 0 {
-			d = -d
-		}
-		if bestDist < 0 || d < bestDist {
-			best, bestDist = i, d
-		}
-	}
-	return line.Start + best
-}
+// IndexAt returns the rune index of the caret position closest to (x, y),
+// between graphemes: never inside a cluster of runes.
+func (l *Layout) IndexAt(x, y float32) int { return l.PositionAt(x, y).Index }
 
 // Selection returns the rectangles covering the runes from start to end.
 func (l *Layout) Selection(start, end int) []Rect { return l.SelectionOn(start, end, false) }
@@ -219,6 +196,18 @@ func (l *Layout) AppendSelection(dst []Rect, start, end int, on bool) []Rect {
 		}
 	}
 	return out
+}
+
+// IsCombiningMark reports whether Backspace after r takes r alone, as
+// systems do for combining marks, not the whole grapheme. Variation
+// selectors are left out, so emoji sequences go whole and a selector never
+// goes unseen. Sara am, a letter the segmenter joins to its consonant, goes
+// alone too.
+func IsCombiningMark(r rune) bool {
+	if unicode.Is(unicode.Variation_Selector, r) {
+		return false
+	}
+	return unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || r == 0x0e33 || r == 0x0eb3
 }
 
 // Boundaries finds grapheme and word boundaries in text.

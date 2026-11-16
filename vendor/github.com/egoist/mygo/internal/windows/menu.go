@@ -261,6 +261,43 @@ func (w *window) revealMenu(wp, lp uintptr) uintptr {
 	return r
 }
 
+// takeKeyboardForMenus gives the window itself the keyboard for the menu
+// loop of its bar, which starts in it, when the page of its web view has
+// it. The page's window is WebView2's, of another process, whose thread
+// shares the window's input: while it keeps the keyboard, the keys typed
+// in the menus (the arrows, Escape, Alt, the letters) go to whichever of
+// the two threads reads them first, and those the page reads are lost to
+// the menus, which stay open and don't answer, or reach the page behind
+// them. Win32 keeps the keyboard in the menus by reading the thread's
+// keys in their loop, which holds only while the keyboard is in the
+// thread, as the window's own controls are.
+func (w *window) takeKeyboardForMenus() {
+	if w.controller == 0 || w.menusHaveKeyboard {
+		return
+	}
+	focus, _, _ := procGetFocus.Call()
+	if focus == 0 || focus == w.hwnd {
+		return
+	}
+	if t, _, _ := procGetWindowThreadProcessId.Call(focus, 0); uint32(t) == currentThreadID() {
+		return
+	}
+	w.menusHaveKeyboard = true // WM_SETFOCUS leaves the keyboard in the window
+	procSetFocus.Call(w.hwnd)
+}
+
+// giveKeyboardBack gives the page the keyboard that takeKeyboardForMenus
+// took, once the menus close, unless it went elsewhere meanwhile.
+func (w *window) giveKeyboardBack() {
+	if !w.menusHaveKeyboard {
+		return
+	}
+	w.menusHaveKeyboard = false
+	if focus, _, _ := procGetFocus.Call(); focus == w.hwnd && !w.closed {
+		w.focusWebView()
+	}
+}
+
 // popupMenuBar opens the menus of the menu bar from the top-left corner of
 // a window without room for the bar, below the title bar the page draws,
 // when Alt or F10 would take the keyboard to the bar; Alt and a letter
@@ -647,11 +684,15 @@ func atoi(s string) int {
 }
 
 // menuLabel is the text of an item's menu entry: its label, in which an
-// ampersand marks the mnemonic, and its subtitle after it, in which it is
-// an ampersand.
+// ampersand marks the mnemonic, and its subtitle and badge after it, in
+// which it is an ampersand.
 func menuLabel(it *platform.MenuItem) string {
-	if it.Subtitle == "" {
-		return it.Label
+	label := it.Label
+	if it.Subtitle != "" {
+		label += " — " + strings.ReplaceAll(it.Subtitle, "&", "&&")
 	}
-	return it.Label + " — " + strings.ReplaceAll(it.Subtitle, "&", "&&")
+	if it.Badge != "" {
+		label += "  " + strings.ReplaceAll(it.Badge, "&", "&&")
+	}
+	return label
 }

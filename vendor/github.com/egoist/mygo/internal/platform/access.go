@@ -108,6 +108,27 @@ type AccessNode struct {
 	// screen readers read as bold, italic, links and headings. Runes no
 	// run holds take the text's default font. Empty for plain text.
 	TextRuns []AccessTextRun
+	// LineBoxes are where the lines of a text field's Value in view
+	// show, as a code editor lays them out, in the order of the lines:
+	// assistive technology finds where a range of the text is by them
+	// (RangeBounds). Empty for a field that gives none, whose
+	// Bounds then stand for any range.
+	LineBoxes []AccessLineBox
+}
+
+// AccessLineBox is where a line of the Value of a text field shows
+// (AccessNode.LineBoxes).
+type AccessLineBox struct {
+	// Line is the line's index in Value, from 0: how many line feeds come
+	// before it.
+	Line int
+	// Count is how many lines from Line the box holds, 0 for one: a run
+	// of lines collapsed under one row, as the unchanged lines a diff's
+	// separator stands for, or those of a fold.
+	Count int
+	// Bounds is its box, all of its rows when it wraps, in DIPs relative
+	// to the surface, as the node's Bounds.
+	Bounds RectF
 }
 
 // AccessTextRun is a run of the Value of a text field with formats of its
@@ -235,6 +256,16 @@ const (
 	// ARIA's deletion and insertion, HTML's del and ins.
 	RoleDeletion
 	RoleInsertion
+	// RoleTabPanel holds the content of a tab, which labels it and
+	// points to it (Controls): ARIA's tabpanel.
+	RoleTabPanel
+	// RoleMain, RoleBanner, RoleContentInfo and RoleComplementary are
+	// landmarks: ARIA's main, banner, contentinfo and complementary,
+	// HTML's main, a page's header, a page's footer and aside.
+	RoleMain
+	RoleBanner
+	RoleContentInfo
+	RoleComplementary
 )
 
 // Tabular reports whether nodes of a role hold rows of cells: tables,

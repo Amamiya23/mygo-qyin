@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"time"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/accelerator"
@@ -76,6 +77,10 @@ type tray struct {
 	balloon uintptr
 	// dark is the taskbar's appearance, as last told.
 	dark bool
+	// shownAt is when the tray's balloon last went out, which a temporary
+	// tray's icon is reclaimed some time after, as a toast that parks in
+	// the notification center never tells the icon it is done.
+	shownAt time.Time
 	// image is the PNG the icon shows, and template whether it is black
 	// and transparent, which the icon shows white on a dark taskbar as
 	// macOS tints a template image.
@@ -83,7 +88,7 @@ type tray struct {
 	template bool
 }
 
-func (b *Backend) NewTray(h platform.TrayHandler) (platform.Tray, error) {
+func (b *Backend) NewTray(_ string, h platform.TrayHandler) (platform.Tray, error) {
 	whitenTemplate = whiten
 	b.nextTray++
 	t := &tray{b: b, h: h, id: b.nextTray}
@@ -181,6 +186,8 @@ func whiten(data []byte) ([]byte, error) {
 }
 
 func (t *tray) SetTitle(string) {}
+
+func (t *tray) SetTitleMonospaced(bool) {}
 
 // Dark reports whether the taskbar is dark: Windows draws it in the
 // system's mode, which may differ from the apps'.
@@ -487,7 +494,35 @@ func (b *Backend) showNotification(n *platform.Notification) error {
 		b.finishNotification(t)
 		return fmt.Errorf("mygo: cannot show the notification")
 	}
+	t.shownAt = time.Now()
+	if t.temporary {
+		// Windows 10 and later show the balloon as a toast, which tells the
+		// icon's callback ninBalloonTimeout when it leaves the screen. A
+		// toast that parks in the notification center, whence some are
+		// never dismissed, tells nothing, so the icon, which only the
+		// balloon wanted, is reclaimed on a timer instead.
+		time.AfterFunc(notificationLinger, func() {
+			b.post(b.reclaimNotifications)
+		})
+	}
 	return nil
+}
+
+// notificationLinger is how long a temporary icon stays after its toast
+// has gone out, which it does within the toast duration the user sets,
+// at most five minutes, before Windows tells the icon through
+// ninBalloonTimeout, if it ever does.
+const notificationLinger = 6 * time.Minute
+
+// reclaimNotifications destroys the temporary icons of notifications that
+// have long left the screen, whether the toast said so or not.
+func (b *Backend) reclaimNotifications() {
+	now := time.Now()
+	for _, t := range b.trays {
+		if t.temporary && !t.shownAt.IsZero() && now.Sub(t.shownAt) >= notificationLinger {
+			b.finishNotification(t)
+		}
+	}
 }
 
 func (b *Backend) RemoveNotification(id string) {
@@ -516,7 +551,7 @@ func (b *Backend) finishNotification(t *tray) {
 
 // Global shortcuts.
 
-func (b *Backend) RegisterHotkey(id int, acc string) error {
+func (b *Backend) RegisterHotkey(id int, acc, _ string) error {
 	a, err := accelerator.Parse(acc, "windows")
 	if err != nil {
 		return err

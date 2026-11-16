@@ -321,7 +321,7 @@ func field(c *context, fn func() *node) (*node, *node) {
 	f.focusTo = in
 	f.styleFn = func(f *node) { inputBorder(t, f, in) }
 	if f.Clicked() {
-		in.Focus()
+		in.focus(false)
 	}
 	return f, in
 }
@@ -359,7 +359,7 @@ func coreCombobox(c *context, selected *string, options []string) *node {
 		arrow.afterInput(func() {
 			if arrow.Clicked() {
 				p.SetOpen(!p.Open())
-				p.Input.Focus()
+				p.Input.focus(false)
 				if p.Open() {
 					// As a click in the text opening them does.
 					p.Input.st.editor.selectAll()
@@ -468,7 +468,7 @@ func coreSearchField(c *context, query *string) *node {
 					*query = ""
 					in.st.editor.setText("")
 					in.st.markChanged()
-					in.Focus()
+					in.focus(false)
 					c.rt.consumed = true
 				}
 			})
@@ -489,7 +489,7 @@ func coreSearchField(c *context, query *string) *node {
 
 // searchIcon is a magnifying glass, MingCute's search icon (Apache License
 // 2.0, https://github.com/Richard9394/MingCute/blob/main/LICENSE).
-var searchIcon = MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" d="M14.5 14.5L20 20m-4-10a6 6 0 1 1-12 0a6 6 0 0 1 12 0Z"/></svg>`))
+var searchIcon = parseIcon([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" d="M14.5 14.5L20 20m-4-10a6 6 0 1 1-12 0a6 6 0 0 1 12 0Z"/></svg>`))
 
 // magnifier shows the magnifying glass of a field for searching, in the
 // muted color of the theme's text, no higher than a line of the field's
@@ -505,7 +505,8 @@ func magnifier(c *context) *node {
 // it while empty takes out the last. The suggestions containing what was
 // typed show below it, those not already tokens: Up and Down move among
 // them, and Enter or a click adds one. Changed reports a change; name it
-// with Label.
+// with Label. Query binds what is being typed, for suggestions the app
+// looks up and matches itself as the user types.
 //
 //	ui.TokenField(c, &app.tags, allTags).Label("Tags")
 func coreTokenField(c *context, tokens *[]string, suggestions []string) *node {
@@ -576,10 +577,18 @@ func coreTokenField(c *context, tokens *[]string, suggestions []string) *node {
 	})
 	f.Wrap()
 	p.anchor = f
+	// What Query finds the field and its text by. The last build's Query
+	// says whether the app matches the suggestions itself.
+	tq := coreLocal(f, tokenQueryKey{}, func() tokenQuery { return tokenQuery{} })
+	tq.text, tq.bound, tq.binding = query, tq.binding, false
 
 	var shown []string
 	if q := strings.TrimSpace(*query); q != "" && p.Filtering() {
-		for _, s := range matching(suggestions, q) {
+		options := suggestions
+		if !tq.bound {
+			options = matching(suggestions, q)
+		}
+		for _, s := range options {
 			if !slices.Contains(*tokens, s) {
 				shown = append(shown, s)
 			}
@@ -607,4 +616,77 @@ func coreTokenField(c *context, tokens *[]string, suggestions []string) *node {
 		}
 	})
 	return f
+}
+
+// tokenQueryKey is the local of a TokenField that Query finds it by.
+type tokenQueryKey struct{}
+
+// tokenQuery is the text being typed in a TokenField: text is where the
+// field keeps it, and published what Query last wrote to the app's
+// string, which tells a write of the app's from the field's own. binding
+// tells that Query was called since the field was last built, and bound
+// that it was before this build: the app matches the suggestions itself.
+type tokenQuery struct {
+	text           *string
+	published      string
+	bound, binding bool
+}
+
+// Query binds *q to the text being typed in a TokenField's input, for an
+// app that looks up suggestions as the user types, as a mail's recipients
+// in an address book. The field writes the text to *q as Query is called,
+// after its constructor took what was typed; what an input method is
+// composing comes as it is committed, as in a text input's value. Adding
+// a token clears it. Changed, asked after Query, also reports a change of
+// the text, for the app to look up after a pause in typing, and the app
+// passes what it found as the suggestions of a later build. The app
+// matches them itself: the field shows them as given, in their order,
+// leaving out only those already tokens, rather than those containing
+// the text, so that a lookup folding accents finds Émile for "emile".
+// Writing *q sets the input's text, as setting a text input's value does,
+// without a change to report. With Query, assistive technology sees a
+// combo box whose suggestions complete what was typed, even while there
+// are none to show. Elements other than a TokenField ignore it.
+//
+//	to := ui.TokenField(c, &app.to, app.found).Label("To").Query(&app.query)
+//	if to.Changed() {
+//		app.typedAt = c.Now() // look up once typing pauses
+//	}
+func (e *node) Query(q *string) *node {
+	if q == nil || !e.hasState() || e.focusTo == nil {
+		return e
+	}
+	tq, ok := e.st.locals[tokenQueryKey{}].(*tokenQuery)
+	if !ok {
+		return e
+	}
+	e.c.rt.applyInputs()
+	tq.binding = true
+	if !tq.bound {
+		// This build matched the suggestions with the text: build again
+		// to show them as the app gives them.
+		e.c.rt.consumed = true
+	}
+	in := e.focusTo
+	// Suggestions come as the user types: the input is a combo box while
+	// there are none yet, rather than a text field turning into one as
+	// they come and go.
+	in.role, in.autoComplete = RoleComboBox, AutoCompleteList
+	switch {
+	case *q != tq.published:
+		// The app wrote *q: the input shows it, as a text input shows a
+		// value the app sets, and the suggestions match it as the view
+		// builds again.
+		*tq.text = *q
+		if ed := in.st.editor; ed != nil && ed.buf.s != *q {
+			ed.setText(*q)
+			ed.compose = ""
+		}
+		e.c.rt.consumed = true
+	case *q != *tq.text:
+		*q = *tq.text
+		e.st.markChanged()
+	}
+	tq.published = *q
+	return e
 }

@@ -19,7 +19,9 @@ const dragStart = 4
 
 // valueDrag is a value being dragged: the element dragging it, the value,
 // where the pointer pressed the element, the element taking it under the
-// pointer, and the source's element in the frame, for its copy.
+// pointer, and the source's element in the frame, for its copy. ghost
+// is a copy of the source as it first showed, which follows the pointer
+// once the frame builds the source no more, as a view it was in went.
 type valueDrag struct {
 	src      uint64
 	value    any
@@ -27,6 +29,7 @@ type valueDrag struct {
 	offY     float32
 	over     uint64
 	elem     *node
+	ghost    *node
 	canceled bool
 	native   bool
 	// count is how many things the value stands for, as rows dragged
@@ -258,6 +261,21 @@ func (rt *engine) handPress(x, y float32) *state {
 	return a
 }
 
+// retarget makes the element taking the value dragged under a pointer
+// that did not move, as one the frame moved there or built anew in a view
+// that just showed, the one the value is over, and builds the frame anew
+// for it to show it.
+func (rt *engine) retarget() {
+	d := rt.drag
+	if d == nil || d.native || d.canceled || !rt.pointerIn {
+		return
+	}
+	if t := rt.valueTarget(rt.pointerX, rt.pointerY, d.value); t != d.over {
+		d.over = t
+		rt.askBuild()
+	}
+}
+
 // dragEnd drops the value dragged on the element taking it under the
 // pointer, and reports whether a drag ended, which is no click.
 func (rt *engine) dragEnd() bool {
@@ -333,10 +351,16 @@ func (rt *engine) dragScroll() {
 // pointer, above the rest.
 func (rt *engine) paintDrag(p *Painter, w, h float32) {
 	d := rt.drag
-	if d == nil || d.canceled || d.native || d.elem == nil || d.elem.c == nil {
+	if d == nil || d.canceled || d.native {
 		return
 	}
 	e := d.elem
+	if e == nil {
+		e = d.ghost
+	}
+	if e == nil || e.c == nil {
+		return
+	}
 	px, py := e.world.Point(e.x+d.offX, e.y+d.offY)
 	dx, dy := rt.pointerX-px, rt.pointerY-py
 	affine := hasVisualTransform(e)
@@ -345,9 +369,11 @@ func (rt *engine) paintDrag(p *Painter, w, h float32) {
 	} else {
 		shift(e, dx, dy)
 	}
-	saved, savedClip, savedTheme, dimmed := p.opacity, p.clip, p.theme, e.opacitySet
-	// Painted alone, it takes the theme of the Themed around it.
-	p.opacity, p.clip, p.theme, e.opacitySet = 0.75, Rect{0, 0, w, h}, e.theme(), false
+	saved, savedClip, savedTheme, dimmed, copying := p.opacity, p.clip, p.theme, e.opacitySet, p.copying
+	// Painted alone, it takes the theme of the Themed around it. It is a
+	// copy: the page of a web view in it stays where the element is, so the
+	// hole the copy paints tells nothing of how opaque the page shows.
+	p.opacity, p.clip, p.theme, e.opacitySet, p.copying = 0.75, Rect{0, 0, w, h}, e.theme(), false, true
 	p.element(e)
 	p.opacity = 1
 	// How many go with it, as several rows dragged.
@@ -361,11 +387,40 @@ func (rt *engine) paintDrag(p *Painter, w, h float32) {
 		p.Fill(Rect{x, y, bw, th + 4}, t.Accent, (th+4)/2)
 		p.RichText(x+(bw-tw)/2, y+2, 0, label)
 	}
-	p.opacity, p.clip, p.theme, e.opacitySet = saved, savedClip, savedTheme, dimmed
+	p.opacity, p.clip, p.theme, e.opacitySet, p.copying = saved, savedClip, savedTheme, dimmed, copying
 	if affine {
 		restoreVisual(e)
 	} else {
 		shift(e, -dx, -dy)
+	}
+}
+
+// draggingFrom reports whether the element id is the source of a value
+// dragged within the window.
+func (rt *engine) draggingFrom(id uint64) bool {
+	d := rt.drag
+	return d != nil && !d.native && d.src == id
+}
+
+// dragGhost copies the element e dragging its value, with its children,
+// for its copy to follow the pointer once the frame builds e no more. The
+// copy keeps the text e laid out, as it is laid out no more.
+func dragGhost(e *node) *node {
+	g := ghostOf(e)
+	keepTextLayouts(g, e)
+	return g
+}
+
+// keepTextLayouts gives the copy g of e, and those of its children, the
+// text e and its children laid out.
+func keepTextLayouts(g, e *node) {
+	g.tl = e.tl
+	c := g.first
+	for ec := e.first; ec != nil && c != nil; ec = ec.next {
+		if ec.leaving == 0 {
+			keepTextLayouts(c, ec)
+			c = c.next
+		}
 	}
 }
 

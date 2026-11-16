@@ -14,7 +14,8 @@ import (
 // items. The system shows it where the element is clicked with the
 // secondary button, or Control-clicked on macOS, and, while the element or
 // one inside it has the focus, below it when the menu key or Shift+F10 is
-// pressed. build runs when the menu opens, and again in the frame after an
+// pressed; in a list, while the list has the focus and the element's row
+// is chosen. build runs when the menu opens, and again in the frame after an
 // item was chosen, where the item's Chosen reports it:
 //
 //	row.ContextMenu(func(m *ui.Menu) {
@@ -44,10 +45,13 @@ import (
 // PopoverMenu draws the same menu in the window, with the theme's look, as
 // ContextMenu does while the window draws its menus (SetMenuPresentation).
 func (e *node) ContextMenu(build func(m *Menu)) *node {
-	if e.c.rt.drawsMenus() {
-		return menusInWindow.contextMenu(e, build)
-	}
 	e.flags |= flagContextMenu
+	if rt := e.c.rt; rt.drawsMenus() {
+		// As PopoverMenu, through menusInWindow (drawMenuWith).
+		e.buildMenu(false, true, build)
+		drawMenuWith(rt, e, build, menusInWindow.beginMenu, menusInWindow.menuBuilt)
+		return e
+	}
 	e.buildMenu(false, false, build)
 	return e
 }
@@ -71,12 +75,20 @@ func (e *node) ContextMenu(build func(m *Menu)) *node {
 // look, as Menu does while the window draws its menus
 // (SetMenuPresentation).
 func (e *node) Menu(build func(m *Menu)) *node {
-	if e.c.rt.drawsMenus() {
-		return menusInWindow.menuButton(e, build)
-	}
 	e.flags |= flagMenuButton | flagClickable | flagFocusable
 	if e.role == RoleAuto || e.role == RoleButton {
 		e.role = RoleMenuButton
+	}
+	e.opensMenu()
+	if rt := e.c.rt; rt.drawsMenus() {
+		// As PopoverMenuButton without options, through menusInWindow
+		// (drawMenuWith).
+		e.buildMenu(true, true, build)
+		if d := rt.menu.drawn; d != nil && d.id == e.id {
+			d.menu.attach = 0
+		}
+		drawMenuWith(rt, e, build, menusInWindow.beginMenu, menusInWindow.menuBuilt)
+		return e
 	}
 	e.buildMenu(true, false, build)
 	return e
@@ -225,10 +237,12 @@ func (m *Menu) add(label string, typ platform.MenuItemType) *MenuItem {
 // menu has them without ContextMenu: Copy and Select All for selectable
 // text, the platform's text field items for a text input. Choosing one does
 // its command on the text, without reaching the menu's function. An element
-// within text, as a link in a paragraph, opens its menu on that text. It
-// adds nothing to a menu that opened on no text.
+// within text, as a link in a paragraph, opens its menu on that text. On an
+// element of HandleTextInput, as the rich text editor, it adds the text
+// field items too, whose commands come to its HandleInput as InputCommand.
+// It adds nothing to a menu that opened on no text.
 func (m *Menu) EditItems() {
-	if m.text == nil || m.text.editor == nil {
+	if m.text == nil || m.text.editor == nil && m.text.textClient == nil {
 		return
 	}
 	for _, c := range m.rt.editCommands(m.text) {
@@ -640,6 +654,7 @@ func (rt *engine) textAround(chain []uint64, s *state) *state {
 func (rt *engine) askMenu(s *state, x, y float32, button bool) {
 	mr := &rt.menu
 	mr.asked, mr.x, mr.y, mr.button, mr.text, mr.key, mr.last, mr.below = s.id, x, y, button, 0, false, false, false
+	rt.hideTip(s)
 	// The menu takes the press: the release goes to it.
 	if rt.pressed != nil {
 		rt.pressed.pressed = false
@@ -682,10 +697,19 @@ func (rt *engine) menuPress(chain []uint64, x, y float32) bool {
 			}
 		}
 	}
+	if s.editor == nil && s.textClient != nil && rt.focused != s.id {
+		// An element of HandleTextInput takes the focus too; its
+		// HandleInput moved the caret with the press.
+		rt.focused = s.id
+		rt.focusVisible = false
+		rt.blinkStart = rt.now()
+	}
 	text := uint64(0)
 	if s.editor != nil {
 		text = s.id
 		s = rt.textMenu(s)
+	} else if s.textClient != nil {
+		text = s.id
 	} else if t := rt.textAround(chain, s); t != nil {
 		text = t.id
 	}
@@ -717,9 +741,21 @@ func (rt *engine) menuRelease() bool {
 
 // menuKey opens the context menu of the focused element, or of the
 // innermost around it with one, for the menu key or Shift+F10: below a
-// text input's caret, or the element's top. It reports whether there was
-// one.
+// text input's caret, or the element's top. In a list, the row chosen
+// takes it, with the menu below the row, as a right-click on the row
+// would. It reports whether there was one.
 func (rt *engine) menuKey() bool {
+	if rt.listMenuKey != nil {
+		if s, row := rt.listMenuKey(rt); s != nil {
+			x, y := row.vx, row.vy+row.vh
+			if row.rtl {
+				x += row.vw
+			}
+			rt.askMenu(s, x, y, false)
+			rt.menu.key = true
+			return true
+		}
+	}
 	s := rt.menuTarget(rt.focusChain())
 	if s == nil {
 		return false
@@ -734,6 +770,8 @@ func (rt *engine) menuKey() bool {
 		x, y = r.X, r.Y+r.H
 		text = s.id
 		s = rt.textMenu(s)
+	} else if s.textClient != nil {
+		text = s.id
 	} else if t := rt.textAround(rt.focusChain(), s); t != nil {
 		text = t.id
 	}
@@ -850,7 +888,11 @@ func (rt *engine) menuChosen(p *shownMenu, id int) {
 // menuCommand does the editing command name, chosen from a menu, on the
 // text input or selectable text id.
 func (rt *engine) menuCommand(id uint64, name string) {
-	if s := rt.states[id]; s != nil && s.editor != nil {
+	if s := rt.states[id]; s != nil && s.editor == nil && s.textClient != nil {
+		// An element of HandleTextInput does it, as an Edit menu's command.
+		rt.deliver(s, InputEvent{Kind: InputCommand, Text: name})
+		rt.blinkStart = rt.now()
+	} else if s != nil && s.editor != nil {
 		if !rt.textSelectionCommand(s, name) {
 			s.editor.queue = append(s.editor.queue, editEvent{kind: editCommand, text: name})
 		}
@@ -899,7 +941,7 @@ func (rt *engine) editCommands(s *state) []editItem {
 		commands  []command
 	)
 	switch {
-	case s.editor.readOnly:
+	case s.editor != nil && s.editor.readOnly:
 		commands = []command{copyText, separator, selectAll}
 	case runtime.GOOS == "darwin":
 		commands = []command{cut, copyText, paste, separator, selectAll}
@@ -915,6 +957,17 @@ func (rt *engine) editCommands(s *state) []editItem {
 // text input or selectable text s, as its editor does it.
 func (rt *engine) editCommandOn(s *state, name string) bool {
 	ed := s.editor
+	if ed == nil {
+		// An element of HandleTextInput: its client has the selection.
+		if s.flags&flagDisabled != 0 {
+			return false
+		}
+		if name == "cut" || name == "copy" || name == "delete" {
+			r := s.textClient.Selection().Range
+			return r.Start != r.End
+		}
+		return true
+	}
 	switch {
 	case s.flags&flagDisabled != 0 && (s.textScope != 0 || s.flags&flagEditable != 0),
 		ed.readOnly && name != "copy" && name != "selectAll",

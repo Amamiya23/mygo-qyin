@@ -123,14 +123,13 @@ func (p *Painter) inkArea(e *node, from Rect) Rect {
 }
 
 // keepInk returns what the scene of e's layer, drawn from x0, y0 of its
-// pixels, paints, in e's own space, and keeps it for the layers of the
-// next frames (inkArea). A layer is as large as what its content paints
+// pixels, s a DIP, paints, in e's own space, and keeps it for the layers
+// of the next frames (inkArea). A layer is as large as what its content paints
 // rather than as their boxes: a blur, a shadow or a text's shadow inside
 // it reaching out of them shows whole.
-func (p *Painter) keepInk(e *node, cv *Canvas, x0, y0 float32) Rect {
+func (p *Painter) keepInk(e *node, cv *Canvas, x0, y0, s float32) Rect {
 	var r Rect
 	if b := inkBounds(cv.img.Scene); !b.Empty() {
-		s := p.scale
 		r = Rect{(b.X + x0) / s, (b.Y + y0) / s, b.W / s, b.H / s}
 	}
 	st := e.st
@@ -181,12 +180,14 @@ func (p *Painter) groupLayer(e *node, flat *groupMark) bool {
 		}
 		return true // nothing of it shows
 	}
-	s := p.scale
+	// At the scale its transform shows it at, as Cache's.
+	q, still := p.layerScale(e, from)
+	s := p.scale * q
 	var cv *Canvas
 	var x0, y0 float32
 	var w, h int
 	for again := false; ; again = true {
-		if cv, x0, y0, w, h = p.layer(e, from); cv == nil {
+		if cv, x0, y0, w, h = p.layer(e, from, s); cv == nil {
 			return false
 		}
 		// Drawn again only when what it holds changed, as Cache's, so
@@ -194,7 +195,7 @@ func (p *Painter) groupLayer(e *node, flat *groupMark) bool {
 		keptLayer{}.draw(cv, p, s, w, h, layerPaint(e, -x0/s, -y0/s, p.lifting, view))
 		// What it painted beyond the layer, as a blur inside it, which the
 		// layer cut: drawn again, holding it.
-		more := intersect(inkUnion(from, p.keepInk(e, cv, x0, y0)), view)
+		more := intersect(inkUnion(from, p.keepInk(e, cv, x0, y0, s)), view)
 		if again || layerHolds(x0, y0, w, h, s, more) {
 			break
 		}
@@ -207,7 +208,7 @@ func (p *Painter) groupLayer(e *node, flat *groupMark) bool {
 	if flat != nil {
 		p.takeBack(flat, end)
 	}
-	p.layerOp(cv, x0, y0, w, h, p.opacity*e.fade(), 0)
+	p.layerOp(cv, x0, y0, w, h, p.opacity*e.fade(), 0, q, still)
 	return true
 }
 

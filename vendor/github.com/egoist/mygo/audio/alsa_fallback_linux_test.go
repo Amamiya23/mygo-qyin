@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"testing"
 	"time"
-	"unsafe"
 )
 
 func TestALSAUnsupportedNativeRateAllowsResampling(t *testing.T) {
@@ -38,9 +37,9 @@ func testALSARateFallback(t *testing.T, rate int) {
 	oldError := sndStrerror
 	defer func() { sndStrerror = oldError }()
 	sndStrerror = func(int32) string { return "unsupported hardware rate" }
-	oldOpen, oldParams, oldWrite, oldClose := sndPcmOpen, sndPcmSetParams, sndPcmWritei, sndPcmClose
+	oldOpen, oldParams, oldWrite, oldClose := sndPcmOpen, sndPcmSetParams, alsaWriteSamples, sndPcmClose
 	defer func() {
-		sndPcmOpen, sndPcmSetParams, sndPcmWritei, sndPcmClose = oldOpen, oldParams, oldWrite, oldClose
+		sndPcmOpen, sndPcmSetParams, alsaWriteSamples, sndPcmClose = oldOpen, oldParams, oldWrite, oldClose
 	}()
 	sndPcmOpen = func(pcm *uintptr, name *byte, _ int32, _ int32) int32 {
 		if *name == 'p' {
@@ -57,16 +56,17 @@ func testALSARateFallback(t *testing.T, rate int) {
 		return 0
 	}
 	written := uintptr(0)
-	sndPcmWritei = func(pcm uintptr, _ unsafe.Pointer, n uintptr) int {
+	alsaWriteSamples = func(d *alsaDevice, samples []float32) int {
 		expectedPCM := uintptr(456)
 		if rate == 48000 {
 			expectedPCM = 123
 		}
-		if pcm != expectedPCM {
+		if d.pcm != expectedPCM {
 			t.Fatal("unsupported default PCM did not fall back to plug:default")
 		}
-		written += n
-		return int(n)
+		n := len(samples) / channels
+		written += uintptr(n)
+		return n
 	}
 	closed := false
 	sndPcmClose = func(uintptr) int32 { closed = true; return 0 }

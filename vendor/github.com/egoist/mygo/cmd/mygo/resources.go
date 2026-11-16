@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 )
@@ -684,6 +685,160 @@ func copyResources(list []resource, dir string) error {
 	return nil
 }
 
+// syncResources makes dir hold list as copyResources copies it, touching
+// only what changed: a file whose permissions, size and modification time
+// are its source's stays as it is, and a changed one is copied to tmp, a
+// directory on the same volume, then renamed over the old. It removes what
+// else dir holds, but not the top-level entries named in keep, nor hidden
+// ones.
+func syncResources(list []resource, dir, tmp string, keep map[string]bool) error {
+	want := map[string]bool{}
+	for _, r := range list {
+		dst := filepath.Join(dir, filepath.FromSlash(r.name))
+		for p := dst; p != dir && p != filepath.Dir(p); p = filepath.Dir(p) {
+			want[syncKey(p)] = true
+		}
+		if r.src == "" {
+			if err := syncDir(dst); err != nil {
+				return err
+			}
+			continue
+		}
+		if within(dir, r.src) {
+			return fmt.Errorf("resource %s contains the directory it is copied to", r.src)
+		}
+		if r.lipo != "" { // only macOS bundles have them, which are not synced
+			if err := os.RemoveAll(dst); err != nil {
+				return err
+			}
+			if err := r.copyTo(dst); err != nil {
+				return err
+			}
+			continue
+		}
+		err := r.walk(func(path string, info fs.FileInfo) error {
+			rel, err := filepath.Rel(r.src, path)
+			if err != nil {
+				return err
+			}
+			target := filepath.Join(dst, rel)
+			want[syncKey(target)] = true
+			return syncEntry(path, target, tmp, info)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if keep[e.Name()] || hiddenName(e.Name()) {
+			continue
+		}
+		// Best effort, as replacePath: Windows keeps running executables.
+		_ = filepath.WalkDir(filepath.Join(dir, e.Name()), func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if !want[syncKey(path)] {
+				_ = os.RemoveAll(path)
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		})
+	}
+	return nil
+}
+
+// renameResource moves a copied resource into place; tests make it fail as
+// for a file in use.
+var renameResource = renamePackageStage
+
+// syncKey is the key of path among those syncResources places, which
+// ignores case where file systems usually do.
+func syncKey(path string) string {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		return strings.ToLower(path)
+	}
+	return path
+}
+
+// syncDir makes dst a directory, replacing a file there.
+func syncDir(dst string) error {
+	if info, err := os.Lstat(dst); err == nil && !info.IsDir() {
+		if err := os.Remove(dst); err != nil {
+			return err
+		}
+	}
+	return os.MkdirAll(dst, 0o755)
+}
+
+// syncEntry places path, which info describes, at target unless it is
+// there already.
+func syncEntry(path, target, tmp string, info fs.FileInfo) error {
+	old, err := os.Lstat(target)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	switch mode := info.Mode(); {
+	case mode.IsDir():
+		return syncDir(target)
+	case mode&fs.ModeSymlink != 0:
+		link, err := os.Readlink(path)
+		if err != nil {
+			return err
+		}
+		if old != nil && old.Mode()&fs.ModeSymlink != 0 {
+			if l, err := os.Readlink(target); err == nil && l == link {
+				return nil
+			}
+		}
+		if err := os.RemoveAll(target); err != nil {
+			return err
+		}
+		return os.Symlink(link, target)
+	case mode.IsRegular():
+		if old != nil && old.Mode().IsRegular() && old.Mode().Perm() == mode.Perm() &&
+			old.Size() == info.Size() && old.ModTime().Equal(info.ModTime()) {
+			return nil
+		}
+		f, err := os.CreateTemp(tmp, "resource-")
+		if err != nil {
+			return err
+		}
+		f.Close()
+		defer os.Remove(f.Name())
+		if err := copyFile(path, f.Name(), mode.Perm()); err != nil {
+			return err
+		}
+		// CreateTemp made it 0600, which copyFile's mode does not change.
+		if err := os.Chmod(f.Name(), mode.Perm()); err != nil {
+			return err
+		}
+		if err := os.Chtimes(f.Name(), info.ModTime(), info.ModTime()); err != nil {
+			return err
+		}
+		if old != nil && old.IsDir() {
+			if err := os.RemoveAll(target); err != nil {
+				return err
+			}
+		}
+		if err := renameResource(f.Name(), target); err != nil {
+			var link *os.LinkError
+			if errors.As(err, &link) {
+				err = link.Err
+			}
+			return fmt.Errorf("%s changed, but %s cannot be replaced (%v): a program may have it open, such as one the app started", path, target, err)
+		}
+		return nil
+	}
+	return fmt.Errorf("resource %s is not a regular file", path)
+}
+
 // copyResource copies a file or directory to dst like `cp -RH`: src itself
 // is followed when it is a symbolic link, links inside it are copied as
 // links. Permissions are kept, so executables stay executable.
@@ -826,11 +981,13 @@ func within(path, dir string) bool {
 // directories, and notarization rejects unsigned code anywhere. Code is
 // signed from the inside out: Mach-O files, then the bundles holding them
 // (apps, frameworks, plug-ins), whose signatures seal what they contain. A
-// real identity signs all of it. Ad hoc signing only signs what has no
-// valid signature, so that copies keep their own: Mach-O files without
-// one, which Apple silicon does not run, bundles that are not sealed, and
-// the bundles around what it signed. Code keeps the entitlements it is
-// signed with, unless macos.helperEntitlements gives it others.
+// real identity signs all of it in a production build. Ad hoc signing, and
+// a development build whatever its identity, only sign what has no valid
+// signature (keepsSignatures), so that copies keep their own: Mach-O files
+// without one, which Apple silicon does not run, bundles that are not
+// sealed, and the bundles around what it signed. Code keeps the
+// entitlements it is signed with, unless macos.helperEntitlements gives it
+// others.
 func signNestedCode(c *Config, app, identity string, production bool) error {
 	dir := filepath.Join(app, "Contents", "Resources")
 	type nested struct {
@@ -888,7 +1045,7 @@ func signNestedCode(c *Config, app, identity string, production bool) error {
 	var signed []nested
 	for _, n := range list {
 		ent := entitlements[n.name]
-		if identity == "-" && ent == "" {
+		if keepsSignatures(identity, production) && ent == "" {
 			switch {
 			case !n.bundle && n.signed:
 				continue
@@ -899,12 +1056,25 @@ func signNestedCode(c *Config, app, identity string, production bool) error {
 			}
 		}
 		args := nestedCodesignArgs(identity, ent, production)
-		if out, err := exec.Command("codesign", append(args, n.path)...).CombinedOutput(); err != nil {
+		if out, err := signCode(n.name, identity, append(args, n.path)...); err != nil {
 			return fmt.Errorf("codesign %s: %v\n%s", n.name, err, out)
 		}
 		signed = append(signed, n)
 	}
 	return nil
+}
+
+// keepsSignatures reports whether signing the code among the resources
+// leaves what is validly signed as it is. Ad hoc signing does. So does a
+// development build, signed as Xcode signs Debug builds: macOS 27 lets a
+// program signed by an Apple Development certificate see less than the same
+// program signed ad hoc or by its vendor (a copy of mihomo so re-signed no
+// longer sees other processes' sockets in net.inet.tcp.pcblist_n, whatever
+// its identifier), and a development build has no hardened runtime, so the
+// app loads libraries of any signature. A production build signs all of it,
+// as notarization wants one team and the hardened runtime everywhere.
+func keepsSignatures(identity string, production bool) bool {
+	return identity == "-" || !production
 }
 
 // nestedCodesignArgs returns the codesign arguments, before the path, that

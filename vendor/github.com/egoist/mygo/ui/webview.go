@@ -6,6 +6,7 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/surface"
+	"github.com/egoist/mygo/internal/viewhost"
 )
 
 // NativeWebView is a web view a window made for its content to show,
@@ -45,18 +46,143 @@ func coreWebView(c *context, v NativeWebView) *node {
 	return e
 }
 
+// NativeView shows a view of the platform, a value of a native module's
+// interface that embeds native.View (an NSView on macOS), in the element's
+// content box, as WebView shows a web view: it has no size of its own and
+// takes its size from layout, it is cut to the element's Radius, and what
+// paints after it shows over it, its children first. Make the view once,
+// outside the view function, and show it from there:
+//
+//	ui.NativeView(c, app.player).Fill().Children(func() {
+//		ui.Text(c, caption).Absolute().Left(24).Bottom(24)
+//	})
+//
+// The view takes the pointer where it shows, and the keyboard once
+// clicked or tabbed into, as any view of the platform. A view the frame
+// does not build hides and keeps its state; one closed leaves the window.
+// Where views of the platform cannot show, as in browsers, the element
+// shows nothing.
+//
+// v is nil where the module has no implementation, its constructor having
+// returned errors.ErrUnsupported: the element is then a plain box, which
+// paints its background and children, so a view can show something else
+// in the view's place.
+func coreNativeView(c *context, v PlatformView) *node {
+	var h uintptr
+	if v != nil {
+		h = v.NativeView()
+	}
+	if h == 0 {
+		// No implementation, or closed.
+		e := coreBox(c)
+		e.self = Stretch
+		return e
+	}
+	rt := c.rt
+	var pv *platformView
+	for _, p := range rt.platformViews {
+		// One gone may have had the address of a view made since.
+		if p.h == h && !p.gone {
+			pv = p
+			break
+		}
+	}
+	if pv == nil {
+		pv = &platformView{h: h}
+		rt.platformViews = append(rt.platformViews, pv)
+	}
+	return coreWebView(c, pv)
+}
+
+// PlatformView is a view of the platform, which NativeView shows: a value
+// of a native module's interface that embeds native.View.
+type PlatformView interface {
+	// NativeView returns the view, an NSView* on macOS, or 0 once it is
+	// closed.
+	NativeView() uintptr
+}
+
+// platformView stands for a view of the platform in the window of an
+// engine, which places it as it places web views: the surface hosts it
+// (viewhost.Embed, which package native sets) the first time a frame
+// shows it. It holds the view by its handle, not the Go value: a view the
+// app lets go of is released, which tells the window (gone).
+type platformView struct {
+	h     uintptr
+	embed platform.WebView
+	conn  *surface.Conn
+	gone  bool
+}
+
+// SurfaceWebView puts the view under the surface of conn, the first time,
+// and returns what stands for it there. Main thread only.
+func (p *platformView) SurfaceWebView(conn *surface.Conn) platform.WebView {
+	if p.gone {
+		return nil
+	}
+	if p.embed != nil && p.conn == conn {
+		return p.embed
+	}
+	if viewhost.Embed == nil {
+		return nil
+	}
+	e := viewhost.Embed(conn.Surface, p.h, p.leave)
+	if e == nil {
+		return nil
+	}
+	if p.embed != nil {
+		p.embed.Close()
+	}
+	p.embed, p.conn = e, conn
+	return e
+}
+
+// leave takes the view out of the window, as it is closed or released.
+// Main thread only.
+func (p *platformView) leave() {
+	p.gone = true
+	if p.embed != nil {
+		p.embed.Close()
+		p.embed = nil
+	}
+}
+
+// pruneViews forgets the views of the platform that are gone.
+func (rt *engine) pruneViews() {
+	kept := rt.platformViews[:0]
+	for _, pv := range rt.platformViews {
+		if !pv.gone {
+			kept = append(kept, pv)
+		}
+	}
+	clear(rt.platformViews[len(kept):])
+	rt.platformViews = kept
+}
+
 // webPlace is where a frame shows a web view: size is the size its page
 // lays out at, which frame shows scaled, and radii its corners', in its
 // DIPs; hit is the index of its element's own hit, inert that it shows
 // but takes no pointer.
 type webPlace struct {
-	v     NativeWebView
+	v NativeWebView
+	// e is the element showing v, whose place this is: a frame showing one
+	// web view twice, as by an exit transition, notes a place for each.
+	e     *node
 	frame Rect
 	clip  Rect
 	size  [2]float32
 	radii [4]float32
 	hit   int
 	inert bool
+	// opacity is how opaque the page shows, which the host fades the page
+	// itself by where the platform can: the element's own opacity where
+	// nothing is painted under it, whose hole has nothing to blend the
+	// page over then, and 1 where something is, which the hole's partial
+	// erase blends the page with already. The painter tells once it has
+	// painted the hole; one the frame never painted keeps what it was
+	// noted with, the page showing whole unless the content faded the
+	// element out.
+	opacity float32
 }
 
 // noteWebView notes where the frame shows the web view of e, laid out
@@ -93,7 +219,11 @@ func (rt *engine) noteWebView(e *node, clip Rect, invisible bool) {
 	if b.W <= 0 || b.H <= 0 || v.W <= 0 || v.H <= 0 {
 		return
 	}
-	wp := webPlace{v: e.webView, frame: b, clip: v, size: [2]float32{page.W, page.H}, hit: len(rt.hits), inert: invisible}
+	wp := webPlace{v: e.webView, e: e, frame: b, clip: v, size: [2]float32{page.W, page.H}, hit: len(rt.hits), inert: invisible, opacity: 1}
+	if rt.commitFade <= 0.001 {
+		// Nothing of the element paints, so nothing of its page shows.
+		wp.opacity = 0
+	}
 	if upright {
 		wp.radii = holeRadii(e, s)
 		for i := range wp.radii {
@@ -112,11 +242,14 @@ type placedWebView struct {
 	size   [2]float64
 	radii  [4]float64
 	covers []platform.RectF
+	// opacity is how opaque the page shows: the element's own where nothing
+	// is painted under it, for the host to fade the page itself by.
+	opacity float32
 }
 
 // placement returns v as the platform takes it.
 func (v *placedWebView) placement(n platform.WebView) platform.WebViewPlacement {
-	return platform.WebViewPlacement{WebView: n, Frame: v.frame, Clip: v.clip, Width: v.size[0], Height: v.size[1], Radii: v.radii, Covers: v.covers}
+	return platform.WebViewPlacement{WebView: n, Frame: v.frame, Clip: v.clip, Width: v.size[0], Height: v.size[1], Radii: v.radii, Covers: v.covers, Opacity: float64(v.opacity)}
 }
 
 // scaling returns the scale of m, which only moves and scales, by
@@ -171,7 +304,7 @@ func (rt *engine) webViewPlacements() []placedWebView {
 			// The inert one went first: this one takes its place.
 			out = slices.DeleteFunc(out, func(o placedWebView) bool { return o.v == wp.v })
 		}
-		pv := placedWebView{v: wp.v, frame: rectF(wp.frame), clip: rectF(wp.clip), covers: wp.covers(rt.hits)}
+		pv := placedWebView{v: wp.v, frame: rectF(wp.frame), clip: rectF(wp.clip), covers: wp.covers(rt.hits), opacity: wp.opacity}
 		pv.size = [2]float64{float64(wp.size[0]), float64(wp.size[1])}
 		for i, r := range wp.radii {
 			pv.radii[i] = float64(r)
@@ -220,6 +353,9 @@ func rectF(r Rect) platform.RectF {
 
 // placeWebViews tells the host where the frame shows its web views.
 func (rt *engine) placeWebViews() {
+	if len(rt.platformViews) > 0 {
+		rt.pruneViews()
+	}
 	if len(rt.webPlaces) == 0 && !rt.webShown {
 		return
 	}
@@ -276,7 +412,7 @@ func (rt *engine) webViewKey(v NativeWebView, mods Modifiers, key, physical Key,
 	if id == 0 {
 		return // no element shows it now
 	}
-	rt.redraw = false
+	rt.buildNext()
 	rt.input = true
 	if rt.focused != id {
 		rt.focused = id
@@ -320,6 +456,23 @@ func (p *Painter) hole(e *node) {
 	r := p.snap(b)
 	// Translucent, the page blends over what was painted under it.
 	p.add(scene.Op{Kind: scene.OpHole, Rect: r, Radii: radii, Continuous: continuousCorners, Opacity: p.opacity})
+	// Where anything was painted under it, that partial erase blends the
+	// page with what was painted already. Where none is — over a window
+	// nothing is painted in — the erase has nothing to blend over: the
+	// page itself must fade, over what is behind the window. A copy of the
+	// element, as the one a drag paints under the pointer, tells nothing
+	// of it: the page stays where the element is.
+	if !p.copying {
+		fade := p.opacity
+		if p.blends(intersect(b, p.clip)) {
+			fade = 1
+		}
+		for i := range p.rt.webPlaces {
+			if wp := &p.rt.webPlaces[i]; wp.e == e {
+				wp.opacity = fade
+			}
+		}
+	}
 	if c := intersect(transformRect(p.transform, b), p.clip); c.W > 0 && c.H > 0 {
 		p.holes = append(p.holes, c)
 	}

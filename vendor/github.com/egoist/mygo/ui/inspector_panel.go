@@ -42,14 +42,14 @@ func inspPaletteFor(dark bool) inspPalette {
 // inspIcons are the inspector's icons, parsed once a window opens it.
 var inspIcons = sync.OnceValue(func() (icons struct{ pick, close, warn, arrow, plus, check *SVG }) {
 	stroked := func(shapes string) *SVG {
-		return MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` + shapes + `</svg>`))
+		return parseIcon([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` + shapes + `</svg>`))
 	}
 	icons.pick = stroked(`<path d="M21 11V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><path d="m12 12 4.2 10 1.6-4.4L22 16z"/>`)
 	icons.close = stroked(`<path d="M18 6 6 18M6 6l12 12"/>`)
 	icons.plus = stroked(`<path d="M12 5v14M5 12h14"/>`)
 	icons.check = stroked(`<path d="m5 12 5 5 9-10"/>`)
 	icons.warn = stroked(`<path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3z"/><path d="M12 9v4M12 17h.01"/>`)
-	icons.arrow = MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M3 1.5 7.5 5 3 8.5z" fill="currentColor"/></svg>`))
+	icons.arrow = parseIcon([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M3 1.5 7.5 5 3 8.5z" fill="currentColor"/></svg>`))
 	return icons
 })
 
@@ -306,6 +306,8 @@ func (in *inspector) tree(c *context, rt *engine) {
 		if n.leaving {
 			row.Opacity(0.5)
 		}
+		id := n.id
+		row.ContextMenu(func(m *Menu) { in.rowMenu(c, m, id) })
 		row.Children(func() { in.treeRow(c, r, n) })
 	}).Grow(1).MinHeight(0).PaddingY(2).FocusRing(false).Label("Elements")
 	in.listID = list.id
@@ -314,6 +316,10 @@ func (in *inspector) tree(c *context, rt *engine) {
 			in.choose(in.nodes[in.rows[in.row].node].id)
 		}
 	})
+	// Cmd+C (Ctrl+C) copies the element chosen, as Chrome does.
+	if list.Shortcut(Cmd, KeyC) && in.selected != 0 {
+		in.copyElement(c, in.selected)
+	}
 	// Left closes the node chosen, else goes to the node around it; Right
 	// opens it, else goes into it.
 	left, right := list.Shortcut(0, KeyLeft), list.Shortcut(0, KeyRight)

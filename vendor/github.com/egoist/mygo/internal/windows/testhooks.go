@@ -105,6 +105,13 @@ func TestEnterMenuBar(hwnd uintptr) bool {
 	return true
 }
 
+// TestInMenuLoop reports whether a window runs a menu loop, of its bar or
+// a popup, which reads the keys typed from then on.
+func TestInMenuLoop(hwnd uintptr) bool {
+	w := theBackend.windows[hwnd]
+	return w != nil && w.inMenu
+}
+
 // TestForeground brings a window to the front, where the keyboard types,
 // and reports whether it came.
 func TestForeground(hwnd uintptr) bool {

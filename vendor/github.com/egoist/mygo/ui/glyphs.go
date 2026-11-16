@@ -104,22 +104,35 @@ func Shape(s string, f Font) []Glyph {
 // color c.
 func (p *Painter) Glyphs(glyphs []Glyph, x, y float32, c Color) {
 	sys := p.rt.text
-	s := p.scale
+	var gs glyphSpace
+	if p.transform.Set && len(glyphs) > 0 {
+		var w, size float32
+		for _, g := range glyphs {
+			w = max(w, g.X+g.Advance)
+			if g.font != nil {
+				size = max(size, g.font.Size)
+			}
+		}
+		gs = p.glyphSpaceAt(x+w/2, y, size, false)
+	} else {
+		gs = glyphSpace{scale: p.scale, q: 1}
+	}
+	s := gs.scale
 	shade := text.ShadeOf(c.R, c.G, c.B)
 	c = c.Alpha(p.opacity)
 	color := c.scene()
-	baseline := sys.Baseline(y * s)
+	baseline := sys.Baseline(y*s + gs.dy)
 	start := int32(len(p.s.Glyphs))
 	left, right := p.clip.X*s, (p.clip.X+p.clip.W)*s
 	var run *glyphRun
 	if sys.JoinsGlyphs() {
-		run = &glyphRun{}
+		run = &glyphRun{scale: s}
 	}
 	for _, g := range glyphs {
 		if g.font == nil {
 			continue
 		}
-		pen := (x + g.X) * s
+		pen := (x+g.X)*s + gs.dx
 		if !p.transform.Set && (pen > right || pen+(g.Advance+g.font.Size)*s < left) {
 			continue
 		}
@@ -149,7 +162,7 @@ func (p *Painter) Glyphs(glyphs []Glyph, x, y float32, c Color) {
 		run.flush(p, baseline)
 	}
 	if end := int32(len(p.s.Glyphs)); end > start {
-		p.add(scene.Op{Kind: scene.OpGlyphs, Start: start, End: end})
+		gs.add(p, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end})
 	}
 }
 
@@ -163,18 +176,24 @@ func (p *Painter) TextLine(l *text.Layout, x, y float32, color func(cluster int)
 		return
 	}
 	sys := p.rt.text
-	s := p.scale
-	baseline := sys.Baseline(y * s)
+	gs := glyphSpace{scale: p.scale, q: 1}
+	if p.transform.Set {
+		gs = p.glyphSpaceAt(x+l.Lines[0].Width/2, y, l.Params.Style.FontSize(), false)
+	}
+	s := gs.scale
+	baseline := sys.Baseline(y*s + gs.dy)
 	left, right := p.clip.X*s, (p.clip.X+p.clip.W)*s
 	start := int32(len(p.s.Glyphs))
 	var run *glyphRun
 	if sys.JoinsGlyphs() {
 		run = &p.rt.glyphRun
 		run.ids, run.pens, run.glyphs = run.ids[:0], run.pens[:0], run.glyphs[:0]
+		run.scale = s
 	}
 	for _, g := range l.Lines[0].Glyphs {
-		pen := (x + g.X) * s
-		if !p.transform.Set && (pen > right || pen+(g.Advance+g.Size)*s < left) {
+		pen := (x+g.X)*s + gs.dx
+		// An inline object's box draws no glyph (text.Span.ObjectWidth).
+		if g.Object || !p.transform.Set && (pen > right || pen+(g.Advance+g.Size)*s < left) {
 			continue
 		}
 		c := color(g.Cluster)
@@ -199,7 +218,7 @@ func (p *Painter) TextLine(l *text.Layout, x, y float32, color func(cluster int)
 		run.flush(p, baseline)
 	}
 	if end := int32(len(p.s.Glyphs)); end > start {
-		p.add(scene.Op{Kind: scene.OpGlyphs, Start: start, End: end})
+		gs.add(p, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end})
 	}
 }
 

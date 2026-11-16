@@ -34,7 +34,7 @@ func textInputBase(c *context, value *string, multiline bool) *node {
 	}
 	st := e.st
 	if st.editor == nil || st.editor.document != nil {
-		st.editor = newEditor(c.rt.now)
+		st.editor = newEditor(c.rt.now, c.rt.text)
 		st.editor.setText(*value)
 		st.editor.caret, st.editor.anchor = st.editor.buf.n, st.editor.buf.n
 	}
@@ -102,12 +102,36 @@ func (e *node) CaretWidth(width float32) *node {
 // change it: the text can still be selected and copied, from the keyboard
 // too, as it takes the focus, without a caret; assistive technology reads
 // it as read-only.
+//
+// On an element of your own that MyGo does not edit or operate, a widget
+// that draws its value and handles its keys itself, it only tells
+// assistive technology that the element is read-only, as ARIA's
+// aria-readonly, and takes set-value, increment and decrement from it:
+// for a text box
+// (RoleTextField), combo box, check box, switch, slider, stepper, radio
+// group, list box, grid or tree grid, and for the cells and headers
+// (RoleCell, RoleColumnHeader, RoleRowHeader) of a grid or a tree grid,
+// not of a table. Other roles, and MyGo's own controls but for the text
+// inputs and text areas it is meant for, ignore it.
 func (e *node) ReadOnly(on bool) *node {
 	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
 		ed.readOnly = on
 		if on {
 			ed.compose = ""
 		}
+	} else {
+		e.readOnly = on
+	}
+	return e
+}
+
+// Multiline tells assistive technology that an element of the text box
+// role (Role(RoleTextField)) that MyGo does not edit takes several lines,
+// as ARIA's aria-multiline. Text inputs and text areas know it
+// themselves, from the control they are, and other roles ignore it.
+func (e *node) Multiline(on bool) *node {
+	if ed := e.st.editor; ed == nil || e.flags&flagEditable == 0 {
+		e.multiline = on
 	}
 	return e
 }
@@ -128,11 +152,33 @@ func (e *node) MaxLength(n int) *node {
 // OnPaste has fn see a paste into a text input, by Cmd+V, Ctrl+V or a
 // Paste menu item, before it is inserted, on the main thread as the paste
 // comes: text is the clipboard's text, empty when it holds none, as with
-// an image, which the app reads from the clipboard itself. fn reports
+// an image, which fn reads with Services.ReadClipboardData. fn reports
 // whether it took the paste; a paste taken changes nothing, its selection
 // and undo history included, as when a web page prevents a paste's
 // default and attaches a large block instead of inserting it. Like
 // ReadOnly, it holds for the input that comes until the next frame.
+//
+// fn runs between frames, where an Element kept from the view is no
+// longer valid, and the input writes what it holds over its bound value,
+// so setting the value from fn is lost. To put text of its own in place
+// of the paste, as a link to an image it attaches, fn keeps the text and
+// the view inserts it with ReplaceText as it is built again, which a
+// paste seen by fn does at once:
+//
+//	svc := c.Services()
+//	in := ui.TextArea(c, &app.draft).OnPaste(func(string) bool {
+//		img := svc.ReadClipboardData(transfer.PNG)
+//		if len(img.Items()) == 0 {
+//			return false // text pastes as usual
+//		}
+//		app.insert = app.attach(img) // "![image](https://…)"
+//		return true
+//	})
+//	if app.insert != "" {
+//		start, end := in.TextSelection()
+//		in.ReplaceText(start, end, app.insert) // a step of undo
+//		app.insert = ""
+//	}
 func (e *node) OnPaste(fn func(text string) bool) *node {
 	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
 		ed.onPaste = fn
@@ -274,6 +320,60 @@ func (e *node) SetTextSelection(start, end int) *node {
 	if ed.area != nil {
 		ed.area.reveal = true
 	}
+	e.c.rt.requestFrame()
+	return e
+}
+
+// ReplaceText replaces the runes of a text input from start to end with s,
+// as an edit, a step of undo of its own: Undo brings back the text the
+// user had, and Redo s again. A command that writes a message replaces all
+// of it, from 0 to math.MaxInt; a completion, the word before the caret.
+// The offsets are kept within the text, as SetTextSelection's, and what was
+// typed in this frame is applied first. Setting the bound value instead
+// takes the new text into the last step, which suits a reformat of what
+// the user typed, not a text that replaces it (see TextInput). As a paste
+// does, it puts the caret after s, and a single-line input takes line
+// breaks as spaces; MaxLength does not cut it, as it does not cut a value
+// the app sets. Changed reports it. It does nothing when the runes are s
+// already.
+func (e *node) ReplaceText(start, end int, s string) *node {
+	if !e.hasState() || e.st.editor == nil || e.flags&flagEditable == 0 {
+		return e
+	}
+	// What was typed this frame comes first.
+	e.c.rt.applyInputs()
+	ed := e.st.editor
+	ed.syncBuffer()
+	n := ed.buf.n
+	start, end = min(max(start, 0), n), min(max(end, 0), n)
+	start, end = min(start, end), max(start, end)
+	// As the input takes it, a text it holds already is no edit.
+	s = ed.edited(s)
+	if ed.buf.slice(start, end) == s {
+		return e
+	}
+	ed.compose, ed.compositionActive = "", false
+	ed.record(false)
+	maxLength := ed.maxLength
+	ed.maxLength = 0
+	ed.replace(start, end, s)
+	ed.maxLength = maxLength
+	if ed.document != nil {
+		snapshot, ok := ed.document.compareRestore(ed.published, ed.buf.root)
+		if !ok {
+			// The app changed the buffer meanwhile, from another goroutine:
+			// its text wins, as it does over the user's edits.
+			ed.loadBuffer(snapshot)
+			return e
+		}
+		ed.published = snapshot
+	} else if ed.value != nil {
+		*ed.value = ed.buf.s
+	}
+	if ed.area != nil {
+		ed.area.reveal = true
+	}
+	e.st.markChanged()
 	e.c.rt.requestFrame()
 	return e
 }

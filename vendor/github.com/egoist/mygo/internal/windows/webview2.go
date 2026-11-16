@@ -3,15 +3,8 @@
 package windows
 
 import (
-	"fmt"
-	"log"
-	"os"
-	"path/filepath"
 	"strings"
-	"syscall"
 	"unsafe"
-
-	"github.com/egoist/mygo/internal/webview2"
 )
 
 // Vtable indices of the WebView2 interfaces used here, from WebView2.h
@@ -159,6 +152,18 @@ const (
 	wv8GetIsDocumentPlayingAudio        = 87
 )
 
+// ICoreWebView2_22 (SDK 1.0.2651.64, runtime 127) follows
+// ICoreWebView2_21's methods in WebView2.h with
+// AddWebResourceRequestedFilterWithRequestSourceKinds (123) and its Remove
+// twin (124). Unlike ICoreWebView2's AddWebResourceRequestedFilter (57),
+// whose filters reach only the main frame and its same-origin iframes,
+// its filters reach iframes of other origins too.
+const (
+	wv22AddWebResourceRequestedFilterWithRequestSourceKinds = 123
+
+	requestSourceDocument = 1 // COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_DOCUMENT
+)
+
 var (
 	iidICoreWebView2Controller2                  = guid("c979903e-d4ca-4228-92eb-47ee3fa96eab")
 	iidICoreWebView2Settings2                    = guid("ee9a0f68-f46c-4e32-ac23-ef8cac224d2a")
@@ -171,6 +176,7 @@ var (
 	iidICoreWebView2_4                           = guid("20d02d59-6df2-42dc-bd06-f98a694b1302")
 	iidICoreWebView2_8                           = guid("e9632730-6e1e-43ab-b7b8-7b2c9e62e094")
 	iidICoreWebView2_13                          = guid("f75f09a8-667e-4983-88d6-c8773f315e84")
+	iidICoreWebView2_22                          = guid("db75dfc7-a857-4632-a398-6969dde26c0a")
 	iidICoreWebView2Profile2                     = guid("fa740d4b-5eae-4344-a8ad-74be31925397")
 	iidICoreWebView2Environment8                 = guid("d6eb91dd-c3d2-45e5-bd29-6dc2bc4de9cf")
 )
@@ -217,176 +223,6 @@ func browserArguments(unthrottled, autoplay bool) string {
 		args = append(args, autoplayArguments)
 	}
 	return strings.Join(args, " ")
-}
-
-// createEnvironment starts creating the WebView2 environment, in language,
-// the app's (envOptions), or the system's for "", with the browser's
-// additional arguments args; done runs on the main thread with it, and
-// whether it has args, or with an error. An official loader next to the
-// executable reads WebView2's environment variables itself. Without one,
-// the runtime's client library does not, so WEBVIEW2_USER_DATA_FOLDER
-// replaces the user data folder and WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
-// are appended to args. A runtime that fails to create one with the
-// options is asked for one without them.
-func createEnvironment(userData, language, args string, done func(env uintptr, withArgs bool, err error)) error {
-	// An official loader next to the executable wins, and reads WebView2's
-	// environment variables itself; the runtime's client library does not.
-	loader := loaderProc()
-	if loader == nil {
-		var extra string
-		userData, extra = loaderVariables(os.Getenv, executableDir, userData)
-		switch {
-		case args == "":
-			args = extra
-		case extra != "":
-			args += " " + extra
-		}
-	}
-	options := language != "" || args != ""
-	without := func(env uintptr, err error) { done(env, false, err) }
-	err := createEnvironmentWith(loader, userData, language, args, func(env uintptr, err error) {
-		if err != nil && options {
-			// A runtime that takes no options of ours: one without them,
-			// in the language of the system.
-			log.Printf("%v; creating it again without its language and arguments", err)
-			if err := createEnvironmentWith(loader, userData, "", "", without); err != nil {
-				without(0, err)
-			}
-			return
-		}
-		done(env, args != "", err)
-	})
-	if err != nil && options {
-		return createEnvironmentWith(loader, userData, "", "", without)
-	}
-	return err
-}
-
-// createEnvironmentWith creates the environment as createEnvironment does,
-// through loader, or the runtime's client library for nil, with the options
-// of language and args, or none when both are "".
-func createEnvironmentWith(loader *syscall.LazyProc, userData, language, args string, done func(env uintptr, err error)) error {
-	completed := func(hr, env uintptr) {
-		if failed(hr) || env == 0 {
-			done(0, hresultError("creating the WebView2 environment", hr))
-			return
-		}
-		addRef(env)
-		done(env, nil)
-	}
-	dataDir := u16(userData)
-	var options uintptr
-	if language != "" || args != "" {
-		options = newEnvOptions(language, args)
-		defer release(options) // the environment takes its own reference
-	}
-
-	// An official loader next to the executable wins.
-	if loader != nil {
-		hr := withHandler(completed, func(h uintptr) uintptr {
-			r, _, _ := loader.Call(0, uintptr(unsafe.Pointer(dataDir)), options, h)
-			return r
-		})
-		if failed(hr) {
-			return hresultError("CreateCoreWebView2EnvironmentWithOptions", hr)
-		}
-		return nil
-	}
-
-	// Otherwise the runtime's client library, as the loader does: a fixed
-	// version runtime named by WEBVIEW2_BROWSER_EXECUTABLE_FOLDER, else the
-	// Evergreen runtime.
-	dir, fixed, err := webview2.Find()
-	if err != nil {
-		return fmt.Errorf("mygo: %w", err)
-	}
-	client, runtimeType := webview2.ClientDLL(dir), uintptr(0)
-	if fixed {
-		runtimeType = 1
-	}
-	dll := syscall.NewLazyDLL(client)
-	proc := dll.NewProc("CreateWebViewEnvironmentWithOptionsInternal")
-	if err := proc.Find(); err != nil {
-		return fmt.Errorf("mygo: unsupported WebView2 Runtime at %s: %w", client, err)
-	}
-	hr := withHandler(completed, func(h uintptr) uintptr {
-		r, _, _ := proc.Call(1, runtimeType, uintptr(unsafe.Pointer(dataDir)), options, h)
-		return r
-	})
-	if failed(hr) {
-		return hresultError("creating the WebView2 environment", hr)
-	}
-	return nil
-}
-
-// loaderVariables returns the user data folder and the browser arguments
-// that Microsoft's loader takes from WebView2's environment variables and
-// the runtime's client library does not, so that MyGo applies them when it
-// loads the runtime itself: WEBVIEW2_USER_DATA_FOLDER replaces userData,
-// relative to the directory exeDir returns, and
-// WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS are appended to the arguments of the
-// options, after the browser's own (browserArguments).
-func loaderVariables(getenv func(string) string, exeDir func() string, userData string) (dir, args string) {
-	dir = getenv("WEBVIEW2_USER_DATA_FOLDER")
-	switch {
-	case dir == "":
-		dir = userData
-	case !filepath.IsAbs(dir):
-		dir = filepath.Join(exeDir(), dir)
-	}
-	return dir, getenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")
-}
-
-// executableDir returns the directory of the executable, which a relative
-// WEBVIEW2_USER_DATA_FOLDER is relative to, or "" when it is unknown.
-func executableDir() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	return filepath.Dir(exe)
-}
-
-// loaderProc returns the official WebView2 loader next to the executable and
-// its CreateCoreWebView2EnvironmentWithOptions, or nil when there is no
-// loader to use. createEnvironment calls what it returns, and
-// WebViewAvailable asks for it, so the two cannot disagree: a DLL of that
-// name with no such export is no loader, and a runtime is looked for
-// instead.
-func loaderProc() *syscall.LazyProc {
-	exe, err := os.Executable()
-	if err != nil {
-		return nil
-	}
-	path := filepath.Join(filepath.Dir(exe), "WebView2Loader.dll")
-	if _, err := os.Stat(path); err != nil {
-		return nil
-	}
-	proc := syscall.NewLazyDLL(path).NewProc("CreateCoreWebView2EnvironmentWithOptions")
-	if proc.Find() != nil {
-		return nil
-	}
-	return proc
-}
-
-// WebViewAvailable reports whether a window showing a web page can have
-// one: the WebView2 Runtime is installed, or a loader next to the
-// executable loads a fixed version runtime or the installed one itself. It
-// starts nothing; once a window showing a page created the environment, it
-// says whether that worked. It reads the registry and the disk only, so any
-// goroutine may call it, before Init too.
-func (b *Backend) WebViewAvailable() bool {
-	switch b.envResult.Load() {
-	case 1:
-		return true
-	case 2:
-		return false
-	}
-	if loaderProc() != nil {
-		return true
-	}
-	_, _, err := webview2.Find()
-	return err == nil
 }
 
 // regDWORD reads a DWORD value, reporting whether it exists.

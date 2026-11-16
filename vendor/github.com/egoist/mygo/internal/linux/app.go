@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -53,11 +54,21 @@ type Backend struct {
 	nextTray     int
 	grabs        map[int]grab    // global shortcuts on X11
 	portal       portalShortcuts // global shortcuts elsewhere
-	themeHooks   bool
+	// Whether global shortcuts go through the portal under XWayland, once
+	// asked (shortcutsThroughPortal).
+	portalAsked, portalOnX11 bool
+	themeHooks               bool
+
+	// signalable is set once Init has bound GLib and made the callbacks.
+	// A Signal before then, from a goroutine posting while the app starts,
+	// leaves the queue to the Signal Init sends as it is set.
+	signalable atomic.Bool
 	// onX11 reports an X11 display, where windows have positions, and
 	// wmName names its window manager.
 	onX11  bool
 	wmName func(screen ptr) ptr
+	// x11ID returns a GdkWindow's X11 window (gdk_x11_window_get_xid).
+	x11ID func(window ptr) ptr
 	// compositorDecorates reports a Wayland compositor that decorates
 	// windows itself, whose title bar shows no buttons of GTK's (titlebar.go).
 	compositorDecorates bool
@@ -115,6 +126,17 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	if disableDMABUF(opts.DMABUFRenderer, os.Getenv, "/") {
 		_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
 	}
+	// The program is its executable, by whichever name started it, as a
+	// link in /usr/bin of another name (linux.command): GTK names the class
+	// of the windows and the app id after the program, which the desktop
+	// entry names too (StartupWMClass), and WebKitGTK the directories of
+	// the pages' data. An app that named the program itself before Run
+	// (g_set_prgname), as one does to give its windows the reverse-DNS ID
+	// of its desktop entry, keeps its name: GLib leaves the name unset until
+	// gtk_init_check takes argv[0], so a name here is the app's own.
+	if exe, err := os.Executable(); err == nil && gGetPrgname() == 0 {
+		gSetPrgname(cs(filepath.Base(exe)))
+	}
 	if !gtkInitCheck(0, 0) {
 		return errors.New("mygo: cannot open display (is DISPLAY or WAYLAND_DISPLAY set?)")
 	}
@@ -124,6 +146,9 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	var x11Type func() uintptr
 	b.onX11 = bind(libGDK, &x11Type, "gdk_x11_display_get_type") && gTypeCheckInstanceIsA(gdkDisplayGetDefault(), x11Type()) &&
 		bind(libGDK, &b.wmName, "gdk_x11_screen_get_window_manager_name")
+	if b.onX11 {
+		bind(libGDK, &b.x11ID, "gdk_x11_window_get_xid")
+	}
 	// GTK has the compositor's default decoration mode once the display is
 	// open, and decides with it which windows it decorates.
 	var waylandType func() uintptr
@@ -137,6 +162,9 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 		bind(libGDK, &b.waylandSurface, "gdk_wayland_window_get_wl_surface")
 	}
 	initCallbacks()
+	// Something may have posted while GLib was loading: dispatch it.
+	b.signalable.Store(true)
+	b.Signal()
 	return nil
 }
 
@@ -184,7 +212,10 @@ func (b *Backend) runDialog(d ptr, native bool) int32 {
 }
 
 func (b *Backend) Signal() {
-	if gIdleAddFull == nil || !b.signaled.CompareAndSwap(false, true) {
+	// Before Init is done, GLib may be bound and dispatchCallback still
+	// unmade: g_idle_add_full rejects a nil function, and signaled would
+	// stay set with nothing to clear it, so that no post ran again.
+	if !b.signalable.Load() || !b.signaled.CompareAndSwap(false, true) {
 		return
 	}
 	gIdleAddFull(0, dispatchCallback, 0, 0)

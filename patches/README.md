@@ -1,27 +1,30 @@
 # MyGo 本地补丁
 
-当前依赖为 [MyGo v0.8.3](https://github.com/egoist/mygo/releases/tag/v0.8.3)。
+当前依赖为 [MyGo v0.9.2](https://github.com/egoist/mygo/releases/tag/v0.9.2)。
 以下补丁均已应用到受 Git 跟踪的 `vendor/github.com/egoist/mygo`，
-路径相对 MyGo 根目录，并以干净的 v0.8.3 为基准生成。
+路径相对 MyGo 根目录，并以干净的 v0.9.2 为基准生成。
 
 | 补丁 | 用途 |
 | --- | --- |
-| `mygo-v0.8.3-radix-color-swatches.patch` | ColorPicker / ColorWell 内置色块使用 Radix Colors 第 9 阶与黑色端点，保留自选色及透明度。 |
-| `mygo-v0.8.3-linux-layer-drag.patch` | Wayland layer-shell 歌词面板通过更新锚点拖动；读取 xdg-output 逻辑边界，修复 KDE 分数缩放下无法拖到底边的问题，并通知位置保存。 |
-| `mygo-v0.8.3-macos-dev-icon.patch` | 开发包优先选择 `macos.icon` 的 `-dev` 兄弟文件，正确读取和缓存 ICNS，并监听文件或资产目录变化。 |
-| `mygo-v0.8.3-windows-state-compat.patch` | 将旧版本地补丁保存的 `windowsBounds` 读入上游 `pixel*` 字段；已有 `pixel*` 优先，下次保存使用上游格式。 |
-| `mygo-v0.8.3-tester-label-target.patch` | Tester 点击同名目标时逐个验证实际命中，避免 RichText 父文本误挡内联链接；仍拒绝被遮挡的目标。 |
-| `mygo-v0.8.3-desktop-audio.patch` | 保留桌面原采样率输出、可选设备预热、自然尾音排空及停止后端重开、ALSA 转换回退、切频时隔离已暂停旧曲淡出并在旧输出平滑收尾、正常退出时遵循播放淡入淡出设置的终止性 Shutdown，以及 WSOLA 按输出率步进的修复与回归。 |
-| `mygo-v0.8.3-analytic-clip.patch` | 将可化简的静止几何裁剪直接交给 GPU，包含完整切除圆角的分数滚动边界及不透明冗余裁剪；重叠抗锯齿、变换及图片/渐变遮罩保留像素路径。 |
-| `mygo-v0.8.3-render-resource-lifetime.patch` | 在预算压力下跨开关复用闲置遮罩，固定坐标裁剪保留可复用尺寸；D3D11 / GL / Metal 在完成绘制或提交后清理退场的临时遮罩纹理及离屏层。 |
-| `mygo-v0.8.3-retained-text-colors.patch` | 为保留的 TextLayout 缓存原绘制元数据并增加逐 span 前景色覆盖，外部歌词逐字淡入及重复描边时复用整行 shaping 与静态绘制信息。 |
-| `mygo-v0.8.3-glyph-color-damage.patch` | 字形几何与 atlas 不变时，将单纯前景色变化的重绘区域细化到变化字形；保留原场景、字形顺序与绘制效果。 |
+| `mygo-v0.9.2-radix-color-swatches.patch` | ColorPicker / ColorWell 内置色块使用 Radix Colors 第 9 阶与黑色端点，保留自选色及透明度。 |
+| `mygo-v0.9.2-linux-layer-drag.patch` | 沿用上游 layer-shell 移动和缩放，保留面板边界约束与 xdg-output 逻辑坐标，修复 KDE 分数缩放下的底边定位与恢复。 |
+| `mygo-v0.9.2-macos-dev-icon.patch` | 开发包优先选择 `macos.icon` 的 `-dev` 兄弟文件，正确读取和缓存 ICNS，并监听文件或资产目录变化。 |
+| `mygo-v0.9.2-windows-state-compat.patch` | 将旧版本地补丁保存的 `windowsBounds` 读入上游 `pixel*` 字段；已有 `pixel*` 优先，下次保存使用上游格式。 |
+| `mygo-v0.9.2-desktop-audio.patch` | 在上游新版重采样与输出实现上保留原采样率、可选预热、尾音排空及重开、ALSA 回退、暂停旧曲隔离、终止性 Shutdown 和 WSOLA 输出率步进。 |
+| `mygo-v0.9.2-render-resource-lifetime.patch` | 在预算压力下跨开关复用闲置遮罩，固定坐标裁剪保留可复用尺寸；D3D11 / GL / Metal 清理退场的临时纹理及离屏层，保留新版视频处理。 |
+| `mygo-v0.9.2-retained-text-colors.patch` | 为保留的 TextLayout 缓存原绘制元数据并增加逐 span 前景色覆盖，外部歌词逐字淡入及重复描边时复用整行 shaping 与静态绘制信息。 |
+| `mygo-v0.9.2-glyph-color-damage.patch` | 字形几何与 atlas 不变时，将单纯前景色变化的重绘区域细化到变化字形；保留原场景、字形顺序与绘制效果。 |
+
+v0.9.2 已包含上游 Tester 同名内联链接目标修复（#1488）和解析裁剪优化（#1489），
+因此移除 `tester-label-target`、`analytic-clip` 两份本地补丁。新版按后端能力处理
+连续圆角：Metal 支持解析，其他后端继续使用遮罩。位图解码复用提案仍在
+草稿 PR #39，不属于本次依赖升级。
 
 重新生成 vendor 后，在项目根目录应用全部补丁：
 
 ```powershell
 go mod vendor
-Get-ChildItem patches/mygo-v0.8.3-*.patch | ForEach-Object {
+Get-ChildItem patches/mygo-v0.9.2-*.patch | ForEach-Object {
     git apply --check --directory=vendor/github.com/egoist/mygo $_.FullName
     if ($LASTEXITCODE -ne 0) { throw "补丁检查失败：$($_.Name)" }
     git apply --directory=vendor/github.com/egoist/mygo $_.FullName
@@ -31,6 +34,20 @@ Get-ChildItem patches/mygo-v0.8.3-*.patch | ForEach-Object {
 
 已应用时，将 `git apply --check` 改为 `git apply --reverse --check` 验证。
 升级依赖后需先检查上游是否已包含对应修复，再重新生成或移除补丁。
+
+## v0.9.2 升级验证
+
+- `go tool mygo migrate-ui -write ./internal` 和 `./cmd` 均未产生语义变更；已恢复无关行尾变化。
+- 8 份补丁在干净 v0.9.2 源码上逐份检查、应用，49 个文件与 vendor 一致（忽略 CRLF/LF）；全部反向检查通过，vendor 无未归档本地差异。
+- `CGO_ENABLED=0 go test ./...`、`go tool mygo vet .` 通过。
+- 本地 audio、GPU / scene / D3D11、保留文本着色、旧窗口格式及 macOS 图标回归均连续 5 次通过。
+- 应用播放页、快捷键、取消拖动和桌面歌词回归连续 5 次通过；固定模块的上游 Tester 内联链接回归连续 5 次通过，上游 GPU 全包通过。
+- 新版 `TestDownsample*` 在隔离输出的本地音频副本上连续 5 次通过，覆盖混叠抑制、通带/阻带、跨块、变速及零分配。
+- Windows amd64、Linux amd64、macOS arm64 应用构建通过；Linux amd64/arm64 layer 测试、Linux amd64/macOS arm64 audio 测试交叉编译通过。
+
+本轮 Windows D3D11 有原生像素测试；Linux / macOS 未做真机音频或 GUI 验收，
+未运行竞态检测。未生成安装器，未提交、推送或发布。验证产物在忽略目录
+`build/mygo-v0.9.2-upgrade/`。
 
 ## Windows 混合 DPI 窗口恢复
 
@@ -48,7 +65,7 @@ $env:CGO_ENABLED = "0"
 go test ./...
 go tool mygo vet .
 go test github.com/egoist/mygo -run TestWindowStateLegacyPixels
-go test github.com/egoist/mygo/ui -run TestTesterClicksInlineLinkWithParagraphLabel -count=5
+go test -mod=mod github.com/egoist/mygo/ui -run TestTesterClicksInlineLinkWithParagraphLabel -count=5
 go test github.com/egoist/mygo/cmd/mygo -run 'Test(DevConfigMacOSIcon|DevSessionMacOSICNS|BuildInputsMacOSIcon)$' -count=5
 go test github.com/egoist/mygo/audio -count=5
 go run ./scripts/check-window-state -cycles 20
@@ -86,6 +103,10 @@ Linux 歌词锁定直接调用 MyGo v0.8.3 的 `Window.SetIgnoreMouseEvents`，
 `restored-locked` 和 `bottom-edge` 阶段。
 
 ## 播放页裁剪内存
+
+下文性能数字与验收记录来自 v0.8.3 时的历史实验，不是 v0.9.2 的测量结果。
+解析裁剪现使用 v0.9.2 上游实现；历史命令中对应本地测试已随补丁移除，
+可在固定 v0.9.2 模块中运行上游 GPU 回归。本地仍维护资源生命周期、文本着色和字形脏区补丁。
 
 v0.8.3 已包含上游的[增长遮罩复用](https://github.com/egoist/mygo/pull/1428)、
 [容量预算修复](https://github.com/egoist/mygo/pull/1408)和

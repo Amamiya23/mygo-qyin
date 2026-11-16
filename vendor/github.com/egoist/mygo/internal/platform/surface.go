@@ -101,6 +101,18 @@ type GlassPlacement struct {
 	Tint *Color
 }
 
+// ViewSurface is a Surface that shows views of the platform's own under
+// it, as it shows web views: those of native modules (package native),
+// shown with ui.NativeView. macOS's surfaces are.
+type ViewSurface interface {
+	// EmbedView puts view, an NSView on macOS, under the surface, hidden
+	// until PlaceWebViews shows it as it shows a web view. The WebView it
+	// returns stands for it there; of its Page, only what concerns a view
+	// applies (Focus, TabInto, Close, which takes the view out of the
+	// window and lets go of it). The surface keeps view while it shows it.
+	EmbedView(view uintptr) (WebView, error)
+}
+
 // GlassSurface is a Surface that draws the system's glass under its
 // content, as macOS 26's NSGlassEffectView does, where the content leaves a
 // hole.
@@ -365,6 +377,22 @@ const (
 	// takes it as if the web view's element had the focus, and the
 	// keyboard stays with the page.
 	WebViewKey
+	// TouchDown, TouchMove, TouchUp and TouchCancel report a finger on a
+	// touchscreen landing, moving, lifting or taken by the system (as for
+	// an edge's gesture, where no TouchUp follows) at X, Y, with Pressure
+	// and the size of its contact (Width, Height) where the device tells
+	// them. ID tells the fingers down at once apart
+	// from the TouchDown to the TouchUp or TouchCancel; it may be used
+	// again after. They come besides the pointer events a backend makes of
+	// the fingers (taps, scrolls, pinches), which they leave as they are:
+	// the content tracks them only for elements that ask (ui.Element.Touches).
+	// Windows (WM_POINTER), Linux (GDK's touch sequences) and browsers
+	// (Pointer Events of pointerType touch) send them; macOS has no
+	// touchscreen, and a trackpad's fingers are not points on the screen.
+	TouchDown
+	TouchMove
+	TouchUp
+	TouchCancel
 )
 
 // EditCommands are the menu roles of edit commands, which native UI takes as
@@ -396,7 +424,11 @@ type SurfaceEvent struct {
 	// as a mouse, which the content takes for Pointer Events' default.
 	Pointer  PointerKind
 	Pressure float64
-	Key      Key
+	// Width and Height are the size of a finger's contact with the
+	// touchscreen in DIPs, of TouchDown and TouchMove, where the device
+	// tells it: 0 where it does not.
+	Width, Height float64
+	Key           Key
 	// PhysicalKey is the key by its position on an ANSI US keyboard,
 	// whatever the active layout types; KeyUnknown where the backend does
 	// not report it. Key and PhysicalKey agree on a US layout.
@@ -418,7 +450,8 @@ type SurfaceEvent struct {
 	// for DataDrop's legacy file-listener fallback.
 	Files []string
 	Drag  *DataDragEvent
-	// ID and Action are AccessAction's.
+	// ID and Action are AccessAction's; ID is also the finger of
+	// TouchDown, TouchMove, TouchUp and TouchCancel.
 	ID     uint64
 	Action AccessActionKind
 	// WebView is WebViewTabOut's and WebViewKey's.

@@ -471,8 +471,13 @@ type registeredFace struct {
 	mono   bool
 }
 
+// coreTextLoaded binds the functions of Core Text and its frameworks
+// once, as engines are made apart, on the goroutine of each, and what
+// one bound the others reuse.
+var coreTextLoaded = sync.OnceValue(loadCoreText)
+
 func newCoreText() (*coreText, error) {
-	if err := loadCoreText(); err != nil {
+	if err := coreTextLoaded(); err != nil {
 		return nil, err
 	}
 	e := &coreText{
@@ -1127,12 +1132,6 @@ type typesetterKey struct {
 	spacing float32
 	noKern  bool
 	text    uint64
-}
-
-// textHash is what a text comes to in a typesetterKey, its own rather than
-// a string of it, which would take making one for each text at each width.
-func textHash(seed maphash.Seed, text []rune) uint64 {
-	return maphash.Bytes(seed, unsafe.Slice((*byte)(unsafe.Pointer(&text[0])), len(text)*4))
 }
 
 // keptTypesetter is a typesetter kept across frames, with the font it holds

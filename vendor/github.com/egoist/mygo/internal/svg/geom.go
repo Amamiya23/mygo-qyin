@@ -261,6 +261,9 @@ type path struct {
 	// before the first move and after a close.
 	start, cur point
 	open       bool
+	// arcs are the indices in ops of the curves that go on with an arc
+	// the curve before began, in order: no vertices for markers.
+	arcs []int
 }
 
 type pathOp uint8
@@ -372,6 +375,9 @@ func (pa *path) arcTo(rx, ry, rotation float64, large, sweep bool, p point) {
 			end = p
 		}
 		pa.cubicTo(on(c1-t*s1, s1+t*c1), on(c2+t*s2, s2-t*c2), end)
+		if i > 0 {
+			pa.arcs = append(pa.arcs, len(pa.ops)-1)
+		}
 		theta += step
 	}
 }

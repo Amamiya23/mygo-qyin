@@ -267,7 +267,7 @@ func (w *widgetTextInput) UnmarkText() {
 
 func (w *widgetTextInput) layout() *text.Layout {
 	ed := w.ed
-	if ed.layout != nil && (ed.layoutVersion != ed.buf.version || ed.layoutCompose != ed.compose || ed.layoutPassword != ed.password || ed.layoutGeneration != textSystem().Generation()) {
+	if ed.layout != nil && (ed.layoutVersion != ed.buf.version || ed.layoutCompose != ed.compose || ed.layoutPassword != ed.password || ed.layoutGeneration != ed.sys.Generation()) {
 		params := ed.layout.Params
 		params.Text = ed.displayText()
 		params.Spans = ""

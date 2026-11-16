@@ -158,6 +158,15 @@ func (s *System) Full() bool {
 	return s.full[0] || s.full[1]
 }
 
+// MaskFull reports whether the coverage atlas left out a glyph or mask,
+// as distinct from the color atlas. A painter can then release large
+// path masks in favor of tiles before making room for the final retry.
+func (s *System) MaskFull() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.full[0]
+}
+
 // MakeRoom makes room in the atlases that filled up: it keeps what the
 // frame being painted drew, growing the atlas when that and what the frame
 // still needs take much of it, or when room made for the frame before did
@@ -471,11 +480,26 @@ func (s *System) leftOut(color bool, w, h int) {
 // Mask returns a coverage mask cached under key in the mask atlas,
 // drawing it when it is not: draw returns its size and one byte per pixel.
 // Icons and other vector shapes use it.
+// If the dimensions cannot fit the current atlas, draw may return nil
+// pixels: the miss records that size for MakeRoom without rasterizing it.
 //
 // A mask a frame draws for the first time may be one frame of an
 // animation, never drawn again: it lasts for that frame only, in the
-// atlas's transient room, and is cached once a later frame draws it too.
+// atlas's transient room. Later frames try to cache it in lasting room,
+// requesting MakeRoom when that is full. A recovery paint can fall back
+// to transient room if lasting room is still full.
 func (s *System) Mask(key uint64, draw func() (w, h int, pix []byte)) GlyphImage {
+	return s.mask(key, draw, true)
+}
+
+// TryMask is Mask without asking for room: a mask that finds none is not
+// left out of the frame, which then neither reports Full nor has MakeRoom
+// make room for it, for a caller that draws it another way.
+func (s *System) TryMask(key uint64, draw func() (w, h int, pix []byte)) GlyphImage {
+	return s.mask(key, draw, false)
+}
+
+func (s *System) mask(key uint64, draw func() (w, h int, pix []byte), ask bool) GlyphImage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if e, ok := s.masks[key]; ok {
@@ -491,18 +515,39 @@ func (s *System) Mask(key uint64, draw func() (w, h int, pix []byte)) GlyphImage
 	}
 	last, seen := s.recent[key]
 	lasting := seen && last != s.frame
+	// Remember repeated requests through recovery paints, even when they
+	// fail or can only use transient room. A later attempt may find space
+	// in a lasting shelf that has since been compacted.
+	seenAt := s.frame
+	if lasting {
+		seenAt--
+	}
 	w, h, pix := draw()
 	if w <= 0 || h <= 0 {
 		return GlyphImage{}
 	}
 	var x, y int
 	var ok bool
-	if lasting {
-		x, y, ok = s.MaskAtlas.Alloc(w, h)
-	} else {
-		x, y, ok = s.MaskAtlas.AllocTransient(w, h)
+	if pix != nil {
+		if lasting {
+			x, y, ok = s.MaskAtlas.Alloc(w, h)
+			// Let the first miss reclaim stale lasting masks. Otherwise
+			// a repeated mask can stay transient and be drawn anew forever.
+			if !ok && s.rooms > 0 {
+				x, y, ok = s.MaskAtlas.AllocTransient(w, h)
+				if ok {
+					lasting = false
+				}
+			}
+		} else {
+			x, y, ok = s.MaskAtlas.AllocTransient(w, h)
+		}
 	}
 	if !ok {
+		s.recent[key] = seenAt
+		if !ask {
+			return GlyphImage{}
+		}
 		s.leftOut(false, w, h)
 		if s.outMasks == nil {
 			s.outMasks = map[uint64]struct{}{}
@@ -517,7 +562,7 @@ func (s *System) Mask(key uint64, draw func() (w, h int, pix []byte)) GlyphImage
 		s.masks[key] = &atlasEntry{g, s.frame}
 	} else {
 		s.transient[key] = g
-		s.recent[key] = s.frame
+		s.recent[key] = seenAt
 		s.transientUses++
 	}
 	return g
@@ -533,6 +578,44 @@ func (s *System) Unkeep(keys []uint64) {
 	for _, k := range keys {
 		if e, ok := s.masks[k]; ok && e.used == s.frame {
 			e.used = s.frame - 1
+			// If a recovery paint needs it again, it is still a repeated
+			// request and may share the room left in lasting shelves.
+			s.recent[k] = s.frame - 1
 		}
 	}
+}
+
+// GlyphBitmap rasterizes a glyph of f for drawing on the CPU, as the text
+// of SVG documents is drawn, and keeps it nowhere: at scale pixels per
+// DIP, its origin dx pixels right of the left edge of a pixel (0 ≤ dx <
+// 1), unshaded, or with stroke > 0 the stroke of its outline stroke
+// pixels wide (StrokeGlyph). It returns w×h bytes of coverage, color
+// glyphs' alpha, placed left and top pixels from the glyph's origin.
+func (s *System) GlyphBitmap(f *Font, id uint32, scale, dx, stroke float32) (left, top, w, h int, pix []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if f == nil {
+		return
+	}
+	b := s.engine().glyph(f, id, scale, dx, f.shadeFor(Flat), false)
+	if b.w <= 0 || b.h <= 0 || b.w > 2048 || b.h > 2048 {
+		return
+	}
+	if stroke > 0 {
+		b = strokeBitmap(b, min(stroke, 128)/2)
+		return b.left, b.top, b.w, b.h, b.pix
+	}
+	// A copy: engines may draw the next glyph into the same memory.
+	cov := make([]byte, b.w*b.h)
+	for i := range cov {
+		switch {
+		case b.color:
+			cov[i] = b.pix[4*i+3]
+		case b.subpixel:
+			cov[i] = max(b.pix[4*i], b.pix[4*i+1], b.pix[4*i+2])
+		default:
+			cov[i] = b.pix[i]
+		}
+	}
+	return b.left, b.top, b.w, b.h, cov
 }

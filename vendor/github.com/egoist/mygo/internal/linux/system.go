@@ -128,7 +128,7 @@ func clip() ptr {
 }
 
 func (clipboard) ReadText() string        { return takeStr(gtkClipboardWaitForText(clip())) }
-func (c clipboard) WriteText(text string) { _ = c.WriteData(transfer.TextData(text), nil) }
+func (c clipboard) WriteText(text string) { _ = c.WriteData(transfer.TextData(text), false, nil) }
 
 func (clipboard) ReadHTML() string {
 	sd := gtkClipboardWaitForContents(clip(), gdkAtomIntern(cs("text/html"), false))
@@ -145,7 +145,7 @@ func (clipboard) ReadHTML() string {
 }
 
 func (c clipboard) WriteHTML(markup string) {
-	_ = c.WriteData(transfer.New(transfer.NewItem(transfer.Bytes(transfer.HTML, []byte(markup)), transfer.Bytes(transfer.Text, []byte(markup)))), nil)
+	_ = c.WriteData(transfer.New(transfer.NewItem(transfer.Bytes(transfer.HTML, []byte(markup)), transfer.Bytes(transfer.Text, []byte(markup)))), false, nil)
 }
 
 func (clipboard) ReadImage() []byte {
@@ -163,7 +163,7 @@ func (c clipboard) WriteImage(png []byte) error {
 		return err
 	}
 	defer gObjectUnref(pix)
-	return c.WriteData(transfer.New(transfer.NewItem(transfer.Bytes(transfer.PNG, png))), nil)
+	return c.WriteData(transfer.New(transfer.NewItem(transfer.Bytes(transfer.PNG, png))), false, nil)
 }
 
 func (clipboard) Clear() { gtkClipboardClear(clip()) }
@@ -186,9 +186,16 @@ func (clipboard) AvailableFormats() []string {
 
 type shell struct{}
 
+// launch opens uri in its default application, with the display's launch
+// context, which gives it startup notification or the activation token that
+// lets it take the focus: GNOME shows an app that has none behind, and
+// tells in a notification that it is ready.
 func launch(uri string) error {
+	loadLaunch()
+	ctx := gdkDisplayGetAppLaunchContext(gdkDisplayGetDefault())
+	defer gObjectUnref(ctx)
 	var gerr ptr
-	if !gAppInfoLaunchDefaultForURI(cs(uri), 0, &gerr) {
+	if !gAppInfoLaunchDefaultForURI(cs(uri), ctx, &gerr) {
 		return gErr(gerr)
 	}
 	return nil
@@ -206,10 +213,29 @@ func (shell) OpenPath(path string) error    { return launch(fileURI(path)) }
 func (s shell) ShowItemInFolder(path string) {
 	uri := fileURI(path)
 	uris := gVariantNewArray(gVariantTypeNew(cs("s")), unsafe.Pointer(&[]ptr{gVariantNewString(cs(uri))}[0]), 1)
-	params := tuple(uris, gVariantNewString(cs("")))
+	ctx, id := folderStartup()
+	defer gObjectUnref(ctx)
+	params := tuple(uris, gVariantNewString(cs(id)))
 	if _, err := dbusCall("org.freedesktop.FileManager1", "/org/freedesktop/FileManager1", "org.freedesktop.FileManager1", "ShowItems", params, ""); err != nil {
+		if id != "" {
+			gAppLaunchContextLaunchFailed(ctx, cs(id))
+		}
 		_ = s.OpenPath(filepath.Dir(path))
 	}
+}
+
+// folderStartup returns a launch context of the display and the startup ID
+// it gives the application that opens folders, which the file manager takes
+// to show its window in front, as an X11 startup notification or a Wayland
+// activation token; "" where no application opens folders.
+func folderStartup() (ctx ptr, id string) {
+	loadLaunch()
+	ctx = gdkDisplayGetAppLaunchContext(gdkDisplayGetDefault())
+	if info := gAppInfoGetDefaultForType(cs("inode/directory"), false); info != 0 {
+		id = takeStr(gAppLaunchContextGetStartupID(ctx, info, 0))
+		gObjectUnref(info)
+	}
+	return ctx, id
 }
 
 func (shell) TrashItem(path string) error {
@@ -221,6 +247,10 @@ func (shell) TrashItem(path string) error {
 	}
 	return nil
 }
+
+func (shell) TrashItemResult(string) (string, error) { return "", platform.ErrUnsupported }
+
+func (shell) PreviewItem(string) error { return platform.ErrUnsupported }
 
 func (shell) Beep() { gdkDisplayBeep(gdkDisplayGetDefault()) }
 
