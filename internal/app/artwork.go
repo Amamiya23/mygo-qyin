@@ -231,32 +231,33 @@ func releaseArtPixels(bmp *ui.Bitmap) {
 	time.AfterFunc(artRelease, func() { mygo.RunOnMain(bmp.ReleasePixels) })
 }
 
-// decodeArt always keeps the bitmap's compressed restore source. Only
-// callers asking for colors or a backdrop need a second decoded image.
+// decodeArt shares the initial decoded image with color and backdrop analysis,
+// while the bitmap keeps compressed data to restore its pixels.
 func decodeArt(b []byte, need artNeeds) (*artwork, error) {
 	size := len(b)
 	b = stillCover(b)
-	bmp, err := ui.DecodeBitmap(b)
+	bmp, img, err := ui.DecodeBitmapWithImage(b)
 	if err != nil {
 		return nil, err
 	}
-	a, err := deriveArt(b, need)
-	if err != nil {
-		return nil, err
-	}
+	a := deriveArtImage(img, need)
 	a.bmp, a.data, a.size = bmp, b, size+a.size
 	return a, nil
 }
 
 func deriveArt(data []byte, need artNeeds) (*artwork, error) {
-	a := &artwork{ready: need}
 	if need == artCover {
-		return a, nil
+		return &artwork{ready: need}, nil
 	}
 	img, err := decodeImage(data)
 	if err != nil {
 		return nil, err
 	}
+	return deriveArtImage(img, need), nil
+}
+
+func deriveArtImage(img image.Image, need artNeeds) *artwork {
+	a := &artwork{ready: need}
 	if need&artTint != 0 {
 		a.tint = dominantColor(img)
 	}
@@ -265,7 +266,7 @@ func deriveArt(data []byte, need artNeeds) (*artwork, error) {
 		a.backdrop = ui.NewBitmap(blurred)
 		a.size = len(blurred.Pix)
 	}
-	return a, nil
+	return a
 }
 
 func fetchImage(url string) (image.Image, error) {
