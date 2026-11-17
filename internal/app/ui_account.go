@@ -129,6 +129,7 @@ func (a *app) signedIn(prof *qqmusic.Profile) {
 	a.purchased = [2]*purchasedData{}
 	a.purchasedScroll = [2]listScrollState{}
 	a.searches = map[route]*searchData{}
+	a.square = squareState{gen: a.square.gen + 1}
 	a.load(a.route)
 	a.loadHome()
 	if prof == nil {

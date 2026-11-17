@@ -28,6 +28,7 @@ const (
 	pagePurchased
 	pageSettings
 	pageSongShelf
+	pageSquare
 )
 
 type route struct {
@@ -107,6 +108,7 @@ type app struct {
 	homeLoading bool
 	homeAt      time.Time // when what the home page shows was asked for
 	homeGen     int
+	square      squareState
 
 	playlists    map[int64]*qqmusic.Playlist
 	playlistLRU  []int64

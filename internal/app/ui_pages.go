@@ -82,7 +82,10 @@ func (a *app) homePage(c *ui.Context) {
 
 		a.songShelfSection(c.Key("more-song-shelves"), 1, 3)
 
-		a.section(c, "精选歌单")
+		ui.Row(c).Margin(34, 0, 14, 0).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "精选歌单").FontSize(19).FontWeight(700).LetterSpacing(-0.3).Grow(1)
+			a.squareEntry(c)
+		})
 		ui.Grid(c).Columns(a.columns(c, 168)).GapX(20).GapY(28).Children(func() {
 			for i := range a.featured {
 				a.playlistCard(c.Key(a.featured[i].ID), &a.featured[i])

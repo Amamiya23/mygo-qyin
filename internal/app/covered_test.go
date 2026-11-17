@@ -52,7 +52,7 @@ func TestCoveredPageKeepsItsPlace(t *testing.T) {
 		tt.Frame()
 		tt.Advance(time.Second)
 		tt.Frame()
-		if tt.HasText("为你推荐") {
+		if tt.HasText("首页") {
 			t.Errorf("%+v: the sidebar is built under Now Playing", r)
 		}
 
