@@ -569,21 +569,26 @@ func (a *app) lyricsPane(c *ui.Context, tr *qqmusic.Track, h float32) {
 	}
 	defer a.quietCard(c, dim, h*0.18)
 	size := float32(a.settings.lyricsFontSize())
-	if a.lyricSize != size {
+	font := a.settings.LyricsFont
+	if font == "" {
+		font = c.Theme().Font
+	}
+	if a.lyricSize != size || a.lyricFont != font {
 		if a.lyricSize != 0 {
 			a.lyricSizeAt = c.Now()
 		}
-		a.lyricSize, a.lyricAt = size, -2
+		a.lyricSize, a.lyricFont, a.lyricAt = size, font, -2
 	}
 	// Builds can repeat before layout commits. Keep waiting for that entire
 	// frame, so following uses the new geometry rather than a previous pass.
 	resized := !a.lyricSizeAt.IsZero() && a.lyricSizeAt.Equal(c.Now())
-	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: size, translationSize: 17 * size / lyricsFontSizeDefault, weight: 800, lineHeight: 1.25, quiet: quiet, relayout: resized || resumed}, nil)
+	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{font: font, size: size, translationSize: 17 * size / lyricsFontSizeDefault, weight: 800, lineHeight: 1.25, quiet: quiet, relayout: resized || resumed}, nil)
 }
 
 // linesStyle is how timedLines sets its lines: the size, weight and
 // leading of their type; quiet nearly hides them, under a hot comment.
 type linesStyle struct {
+	font            string
 	size            float32
 	translationSize float32
 	weight          int
@@ -599,6 +604,9 @@ type linesStyle struct {
 // lit has still to go (lyricGlide). foot, if set, follows the lines.
 func (a *app) timedLines(c *ui.Context, scroll ui.Element, lines []lyrics.Line, pos time.Duration, cur int, lag float32, st linesStyle, foot func()) {
 	pl := a.pl
+	if st.font == "" {
+		st.font = c.Theme().Font
+	}
 	var active ui.Element
 	seeked := false
 	scroll.Children(func() {
@@ -632,7 +640,7 @@ func (a *app) timedLines(c *ui.Context, scroll ui.Element, lines []lyrics.Line, 
 					text.Children(func() {
 						if on && l.Timed && len(l.Words) > 0 {
 							// The line sung lights up word by word as it is sung.
-							ui.RichText(c.Key("words")).FontSize(st.size).FontWeight(st.weight).LineHeight(st.lineHeight).LetterSpacing(-0.4).Children(func() {
+							ui.RichText(c.Key("words")).Font(st.font).FontSize(st.size).FontWeight(st.weight).LineHeight(st.lineHeight).LetterSpacing(-0.4).Children(func() {
 								for wi, wd := range l.Words {
 									lit := wd.Progress(pos)
 									ui.Text(c.Key(wi), wd.Text).TextColor(white.Alpha(0.38 + 0.62*lit))
@@ -646,14 +654,14 @@ func (a *app) timedLines(c *ui.Context, scroll ui.Element, lines []lyrics.Line, 
 								}
 							}
 						} else {
-							ui.Text(c, l.Text).FontSize(st.size).FontWeight(st.weight).LineHeight(st.lineHeight).LetterSpacing(-0.4).TextColor(white)
+							ui.Text(c, l.Text).Font(st.font).FontSize(st.size).FontWeight(st.weight).LineHeight(st.lineHeight).LetterSpacing(-0.4).TextColor(white)
 						}
 						if l.Translation != "" {
 							size := st.translationSize
 							if size == 0 {
 								size = 17
 							}
-							ui.Text(c, l.Translation).FontSize(size).FontWeight(600).TextColor(white.Alpha(0.7))
+							ui.Text(c, l.Translation).Font(st.font).FontSize(size).FontWeight(600).TextColor(white.Alpha(0.7))
 						}
 					})
 				})

@@ -21,14 +21,14 @@ type taskbarLyricLayoutCache struct {
 
 // Retain the final fitted size, not just its text. A compact taskbar otherwise
 // measures the large sentence and then its smaller replacement on every tick.
-func retainedTaskbarLyricLayout(c *ui.Context, content desktopLyricContent, dark bool, height float32) taskbarLyricLayout {
+func retainedTaskbarLyricLayout(c *ui.Context, content desktopLyricContent, dark bool, height float32, family string) taskbarLyricLayout {
 	secondary := content.translation
 	preview := secondary == "" && content.preview != ""
 	if preview {
 		secondary = content.preview
 	}
 	key := taskbarLyricLayoutKey{
-		text: content.text, secondary: secondary, family: c.Theme().Font,
+		text: content.text, secondary: secondary, family: family,
 		height: height, dark: dark, preview: preview,
 		timed:          content.line.Timed && len(content.line.Words) > 0,
 		secondaryTimed: preview && content.secondaryLine.Timed && len(content.secondaryLine.Words) > 0,

@@ -255,8 +255,12 @@ func (d *desktopLyrics) view(c *ui.Context) {
 	blend := state.blend(c)
 	reveal := state.rowReveal(c, content.activeRow, content.secondaryLine.Timed)
 	color := d.a.settings.desktopLyricsColor()
-	current := desktopLyricsLayoutsAt(c, content, position, size, textWidth, color, reveal)
-	previous := desktopLyricsLayoutsAt(c, state.previous, position, size, textWidth, color, 1)
+	family := d.a.settings.LyricsFont
+	if family == "" {
+		family = c.Theme().Font
+	}
+	current := desktopLyricsLayoutsWithFont(c, content, position, size, textWidth, color, reveal, family)
+	previous := desktopLyricsLayoutsWithFont(c, state.previous, position, size, textWidth, color, 1, family)
 	height := max(current.height, previous.height)
 	d.fitHeight(float64(desktopLyricsToolbarHeight + height + 28))
 	// Use the committed viewport until the deferred native resize completes.
@@ -364,10 +368,14 @@ func desktopLyricsLayouts(c *ui.Context, content desktopLyricContent, position t
 }
 
 func desktopLyricsLayoutsAt(c *ui.Context, content desktopLyricContent, position time.Duration, size, width float32, color ui.Color, rowReveal float32) desktopLyricLayouts {
+	return desktopLyricsLayoutsWithFont(c, content, position, size, width, color, rowReveal, c.Theme().Font)
+}
+
+func desktopLyricsLayoutsWithFont(c *ui.Context, content desktopLyricContent, position time.Duration, size, width float32, color ui.Color, rowReveal float32, family string) desktopLyricLayouts {
 	if content.text == "" {
 		return desktopLyricLayouts{}
 	}
-	font := ui.Font{Family: c.Theme().Font, Size: size, Weight: 700, LineHeight: 1.3}
+	font := ui.Font{Family: family, Size: size, Weight: 700, LineHeight: 1.3}
 	shape := ui.TextShape{Width: width, Align: ui.Center}
 	text := content.text
 	// Rich-text spans use zero alpha to mean inherited color. Apply the

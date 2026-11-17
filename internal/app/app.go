@@ -110,18 +110,18 @@ type app struct {
 	homeGen     int
 	square      squareState
 
-	playlists    map[int64]*qqmusic.Playlist
-	playlistLRU  []int64
-	plSynced     map[int64]bool
-	plSyncedAt   map[int64]time.Time
-	plStale      map[int64]bool
-	refreshingPl map[int64]bool
-	plGen        map[int64]int
-	plEpoch      int
-	playAfterPl  map[int64]bool
-	loadingPl    map[int64]bool
-	plErr        map[int64]string
-	postFn       func(func()) // test hook for main-thread callbacks without a window
+	playlists       map[int64]*qqmusic.Playlist
+	playlistLRU     []int64
+	plSynced        map[int64]bool
+	plSyncedAt      map[int64]time.Time
+	plStale         map[int64]bool
+	refreshingPl    map[int64]bool
+	plGen           map[int64]int
+	plEpoch         int
+	playAfterPl     map[int64]bool
+	loadingPl       map[int64]bool
+	plErr           map[int64]string
+	postFn          func(func()) // test hook for main-thread callbacks without a window
 	artists         map[int64]*artistData
 	artistTab       int // what an artist's page lists: artistHot, artistLatest, artistAlbums or artistEvents
 	albums          map[int64]*albumData
@@ -162,6 +162,7 @@ type app struct {
 	lyricResumeAt time.Time
 	lyricTrack    int64
 	lyricSize     float32   // size used for the preceding lyrics layout
+	lyricFont     string    // font used for the preceding lyrics layout
 	lyricSizeAt   time.Time // frame in which the lyrics changed size
 	queueList     ui.ListState
 	queueAt       int // the row of the queue pane last scrolled to, -1 while it is hidden

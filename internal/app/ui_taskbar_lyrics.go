@@ -34,9 +34,13 @@ func (d *taskbarLyrics) view(c *ui.Context) {
 	playing := d.a.pl.Playing()
 	state.step(track.ID, track.MID, d.revision, content, position, c.Now(), playing, c.Preferences().ReduceMotion || !playing)
 	var scrolling bool
+	family := d.a.settings.LyricsFont
+	if family == "" {
+		family = c.Theme().Font
+	}
 	if content.text != "" && (content.index >= 0 || d.a.pl.Instrumental()) {
 		reveal := state.rowReveal(c, content.activeRow, content.secondaryLine.Timed)
-		layout := makeTaskbarLyricLayoutAt(c, content, position, d.dark, height, reveal)
+		layout := makeTaskbarLyricLayoutWithFont(c, content, position, d.dark, height, reveal, family)
 		available := max(1, width-left-6)
 		activeLine := content.line
 		activeWidth := layout.width
@@ -54,7 +58,7 @@ func (d *taskbarLyrics) view(c *ui.Context) {
 			progress := min(1, float32(elapsed)/float32(desktopLyricsFade))
 			eased := 1 - (1-progress)*(1-progress)*(1-progress)
 			offset = height * (1 - eased)
-			previous = makeTaskbarLyricLayoutAt(c, state.previous, position, d.dark, height, 1)
+			previous = makeTaskbarLyricLayoutWithFont(c, state.previous, position, d.dark, height, 1, family)
 			c.After(min(time.Second/60, desktopLyricsFade-elapsed))
 		}
 		root.Draw(func(p *ui.Painter, r ui.Rect) {
@@ -193,10 +197,14 @@ func makeTaskbarLyricLayout(c *ui.Context, content desktopLyricContent, position
 }
 
 func makeTaskbarLyricLayoutAt(c *ui.Context, content desktopLyricContent, position time.Duration, dark bool, height float32, rowReveal float32) taskbarLyricLayout {
+	return makeTaskbarLyricLayoutWithFont(c, content, position, dark, height, rowReveal, c.Theme().Font)
+}
+
+func makeTaskbarLyricLayoutWithFont(c *ui.Context, content desktopLyricContent, position time.Duration, dark bool, height float32, rowReveal float32, family string) taskbarLyricLayout {
 	if content.text == "" {
 		return taskbarLyricLayout{}
 	}
-	layout := retainedTaskbarLyricLayout(c, content, dark, height)
+	layout := retainedTaskbarLyricLayout(c, content, dark, height, family)
 	layout.activeRow = content.activeRow
 	color := radixGray(dark, 12)
 	if layout.words != nil {

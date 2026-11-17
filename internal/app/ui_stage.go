@@ -51,12 +51,12 @@ func easeOutCubic(t float32) float32 {
 }
 
 // stageShapes lays out the words of a line at font size f.
-func stageShapes(c *ui.Context, l *lyrics.Line, f float32) []wordShape {
+func stageShapes(c *ui.Context, l *lyrics.Line, f float32, family string) []wordShape {
 	seed := float64(l.At / time.Millisecond)
 	shapes := make([]wordShape, len(l.Words))
 	widths := make([]float32, len(l.Words))
 	for i, w := range l.Words {
-		widths[i], _ = c.MeasureText(0, ui.Span{Text: w.Text, Size: f, Weight: 800})
+		widths[i], _ = c.MeasureText(0, ui.Span{Text: w.Text, Font: family, Size: f, Weight: 800})
 	}
 	for i := range l.Words {
 		ws := seed + float64(i)
@@ -93,6 +93,7 @@ func spaceWords(shapes []wordShape, widths []float32, gap float32) {
 // stage shows the lyrics of tr on the whole stage.
 func (a *app) stage(c *ui.Context, tr *qqmusic.Track, accent ui.Color) {
 	pl := a.pl
+	family := a.lyricsFamily(c)
 	lines, loaded := pl.Lyrics()
 	w, h := c.Size()
 	f := min(64, max(36, w*0.045))
@@ -150,10 +151,10 @@ func (a *app) stage(c *ui.Context, tr *qqmusic.Track, accent ui.Color) {
 			// The translation, and the line coming next, along the foot.
 			ui.Column(c).Absolute().Left(0).Right(0).Bottom(24).AlignItems(ui.Center).Gap(8).PassThrough().Children(func() {
 				if cur >= 0 && lines[cur].Translation != "" {
-					ui.Text(c.Key("translation"), lines[cur].Translation).FontSize(18).FontWeight(600).TextColor(white.Alpha(0.72)).TextAlign(ui.Center)
+					ui.Text(c.Key("translation"), lines[cur].Translation).Font(family).FontSize(18).FontWeight(600).TextColor(white.Alpha(0.72)).TextAlign(ui.Center)
 				}
 				if cur+1 < len(lines) {
-					ui.Text(c.Key("next"), lines[cur+1].Text).FontSize(14).TextColor(white.Alpha(0.32)).TextAlign(ui.Center).SingleLine()
+					ui.Text(c.Key("next"), lines[cur+1].Text).Font(family).FontSize(14).TextColor(white.Alpha(0.32)).TextAlign(ui.Center).SingleLine()
 				}
 			})
 		})
@@ -202,11 +203,11 @@ func (a *app) stageLine(c *ui.Context, l *lyrics.Line, pos time.Duration, f, w, 
 		a.partitaLine(c, l, pos, f, h, fade, accent)
 		return
 	case "tilt":
-		tiltLine(c, l, pos, w, fade, accent, a.settings.StageSparks)
+		tiltLine(c, l, pos, w, fade, accent, a.settings.StageSparks, a.lyricsFamily(c))
 		return
 	}
 	seed := float64(l.At / time.Millisecond)
-	shapes := stageShapes(c, l, f)
+	shapes := stageShapes(c, l, f, a.lyricsFamily(c))
 	// Where the line sits: to one side or the middle, a little up or down.
 	justify := []ui.Align{ui.Start, ui.Center, ui.End}[int(seed)%3]
 	lift := []float32{-0.14, 0, 0.12}[int(seed*2)%3] * h
@@ -258,13 +259,13 @@ func (a *app) stageWord(c *ui.Context, word lyrics.Word, s wordShape, pos time.D
 
 	box := ui.Box(c).MarginEnd(s.margin).Translate(x, y).Rotate(rotate).Scale(scale, scale).Opacity(opacity)
 	box.Children(func() {
-		text := ui.Text(c.Key("body"), word.Text).FontSize(f).FontWeight(800).NoWrap().TextColor(color)
+		text := ui.Text(c.Key("body"), word.Text).Font(a.lyricsFamily(c)).FontSize(f).FontWeight(800).NoWrap().TextColor(color)
 		if blur > 0.3 {
 			text.Blur(blur)
 		}
 		if glow > 0.01 {
 			// The glow: the word again, in light, blurred around it.
-			ui.Text(c.Key("glow"), word.Text).Absolute().Top(0).Left(0).FontSize(f).FontWeight(800).NoWrap().
+			ui.Text(c.Key("glow"), word.Text).Absolute().Top(0).Left(0).Font(a.lyricsFamily(c)).FontSize(f).FontWeight(800).NoWrap().
 				TextColor(accent.Alpha(0.85 * glow)).Blur(f * 0.2).PassThrough()
 		}
 	})

@@ -275,7 +275,7 @@ func (a *app) partitaLine(c *ui.Context, l *lyrics.Line, pos time.Duration, f, h
 			widths := make([]float32, len(words))
 			seed := float64(words[0].Start/time.Millisecond) / 1000
 			for i, w := range words {
-				widths[i], _ = c.MeasureText(0, ui.Span{Text: w.Text, Size: f, Weight: 800})
+				widths[i], _ = c.MeasureText(0, ui.Span{Text: w.Text, Font: a.lyricsFamily(c), Size: f, Weight: 800})
 				ws := seed + float64(i)*7.13
 				shapes[i] = wordShape{
 					x:      (lineRandom(ws, 1) - 0.5) * 12,
@@ -404,7 +404,7 @@ func splitParts(words []lyrics.Word, units [][2]int, n int) []tiltPart {
 // the accent, its characters up and down by turns. The whole line is at
 // opacity fade, rising a little as it goes; with sparks, each word throws
 // them as it is sung.
-func tiltLine(c *ui.Context, l *lyrics.Line, pos time.Duration, w, fade float32, accent ui.Color, sparks bool) {
+func tiltLine(c *ui.Context, l *lyrics.Line, pos time.Duration, w, fade float32, accent ui.Color, sparks bool, family string) {
 	size := min(w*0.06875, 90)
 	avail := w * 0.85
 	style := func(p tiltPart) (weight int, spacing float32) {
@@ -420,7 +420,7 @@ func tiltLine(c *ui.Context, l *lyrics.Line, pos time.Duration, w, fade float32,
 			text += w.Text
 		}
 		text = strings.TrimSpace(text)
-		tw, _ := c.MeasureText(0, ui.Span{Text: text, Size: size, Weight: weight})
+		tw, _ := c.MeasureText(0, ui.Span{Text: text, Font: family, Size: size, Weight: weight})
 		return tw + float32(utf8.RuneCountInString(text))*size*spacing
 	}
 	widest := func(parts []tiltPart) float32 {
@@ -438,14 +438,14 @@ func tiltLine(c *ui.Context, l *lyrics.Line, pos time.Duration, w, fade float32,
 	ui.Column(c.Key(l.At)).Absolute().Top(0).Left(0).Right(0).Bottom(0).Center().Gap(14).
 		Translate(0, -12*(1-fade)).Opacity(fade).PassThrough().Children(func() {
 		for pi, part := range parts {
-			tiltPartView(c.Key(pi), l.Words[part.from:part.to], part, pos, size, accent, sparks, pi == len(parts)-1)
+			tiltPartView(c.Key(pi), l.Words[part.from:part.to], part, pos, size, accent, sparks, pi == len(parts)-1, family)
 		}
 	})
 }
 
 // tiltPartView shows a part of a line on 倾诉, its words, as they are at
 // pos, last when the part ends the line.
-func tiltPartView(c *ui.Context, words []lyrics.Word, part tiltPart, pos time.Duration, size float32, accent ui.Color, sparks, last bool) {
+func tiltPartView(c *ui.Context, words []lyrics.Word, part tiltPart, pos time.Duration, size float32, accent ui.Color, sparks, last bool, family string) {
 	ease := func(t float32) float32 { t = clamp01(t); return 1 - (1-t)*(1-t) }
 	since := float32((pos - (words[0].Start - tiltLead)).Seconds())
 	weight, spacing, gap, color, pulse := 400, float32(0.08), float32(0.25), white, float32(0.15)
@@ -487,7 +487,7 @@ func tiltPartView(c *ui.Context, words []lyrics.Word, part tiltPart, pos time.Du
 				}
 				s := 1 + swell*pulse
 				shown := ease((since - float32(k)*stagger) / 0.5)
-				ch := ui.Text(c.Key([2]int{wi, i}), string(r)).FontSize(size).FontWeight(weight).NoWrap().
+				ch := ui.Text(c.Key([2]int{wi, i}), string(r)).Font(family).FontSize(size).FontWeight(weight).NoWrap().
 					TextColor(color).MarginEnd(size*spacing).Opacity(shown).Scale(s, s)
 				if part.lean {
 					// Up and down by turns, from twice as far.

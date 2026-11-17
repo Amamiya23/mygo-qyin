@@ -345,6 +345,33 @@ func (a *app) settingsContent(c *ui.Context) {
 				a.changed()
 			}
 		})
+		row("歌词字体", "", func() {
+			const defaultFont = "跟随默认"
+			families := ui.FontFamilies()
+			labels := make([]string, 1, len(families)+2)
+			labels[0] = defaultFont
+			chosen := defaultFont
+			found := s.LyricsFont == ""
+			for _, family := range families {
+				labels = append(labels, family.Name)
+				if family.Name == s.LyricsFont {
+					chosen, found = family.Name, true
+				}
+			}
+			if !found {
+				chosen = s.LyricsFont + "（不可用）"
+				labels = append(labels, chosen)
+			}
+			if ui.Select(c.Key("lyrics-font"), &chosen, labels).Label("选择歌词字体").Width(180).Changed() {
+				if chosen == defaultFont {
+					s.LyricsFont = ""
+				} else {
+					s.LyricsFont = chosen
+				}
+				s.save()
+				a.redraw()
+			}
+		})
 	})
 
 	group("关于与更新", func() {
