@@ -255,7 +255,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 				a.npRise(ui.Row(c).Height(16).AlignItems(ui.Center), 2).Children(func() {
 					ui.Text(c, clock(pl.Position())).FontSize(11).FontFeatures("tnum").TextColor(white.Alpha(0.5))
 					ui.Spacer(c)
-					qualityBadge(c, pl.Stream())
+					qualityBadge(c, pl.Stream(), true)
 					ui.Spacer(c)
 					status := "-" + clock(pl.Duration()-pl.Position())
 					if pl.Loading() {
@@ -446,8 +446,8 @@ func (a *app) radioChip(c *ui.Context, name string) {
 	}
 }
 
-// qualityBadge marks a lossless stream, as it plays.
-func qualityBadge(c *ui.Context, st *qqmusic.Stream) {
+// qualityBadge shows the actual lossless stream in either player surface.
+func qualityBadge(c *ui.Context, st *qqmusic.Stream, dark bool) {
 	if st == nil || !qqmusic.Lossless(st.Level) {
 		return
 	}
@@ -455,8 +455,8 @@ func qualityBadge(c *ui.Context, st *qqmusic.Stream) {
 	if st.Level == "hires" {
 		label = "Hi-Res"
 	}
-	ui.Text(c, label).FontSize(9.5).FontWeight(800).LetterSpacing(0.6).TextColor(radixAmber(true, 11)).
-		Padding(1, 6).Radius(4).Border(1, radixAmber(true, 8))
+	ui.Text(c, label).FontSize(9.5).FontWeight(800).LetterSpacing(0.6).TextColor(radixAmber(dark, 11)).
+		SingleLine().Shrink(0).Padding(1, 6).Radius(4).Border(1, radixAmber(dark, 8))
 }
 
 // stageBar is the slim bar along the foot of the stage: what plays, where

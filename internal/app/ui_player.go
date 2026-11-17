@@ -449,7 +449,10 @@ func (a *app) playerBar(c *ui.Context) {
 						sub, color = pl.Err(), p.accent
 					}
 					if sub == "" {
-						a.artistLinks(c, tr, p.muted, p.text).FontSize(12).SingleLine()
+						ui.Row(c).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
+							a.artistLinks(c, tr, p.muted, p.text).FontSize(12).SingleLine().Shrink(1).MinWidth(0)
+							qualityBadge(c, pl.Stream(), p.dark)
+						})
 					} else {
 						ui.Text(c, sub).FontSize(12).TextColor(color).SingleLine()
 					}
