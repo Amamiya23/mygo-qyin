@@ -72,6 +72,7 @@ type lyricWordLayoutKey struct {
 	font       ui.Font
 	shape      ui.TextShape
 	singleLine bool
+	spacing    float32
 }
 
 type lyricWordLayoutEntry struct {
@@ -101,7 +102,7 @@ func (cache *lyricWordLayoutCache) get(words []lyrics.Word, key lyricWordLayoutK
 		if key.singleLine {
 			text = taskbarLyricSingleLine(text)
 		}
-		spans[i] = ui.Span{Text: text}
+		spans[i] = ui.Span{Text: text, LetterSpacing: key.spacing}
 	}
 	// Keep the full sentence together so shaping across word boundaries,
 	// including ligatures and bidirectional text, is unchanged.
@@ -124,8 +125,12 @@ func (cache *lyricWordLayoutCache) get(words []lyrics.Word, key lyricWordLayoutK
 }
 
 func retainedLyricWords(c *ui.Context, words []lyrics.Word, font ui.Font, shape ui.TextShape, singleLine bool) *lyricWordGeometry {
+	return retainedSpacedLyricWords(c, words, font, shape, singleLine, 0)
+}
+
+func retainedSpacedLyricWords(c *ui.Context, words []lyrics.Word, font ui.Font, shape ui.TextShape, singleLine bool, spacing float32) *lyricWordGeometry {
 	cache := ui.Local(c.Root(), "lyric-word-layouts", func() lyricWordLayoutCache { return lyricWordLayoutCache{} })
-	return cache.get(words, lyricWordLayoutKey{font: font, shape: shape, singleLine: singleLine})
+	return cache.get(words, lyricWordLayoutKey{font: font, shape: shape, singleLine: singleLine, spacing: spacing})
 }
 
 // Player publishes complete replacement slices. Holding the first line keeps

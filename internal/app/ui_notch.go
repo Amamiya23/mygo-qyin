@@ -7,7 +7,6 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	"lilt/internal/lyrics"
 	"lilt/internal/player"
 	"lilt/internal/qqmusic"
 )
@@ -408,8 +407,7 @@ func (n *notch) compact(c *ui.Context, tr *qqmusic.Track, shown float32, showLyr
 		}
 		cov.Children(func() { artImage(c, bitmap(art), s*0.28, in) })
 		if showLyrics {
-			ui.Text(c.Key("compact-lyric"), n.lyricText(c, tr)).Grow(1).MinWidth(0).
-				FontSize(12.5).FontWeight(800).LetterSpacing(-0.4).TextColor(white.Alpha(0.68)).TextAlign(ui.Center).SingleLine()
+			n.lyric(c.Key("compact-lyric"), tr, ui.Center).Grow(1)
 		} else {
 			ui.Spacer(c)
 		}
@@ -417,28 +415,6 @@ func (n *notch) compact(c *ui.Context, tr *qqmusic.Track, shown float32, showLyr
 			n.levels(c, tr, 16, s*0.7, 4)
 		})
 	})
-}
-
-// lyricText uses the same timeline as Now Playing, waking this window at
-// the next line even when the main window is hidden. Pausing needs no timer.
-func (n *notch) lyricText(c *ui.Context, tr *qqmusic.Track) string {
-	pl := n.a.pl
-	lines, loaded := pl.Lyrics()
-	if !loaded {
-		return "歌词加载中…"
-	}
-	if len(lines) == 0 {
-		return "暂无歌词"
-	}
-	pos := pl.Position()
-	cur := lyrics.Index(lines, pos)
-	if pl.Playing() && cur+1 < len(lines) {
-		c.After(lines[cur+1].At - pos + 20*time.Millisecond)
-	}
-	if cur < 0 {
-		return tr.Name
-	}
-	return lines[cur].Text
 }
 
 // levels draws the music's levels in the cover's color.
@@ -490,8 +466,7 @@ func (n *notch) expanded(c *ui.Context, tr *qqmusic.Track, open, left float32) {
 				} else if pl.Loading() {
 					ui.Text(c, "正在缓冲…").FontSize(12.5).TextColor(white.Alpha(0.55)).SingleLine()
 				} else {
-					ui.Text(c.Key("expanded-lyric"), n.lyricText(c, tr)).MinWidth(0).
-						FontSize(12.5).FontWeight(800).LetterSpacing(-0.4).TextColor(white.Alpha(0.7)).SingleLine()
+					n.lyric(c.Key("expanded-lyric"), tr, ui.Start).FillWidth()
 				}
 			})
 			a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6))

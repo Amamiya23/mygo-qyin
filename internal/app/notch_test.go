@@ -99,7 +99,7 @@ func TestNotchLyricTimer(t *testing.T) {
 	builds := 0
 	tt := ui.NewTester(func(c *ui.Context) {
 		builds++
-		ui.Text(c, n.lyricText(c, a.pl.Current()))
+		n.lyric(c, a.pl.Current(), ui.Center)
 	}, 360, 32)
 	tt.Frame()
 	before := builds
