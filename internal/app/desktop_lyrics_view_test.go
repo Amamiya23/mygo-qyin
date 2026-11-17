@@ -183,21 +183,22 @@ func TestDesktopLyricsTransitionFrames(t *testing.T) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	for _, scene := range []struct{ name, previous, current, translation string }{
-		{"chinese", "风吹过遥远的山海", "我们一起听音乐", ""},
-		{"shorter", "让每个平凡瞬间化作旋律，陪伴我们走过漫长的夜晚", "直到远方", ""},
-		{"translation", "Stay with me through the night", "Let the music carry us home", "让音乐陪伴我们回家"},
+	for _, scene := range []struct{ name, previous, prevPreview, current, currPreview, translation string }{
+		{"chinese", "风吹过遥远的山海", "", "我们一起听音乐", "", ""},
+		{"shorter", "让每个平凡瞬间化作旋律，陪伴我们走过漫长的夜晚", "", "直到远方", "", ""},
+		{"translation", "Stay with me through the night", "", "Let the music carry us home", "", "让音乐陪伴我们回家"},
+		{"double-pair", "我们一起听音乐", "让歌声陪伴远方", "风吹过遥远的山海", "星光落入心怀", ""},
 	} {
 		t.Run(scene.name, func(t *testing.T) {
 			var state desktopLyricViewState
-			state.previous = desktopLyricContent{text: scene.previous}
+			state.previous = desktopLyricContent{text: scene.previous, preview: scene.prevPreview, activeRow: 1}
 			started := false
 			tt := ui.NewTester(func(c *ui.Context) {
 				if !started {
 					state.changed, started = c.Now(), true
 				}
-				previous := desktopLyricsLayouts(c, desktopLyricContent{text: scene.previous}, 0, 32, 432, radixPaper)
-				current := desktopLyricsLayouts(c, desktopLyricContent{text: scene.current, translation: scene.translation}, 0, 32, 432, radixPaper)
+				previous := desktopLyricsLayouts(c, desktopLyricContent{text: scene.previous, preview: scene.prevPreview, activeRow: 1}, 0, 32, 432, radixPaper)
+				current := desktopLyricsLayouts(c, desktopLyricContent{text: scene.current, preview: scene.currPreview, translation: scene.translation}, 0, 32, 432, radixPaper)
 				blend := state.blend(c)
 				ui.Box(c).Fill().Background(radixSage(false, 2)).PaddingX(24).Children(func() {
 					drawDesktopLyricLayers(c, current, previous, 140, blend)

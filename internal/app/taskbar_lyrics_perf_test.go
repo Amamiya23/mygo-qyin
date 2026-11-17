@@ -10,19 +10,22 @@ import (
 
 // Paused, hidden, missing and completed taskbar lyrics stay idle; active highlighting and long-line scrolling are bounded.
 func TestTaskbarLyricsFrameBudget(t *testing.T) {
-	for _, mode := range []string{"paused", "hidden", "disabled", "missing", "prelude", "lrc-short", "lrc-long", "lrc-translation", "preview-long", "timed", "gap", "outro"} {
+	for _, mode := range []string{"paused", "hidden", "disabled", "missing", "prelude", "lrc-short", "lrc-long", "lrc-translation", "preview-long", "preview-active-long", "preview-row2-timed", "timed", "gap", "outro"} {
 		t.Run(mode, func(t *testing.T) {
 			a, d := taskbarLyricsViewFixture()
 			qrc := "[1000,9000]我们一起走过漫长道路(1000,3000)直到音乐带我们走向远方(8000,2000)"
-			if mode == "lrc-short" || mode == "lrc-long" || mode == "lrc-translation" || mode == "preview-long" {
+			if mode == "lrc-short" || mode == "lrc-long" || mode == "lrc-translation" || mode == "preview-long" || mode == "preview-active-long" {
 				qrc = ""
 			}
 			lrc := "[00:01]我们一起走过漫长道路，直到音乐带我们走向远方"
 			if mode == "lrc-short" {
 				lrc = "[00:01]我们\n[00:20]再见"
 			}
-			if mode == "preview-long" {
+			if mode == "preview-long" || mode == "preview-active-long" {
 				lrc = "[00:01]我们\n[00:20]让音乐陪伴我们走过漫长道路，直到歌声带我们走向远方"
+			}
+			if mode == "preview-row2-timed" {
+				qrc = "[1000,2000]我们(1000,2000)\n[4000,9000]让音乐陪伴(4000,3000)走向远方(7000,6000)"
 			}
 			translation := ""
 			if mode == "lrc-translation" {
@@ -30,6 +33,12 @@ func TestTaskbarLyricsFrameBudget(t *testing.T) {
 			}
 			a.pl.SetLyrics(lyrics.Build(lrc, translation, qrc))
 			position := 2 * time.Second
+			if mode == "preview-active-long" {
+				position = 21 * time.Second
+			}
+			if mode == "preview-row2-timed" {
+				position = 5 * time.Second
+			}
 			if mode == "gap" {
 				position = 5 * time.Second
 			}
@@ -59,7 +68,7 @@ func TestTaskbarLyricsFrameBudget(t *testing.T) {
 			before := builds
 			tt.Advance(500 * time.Millisecond)
 			got := builds - before
-			if mode == "timed" || mode == "lrc-long" || mode == "lrc-translation" {
+			if mode == "timed" || mode == "lrc-long" || mode == "lrc-translation" || mode == "preview-active-long" || mode == "preview-row2-timed" {
 				if got < 10 || got > 15 {
 					t.Fatalf("%s rebuilt %d times in 500ms, want about 12", mode, got)
 				}

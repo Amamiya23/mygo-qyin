@@ -64,6 +64,38 @@ func TestLyricLayoutsRetainStableLayers(t *testing.T) {
 			})
 		}
 	}
+	t.Run("active-row2-timed", func(t *testing.T) {
+		first := lyrics.Line{At: time.Second, End: 3 * time.Second, Text: "我们", Timed: true,
+			Words: []lyrics.Word{{Text: "我们", Start: time.Second, End: 3 * time.Second}}}
+		second := lyrics.Line{At: 4 * time.Second, End: 8 * time.Second, Text: "一起听", Timed: true,
+			Words: []lyrics.Word{{Text: "一起", Start: 4 * time.Second, End: 6 * time.Second}, {Text: "听", Start: 6 * time.Second, End: 8 * time.Second}}}
+		content := desktopLyricContent{line: first, secondaryLine: second, text: first.Text, preview: second.Text, index: 1, activeRow: 1}
+		position := 4500 * time.Millisecond
+		var desktop desktopLyricLayouts
+		dt := ui.NewTester(func(c *ui.Context) {
+			desktop = desktopLyricsLayouts(c, content, position, 32, 300, radixPaper)
+		}, 320, 160)
+		dt.Frame()
+		firstDesktop := desktop
+		position = 5500 * time.Millisecond
+		dt.Frame()
+		if desktop.preview != firstDesktop.preview || desktop.previewOutline != firstDesktop.previewOutline || desktop.previewWordColors[0] == firstDesktop.previewWordColors[0] {
+			t.Fatal("row 2 playback either reshaped preview geometry or failed to update word colors")
+		}
+		position = 4500 * time.Millisecond
+		var taskbar taskbarLyricLayout
+		tt := ui.NewTester(func(c *ui.Context) {
+			taskbar = makeTaskbarLyricLayout(c, content, position, true, 42)
+		}, 280, 42)
+		tt.Frame()
+		firstTaskbar := taskbar
+		position = 5500 * time.Millisecond
+		tt.Frame()
+		if taskbar.secondary != firstTaskbar.secondary || taskbar.secondaryOutline != firstTaskbar.secondaryOutline ||
+			taskbar.secondaryWordColors[0] == firstTaskbar.secondaryWordColors[0] || taskbar.secondaryProgressX <= firstTaskbar.secondaryProgressX {
+			t.Fatal("row 2 taskbar playback either reshaped secondary geometry or kept stale word progress")
+		}
+	})
 }
 
 // Identical joined text can have different word boundaries, so a new timing partition must repaint the right characters.

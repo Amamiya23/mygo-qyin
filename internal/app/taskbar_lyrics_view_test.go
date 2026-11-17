@@ -98,10 +98,59 @@ func TestTaskbarLyricsTwoLineContent(t *testing.T) {
 				}
 			}
 			a.pl.Seek(lines[len(lines)-1].At + time.Second)
-			if after := d.content(a.pl.Position()); after.preview != "" || after.text == content.text {
-				t.Fatalf("seek kept an old Chinese preview or current line: %+v", after)
+			after := d.content(a.pl.Position())
+			if tc.preview != "" {
+				if after.activeRow != 1 || after.text != content.text || after.preview != content.preview {
+					t.Fatalf("seek to second row of pair did not keep both rows in place: %+v", after)
+				}
+			} else if after.preview != "" || after.text == content.text {
+				t.Fatalf("seek kept an old preview or current line: %+v", after)
 			}
 		})
+	}
+}
+
+// Row 2 in paired taskbar lyrics highlights word-by-word and scrolls overflowing text without displacing Row 1.
+func TestTaskbarLyricsDoubleLineAlternation(t *testing.T) {
+	a, d := taskbarLyricsViewFixture()
+	a.pl.SetLyrics(lyrics.Build("", "",
+		"[1000,2000]短句(1000,2000)\n[4000,10000]我们一起走过漫长道路(4000,5000)直到音乐带我们走向远方(9000,5000)\n[16000,2000]下一段(16000,2000)",
+	))
+	var row1Layout, row2Early, row2Late taskbarLyricLayout
+	tt := ui.NewTester(func(c *ui.Context) {
+		content := d.content(a.pl.Position())
+		layout := makeTaskbarLyricLayout(c, content, a.pl.Position(), d.dark, 42)
+		switch a.pl.Position() {
+		case 2 * time.Second:
+			row1Layout = layout
+		case 5 * time.Second:
+			row2Early = layout
+		case 12 * time.Second:
+			row2Late = layout
+		}
+		d.view(c)
+	}, 160, 42)
+	a.pl.Seek(2 * time.Second)
+	tt.Frame()
+	if row1Layout.activeRow != 0 || row1Layout.secondaryProgressX != 0 || len(row1Layout.secondaryWordColors) != 2 {
+		t.Fatalf("row 1 should keep row 2 waiting at start: %+v", row1Layout)
+	}
+	a.pl.Seek(5 * time.Second)
+	tt.Frame()
+	a.pl.Seek(12 * time.Second)
+	tt.Frame()
+	if row2Early.activeRow != 1 || row2Late.activeRow != 1 {
+		t.Fatalf("row 2 did not become active in place: early=%d late=%d", row2Early.activeRow, row2Late.activeRow)
+	}
+	if row2Early.progress != 1 || row2Late.secondaryProgressX <= row2Early.secondaryProgressX {
+		t.Fatalf("row 2 timed progress did not advance while row 1 stayed bright: row1Progress=%v earlyX=%v lateX=%v", row2Early.progress, row2Early.secondaryProgressX, row2Late.secondaryProgressX)
+	}
+	if taskbarLyricOffset(row2Late.secondaryWidth, 108, row2Late.secondaryProgressX) >= 0 {
+		t.Fatalf("overflowing active row 2 did not scroll: width=%v progressX=%v", row2Late.secondaryWidth, row2Late.secondaryProgressX)
+	}
+	a.pl.Seek(17 * time.Second)
+	if after := d.content(a.pl.Position()); after.text != "下一段" || after.preview != "" || after.activeRow != 0 {
+		t.Fatalf("pair 2 did not replace pair 1 cleanly: %+v", after)
 	}
 }
 
@@ -196,6 +245,8 @@ func TestTaskbarLyricsFrames(t *testing.T) {
 		position                    time.Duration
 	}{
 		{"chinese-dark", "", "", "[1000,9000]我们一起(1000,4000)听音乐(5000,5000)\n[12000,4000]让歌声陪伴远方(12000,4000)", 280, 42, true, 3 * time.Second},
+		{"chinese-row2-dark", "", "", "[1000,4000]我们一起(1000,2000)听音乐(3000,2000)\n[6000,6000]让歌声(6000,3000)陪伴远方(9000,3000)", 280, 42, true, 7500 * time.Millisecond},
+		{"chinese-row2-long-dark", "", "", "[1000,2000]我们(1000,2000)\n[4000,10000]我们一起走过漫长道路(4000,5000)直到音乐带我们走向远方(9000,5000)", 160, 42, true, 11 * time.Second},
 		{"chinese-light", "", "", "[1000,9000]我们一起(1000,4000)听音乐(5000,5000)\n[12000,4000]让歌声陪伴远方(12000,4000)", 280, 42, false, 3 * time.Second},
 		{"chinese-compact-light", "[00:01]我们一起听音乐\n[00:12]让歌声陪伴远方", "", "", 240, 28, false, 3 * time.Second},
 		{"chinese-unrecognized-light", "[00:44.16]那个样子\n[00:48.39]友情 在积蓄", "", "", 280, 42, false, 45 * time.Second},
