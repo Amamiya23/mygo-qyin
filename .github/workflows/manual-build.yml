@@ -36,7 +36,7 @@ jobs:
             test -f "build/$target/update-$target.json" || { echo "Missing signed update manifest for $target" >&2; exit 1; }
           done
       - name: Save build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-${{ matrix.name }}
           path: |
