@@ -39,6 +39,9 @@ type settings struct {
 	// NotchVirtual keeps a notch of the app's own showing at the top of a
 	// display without one; else it shows only while the pointer asks.
 	NotchVirtual bool `json:"notchVirtual"`
+	// NotchPosition places the player horizontally: -1 at the left edge,
+	// 0 in the center (the default), and 1 at the right edge.
+	NotchPosition float32 `json:"notchPosition,omitempty"`
 	// NotchGreeted says the notch showed itself, once, as the first song
 	// played (greet).
 	NotchGreeted bool `json:"notchGreeted"`

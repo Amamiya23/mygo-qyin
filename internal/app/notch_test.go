@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"image/png"
 	"os"
@@ -16,6 +17,148 @@ import (
 	"lilt/internal/lyrics"
 	"lilt/internal/qqmusic"
 )
+
+func notchMoveFixture(t *testing.T) (*app, *notch, *ui.Tester, *mygo.Point, *mygo.Display) {
+	t.Helper()
+	display := &mygo.Display{Bounds: mygo.Rectangle{X: 100, Y: 20, Width: 1600, Height: 900}}
+	pt := &mygo.Point{X: 900, Y: 60}
+	oldDisplay, oldCursor := notchDisplay, cursorPoint
+	notchDisplay = func() mygo.Display { return *display }
+	cursorPoint = func() mygo.Point { return *pt }
+	t.Cleanup(func() { notchDisplay, cursorPoint = oldDisplay, oldCursor })
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.Notch, a.settings.NotchVirtual = true, true
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "测试歌曲", Duration: 60000}})
+	n := &notch{a: a, open: true, w0: 200, h0: 32, winW: notchOpenW + 60, winH: 240}
+	a.notch = n
+	n.place()
+	tt := ui.NewTester(n.view, int(n.winW), int(n.winH))
+	tt.Advance(time.Second)
+	tt.Frame()
+	return a, n, tt, pt, display
+}
+
+func TestNotchHorizontalDrag(t *testing.T) {
+	a, n, tt, pt, display := notchMoveFixture(t)
+	grip, ok := tt.Find("左右移动刘海播放器")
+	if !ok {
+		t.Fatal("expanded player has no move handle")
+	}
+	// Neither the header nor the blank space outside the grip's padded
+	// hit target should start dragging the player.
+	for _, point := range []ui.Point{
+		{X: n.winW/2 - 150, Y: n.h0 + 7},
+		{X: n.winW/2 + 150, Y: n.h0 + 7},
+		{X: n.winW / 2, Y: 8},
+		{X: grip.X - 2, Y: grip.Y + grip.H/2},
+		{X: grip.X + grip.W + 2, Y: grip.Y + grip.H/2},
+		{X: grip.X + grip.W/2, Y: grip.Y - 2},
+		{X: grip.X + grip.W/2, Y: grip.Y + grip.H + 2},
+	} {
+		tt.Press(point.X, point.Y)
+		if n.dragging {
+			t.Fatalf("blank space outside the grip started a drag: %+v", point)
+		}
+		tt.Release(point.X, point.Y)
+	}
+	x, y := grip.X+grip.W/2, grip.Y+grip.H/2
+	startX, startY := n.screenX, n.screenY
+	tt.Press(x, y)
+	pt.X += 180
+	tt.Move(x+180, y+80)
+	if !n.dragging || n.screenX != startX+180 || n.screenY != startY {
+		t.Fatalf("drag must move only horizontally: dragging=%v x=%v y=%v", n.dragging, n.screenX, n.screenY)
+	}
+	// As the native window moves, the pointer's local X returns to the
+	// handle. Its unchanged screen position must not move the window again.
+	tt.Move(x, y)
+	if n.screenX != startX+180 {
+		t.Fatal("window drifted while the screen pointer stayed still")
+	}
+	if _, err := os.Stat(a.settings.path); !os.IsNotExist(err) {
+		t.Fatal("drag must not write settings before release")
+	}
+	for _, edge := range []struct {
+		pointer int
+		want    float32
+	}{
+		{-4000, float32(display.Bounds.X)},
+		{4000, float32(display.Bounds.X+display.Bounds.Width) - n.winW},
+	} {
+		pt.X, pt.Y = edge.pointer, 700
+		tt.Move(x+float32(edge.pointer), y+600)
+		n.lastInside = time.Now().Add(-time.Second)
+		n.poll()
+		if n.screenX != edge.want || n.screenY != startY || !n.open || n.passing {
+			t.Fatalf("drag lost the panel or escaped the screen: x=%v want=%v open=%v passing=%v", n.screenX, edge.want, n.open, n.passing)
+		}
+	}
+	tt.Release(x+4000, y+600)
+	if n.dragging || a.pl.Playing() || a.pl.Position() != 0 {
+		t.Fatal("drag did not end cleanly or activated playback")
+	}
+	b, err := os.ReadFile(a.settings.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored settings
+	if err := json.Unmarshal(b, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.NotchPosition != 1 {
+		t.Fatalf("position not persisted: %v", restored.NotchPosition)
+	}
+	// Recreating the panel and changing displays use the same saved choice.
+	a.settings = restored
+	display.Bounds = mygo.Rectangle{X: -1200, Y: -100, Width: 1200, Height: 800}
+	n.place()
+	if n.screenX != -n.winW || n.screenY != -100 {
+		t.Fatalf("restored placement missed the new display: %v, %v", n.screenX, n.screenY)
+	}
+}
+
+func TestNotchDragCancelAndCenter(t *testing.T) {
+	a, n, tt, pt, _ := notchMoveFixture(t)
+	n.moveTo(-0.5)
+	a.settings.save()
+	before, _ := os.ReadFile(a.settings.path)
+	grip, _ := tt.Find("左右移动刘海播放器")
+	x, y := grip.X+grip.W/2, grip.Y+grip.H/2
+	tt.Press(x, y)
+	pt.X += 200
+	tt.Move(x+200, y)
+	tt.CancelPress()
+	if n.dragging || a.settings.NotchPosition != -0.5 {
+		t.Fatalf("canceled drag was committed: %v", a.settings.NotchPosition)
+	}
+	after, _ := os.ReadFile(a.settings.path)
+	if string(before) != string(after) {
+		t.Fatal("canceled drag changed saved settings")
+	}
+	settingsUI := ui.NewTester(a.settingsView, 900, 2200)
+	settingsUI.Frame()
+	if err := settingsUI.Click("恢复居中"); err != nil {
+		t.Fatal(err)
+	}
+	if a.settings.NotchPosition != 0 || n.screenX != 100+(1600-n.winW)/2 {
+		t.Fatal("reset did not center the panel")
+	}
+	var saved settings
+	b, _ := os.ReadFile(a.settings.path)
+	if err := json.Unmarshal(b, &saved); err != nil || saved.NotchPosition != 0 {
+		t.Fatal("centered position was not saved")
+	}
+	// Extra frames with the handle gone and back must not retain capture.
+	n.open = false
+	tt.Advance(time.Second)
+	n.open, n.real = true, true
+	tt.Advance(time.Second)
+	if _, ok := tt.Find("左右移动刘海播放器"); !ok || n.dragging {
+		t.Fatal("handle did not return cleanly over a real notch")
+	}
+}
 
 // Seeking in the main window while paused refreshes the compact lyric;
 // it used to stay on the old line until the notch was opened or playback resumed.

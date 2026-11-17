@@ -36,6 +36,10 @@ type notch struct {
 	unwatch    func() // stops them polling, nil while they don't
 	active     bool   // the app is active, when they go unseen over the menu bar
 	polling    bool   // a poll is due
+	dragging   bool
+	dragX      int     // pointer's screen X at the start of a drag
+	dragStart  float32 // saved horizontal position before the drag
+	dragRange  float32 // distance from the center to either edge
 
 	bars  barState
 	scrub scrubState
@@ -79,12 +83,11 @@ func newNotch(a *app) *notch {
 	n.passing = true
 	if a.settings.Notch {
 		n.win.ShowInactive()
-		pinToTop(n.win.NativeHandle(), float64(n.winW), float64(n.winH))
+		n.place()
 	}
 	mygo.Screen.OnDisplaysChanged(func() {
 		n.measure()
 		n.place()
-		pinToTop(n.win.NativeHandle(), float64(n.winW), float64(n.winH))
 	})
 	// The pointer's moves wake the notch: it polls only while one may
 	// soon open or close it, and costs nothing at rest.
@@ -124,12 +127,59 @@ func (n *notch) measure() {
 	}
 }
 
-// place centers the window at the top of the display with the menu bar,
-// where the pointer finds it.
+var notchDisplay = func() mygo.Display { return mygo.Screen.PrimaryDisplay() }
+
+// place keeps the whole expanded window on the display with the menu bar,
+// at the listener's chosen position, including after a display change.
 func (n *notch) place() {
-	d := mygo.Screen.PrimaryDisplay()
-	n.screenX = float32(d.Bounds.X) + (float32(d.Bounds.Width)-n.winW)/2
+	d := notchDisplay()
+	room := max(0, float32(d.Bounds.Width)-n.winW)
+	n.screenX = float32(d.Bounds.X) + room*(1+max(-1, min(1, n.a.settings.NotchPosition)))/2
 	n.screenY = float32(d.Bounds.Y)
+	if n.win != nil {
+		pinToTop(n.win.NativeHandle(), float64(n.screenX), float64(n.winW), float64(n.winH))
+	}
+}
+
+func (n *notch) moveTo(position float32) {
+	n.a.settings.NotchPosition = max(-1, min(1, position))
+	n.place()
+}
+
+// dragInput uses screen coordinates: local coordinates change as the window
+// follows the pointer. Save only a completed drag and undo a canceled one.
+func (n *notch) dragInput(ev ui.InputEvent) bool {
+	switch ev.Kind {
+	case ui.InputPointerDown:
+		if ev.Button != 0 {
+			return false
+		}
+		n.dragging = true
+		n.dragX = cursorPoint().X
+		n.dragStart = max(-1, min(1, n.a.settings.NotchPosition))
+		n.dragRange = max(0, (float32(notchDisplay().Bounds.Width)-n.winW)/2)
+		return true
+	case ui.InputPointerMove:
+		if n.dragging {
+			if n.dragRange > 0 {
+				n.moveTo(n.dragStart + float32(cursorPoint().X-n.dragX)/n.dragRange)
+			}
+			return true
+		}
+	case ui.InputPointerUp:
+		if n.dragging {
+			n.dragging = false
+			if ev.Canceled {
+				n.moveTo(n.dragStart)
+			} else {
+				n.a.settings.save()
+			}
+			n.lastInside = time.Now()
+			n.a.redraw()
+			return true
+		}
+	}
+	return false
 }
 
 // setEnabled shows the notch player, or hides it for good, as the
@@ -145,7 +195,7 @@ func (n *notch) setEnabled(on bool) {
 	}
 	if on {
 		n.win.ShowInactive()
-		pinToTop(n.win.NativeHandle(), float64(n.winW), float64(n.winH))
+		n.place()
 		n.watch()
 		n.poll()
 		return
@@ -170,7 +220,7 @@ func (n *notch) greet() {
 		return // as in tests
 	}
 	n.win.ShowInactive()
-	pinToTop(n.win.NativeHandle(), float64(n.winW), float64(n.winH))
+	n.place()
 	n.watch()
 	n.poll()
 	n.byeSoon(7 * time.Second)
@@ -256,6 +306,15 @@ func (n *notch) poll() {
 	if !n.a.settings.Notch && !n.hello {
 		return
 	}
+	// Keep the handle alive and retain mouse capture even if a drag takes
+	// the pointer outside the panel or reaches the screen's edge.
+	if n.dragging {
+		n.lastInside = time.Now()
+		if n.win != nil {
+			n.pollAgain(true)
+		}
+		return
+	}
 	pt := cursorPoint()
 	w, h := n.target()
 	x := n.screenX + (n.winW-w)/2
@@ -264,7 +323,7 @@ func (n *notch) poll() {
 	inside := px >= x-slack && px <= x+w+slack && py >= n.screenY-slack && py <= n.screenY+h+slack
 	if !n.real && !n.a.settings.NotchVirtual && !n.open && !n.hello {
 		// Without a notch, the pointer pressed against the top edge of
-		// the screen, about its middle, opens it.
+		// the screen, at its chosen position, opens it.
 		cx := n.screenX + n.winW/2
 		inside = px >= cx-n.w0/2 && px <= cx+n.w0/2 && py <= n.screenY+1
 	}
@@ -378,18 +437,52 @@ func (n *notch) view(c *ui.Context) {
 		body.Children(func() {
 			if tr == nil {
 				n.idle(c, open, (w-notchIdleW)/2)
-				return
+			} else {
+				if a.settings.NotchActivity || !a.settings.Notch {
+					n.compact(c, tr, 1-open, !n.real && !n.hello)
+				}
+				n.helloRow(c, hello*(1-open), (w-notchHelloW)/2)
+				if open > 0.02 {
+					n.expanded(c, tr, open, (w-notchOpenW)/2)
+				}
 			}
-			if a.settings.NotchActivity || !a.settings.Notch {
-				n.compact(c, tr, 1-open, !n.real && !n.hello)
-			}
-			n.helloRow(c, hello*(1-open), (w-notchHelloW)/2)
-			if open > 0.02 {
-				n.expanded(c, tr, open, (w-notchOpenW)/2)
+			if n.open {
+				n.moveHandle(c, w)
 			}
 		})
 	})
 	a.syncWindows()
+}
+
+func (n *notch) moveHandle(c *ui.Context, w float32) {
+	const scale float32 = 0.7
+	dot, step := 4*scale, 8*scale
+	gripW, gripH := 20*scale, 12*scale
+	// Move the scaled grip's center up four points, keeping all six dots
+	// below the camera housing on displays with a physical notch.
+	top := n.h0 + 3 - gripH/2
+	if n.real {
+		top = max(top, n.h0)
+	}
+	// Expand the hit target by 20% in each dimension, keeping the visible
+	// dots centered at their existing size and position.
+	padX, padY := gripW*0.1, gripH*0.1
+	grip := ui.Box(c.Key("notch-move")).Absolute().Top(top-padY).Left((w-gripW)/2-padX).Size(gripW+2*padX, gripH+2*padY).
+		Cursor(ui.CursorPointer).Label("左右移动刘海播放器").Tooltip("拖动可左右移动").HandleInput(n.dragInput)
+	color := white.Alpha(0.55)
+	if grip.Hovered() || n.dragging {
+		color = white.Alpha(0.85)
+	}
+	if n.dragging {
+		grip.Cursor(ui.CursorGrabbing)
+	}
+	grip.Children(func() {
+		for row := range 2 {
+			for col := range 3 {
+				ui.Box(c).Absolute().Top(padY+float32(row)*step).Left(padX+float32(col)*step).Size(dot, dot).Radius(dot / 2).Background(color)
+			}
+		}
+	})
 }
 
 // compact leaves real camera housings clear. Virtual notches use that
@@ -520,7 +613,7 @@ func (n *notch) helloRow(c *ui.Context, shown, left float32) {
 	row.Children(func() {
 		title, hint := "刘海里也能控制播放", "指针停在这里，即可暂停、切歌"
 		if !n.real {
-			title, hint = "屏幕顶部也能控制播放", "指针移到顶部中央，即可暂停、切歌"
+			title, hint = "屏幕顶部也能控制播放", "指针移到顶部播放器处，即可暂停、切歌"
 		}
 		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
 			ui.Text(c, title).FontSize(13.5).FontWeight(700).SingleLine()

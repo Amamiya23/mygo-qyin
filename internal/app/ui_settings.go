@@ -191,7 +191,14 @@ func (a *app) settingsContent(c *ui.Context) {
 					a.changed()
 				}
 			})
-			row("在无刘海的屏幕上常驻显示", "关闭时，将鼠标移至屏幕顶部中央即可唤出，不会遮挡菜单栏", func() {
+			row("刘海播放器位置", "展开后拖动顶部六点抓手可左右移动，位置会自动记住", func() {
+				ui.Button(c.Key("notch-center"), "恢复居中").Disabled(s.NotchPosition == 0).OnClick(func() {
+					a.notch.moveTo(0)
+					s.save()
+					a.redraw()
+				})
+			})
+			row("在无刘海的屏幕上常驻显示", "关闭时，将鼠标移至屏幕顶部播放器所在位置即可唤出，不会遮挡菜单栏", func() {
 				if ui.Switch(c.Key("virtual"), &s.NotchVirtual).Label("在无刘海的屏幕上常驻显示").Disabled(!s.Notch).Changed() {
 					a.changed()
 				}

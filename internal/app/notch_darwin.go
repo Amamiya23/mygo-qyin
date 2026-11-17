@@ -81,16 +81,16 @@ func surfaceView(v objc.ID) objc.ID {
 	return 0
 }
 
-// pinToTop moves a window of w×h points to the top middle of the display
+// pinToTop moves a window of w×h points to x at the top of the display
 // with the menu bar, over the menu bar, where AppKit would
 // not otherwise let a window go.
-func pinToTop(handle uintptr, w, h float64) {
+func pinToTop(handle uintptr, x, w, h float64) {
 	screen := menuBarScreen()
 	if screen == 0 {
 		return
 	}
 	f := objc.Send[nsRect](screen, objc.RegisterName("frame"))
-	r := nsRect{nsPoint{f.Origin.X + (f.Size.W-w)/2, f.Origin.Y + f.Size.H - h}, nsSize{w, h}}
+	r := nsRect{nsPoint{x, f.Origin.Y + f.Size.H - h}, nsSize{w, h}}
 	objc.ID(handle).Send(objc.RegisterName("setFrame:display:"), r, true)
 }
 
