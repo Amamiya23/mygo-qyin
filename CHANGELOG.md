@@ -1,5 +1,25 @@
 # 更新日志
 
+## 0.5.0
+
+- 侧边栏「为你推荐」更名为「首页」，在「精选歌单」新增「歌单广场」入口，支持推荐、官方歌单、编辑精选与全部分类浏览
+- 接入 Hi-Res FLAC 播放并支持恢复歌词浏览位置，修复拖动进度条后 FLAC 播放卡顿，并优化正在播放页面音质标签样式
+- 双行桌面歌词与任务栏歌词改为两行交替逐字高亮，两行唱完再平滑切换下一组；设置中新增歌词字体选择（实验性）
+- macOS 刘海歌词支持逐字进度填色，修复 QRC 歌词含双引号时被截断的问题
+- 专辑封面、歌词、歌单与已购音乐支持本地磁盘缓存；待播清单更名为「播放列表」并支持移除歌曲
+- 修复登录恢复与凭据续期异常，优化播放启动、首页加载及封面解码性能，升级 MyGo 至 v0.9.2
+
+> 感谢 [@FQDianYan](https://github.com/FQDianYan)、[@CWalkene](https://github.com/CWalkene)、[@YoungTreeTree](https://github.com/YoungTreeTree) 对本版本的贡献（PR #36、#37、#38、#41、#43、#44）。
+
+### 下载指南
+
+| 处理器架构 | Windows | macOS | Linux |
+| :--- | :--- | :--- | :--- |
+| amd64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.0/lilt-setup-0.5.0-amd64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.0/lilt-0.5.0-amd64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.0/lilt_0.5.0_amd64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.0/lilt-0.5.0-linux-amd64.tar.gz) |
+| arm64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.0/lilt-setup-0.5.0-arm64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.0/lilt-0.5.0-arm64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.0/lilt_0.5.0_arm64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.0/lilt-0.5.0-linux-arm64.tar.gz) |
+
+> Linux：Ubuntu / Debian 等支持 deb 的发行版选 `.deb`，其他发行版选 `.tar.gz`。
+
 ## 0.4.4
 
 - 正在播放页面支持自由浏览歌词，点击「回到当前」恢复跟随
