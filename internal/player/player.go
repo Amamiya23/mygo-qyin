@@ -413,6 +413,15 @@ func (p *Player) Ready() bool { return p.out != nil }
 // Err returns why the current track did not play, or "".
 func (p *Player) Err() string { return p.err }
 
+// ClearErr clears a pending playback error, as when account recovery succeeds.
+func (p *Player) ClearErr() {
+	if p.err == "" {
+		return
+	}
+	p.err = ""
+	p.sync()
+}
+
 // Stream returns what the current track streams, once loaded, or nil.
 func (p *Player) Stream() *qqmusic.Stream { return p.info }
 
@@ -807,15 +816,16 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 			p.loading = false
 			if err != nil {
 				p.err = err.Error()
-				switch {
-				case err != qqmusic.ErrUnavailable:
-				case t.ProgramID != 0:
-					p.err = "这期节目需要购买才能收听"
-				default:
-					p.err = "这首歌需要 VIP 才能播放"
+				unavailable := errors.Is(err, qqmusic.ErrUnavailable)
+				if unavailable {
+					if t.ProgramID != 0 {
+						p.err = "这期节目需要购买才能收听"
+					} else {
+						p.err = "这首歌需要 VIP 才能播放"
+					}
 				}
-				// Skip what cannot play, unless nothing in the queue can.
-				if skipped+1 < len(p.order) {
+				// Skip only per-track unplayable errors while actively trying to play.
+				if p.playing && unavailable && skipped+1 < len(p.order) {
 					next := at + 1
 					if next >= len(p.order) {
 						next = 0
@@ -889,7 +899,7 @@ func (p *Player) open(t qqmusic.Track, level string, normalize bool) (*qqmusic.S
 	dl, info, ok := p.Cache.lookup(t.ID, level)
 	if !ok {
 		var err error
-		info, err = qqmusic.SongURL(t.ID, level)
+		info, err = songURL(t.ID, level)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -919,6 +929,7 @@ var (
 	fetchCover   = qqmusic.Fetch
 	songLyrics   = qqmusic.Lyrics
 	songLoudness = qqmusic.SongLoudness
+	songURL      = qqmusic.SongURL
 )
 
 func withLoudness(info *qqmusic.Stream, v qqmusic.Loudness) *qqmusic.Stream {

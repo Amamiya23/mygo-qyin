@@ -574,4 +574,124 @@ func TestCachePurchasedSongsAndAlbums(t *testing.T) {
 	}
 }
 
+func TestLoadSkippingPausedAndErrorClassification(t *testing.T) {
+	audioData, err := os.ReadFile("testdata/seek.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	c := NewCache(dir, 10<<20)
+	st := &qqmusic.Stream{Size: int64(len(audioData)), Level: "standard", Type: "mp3"}
+	f := c.part(st)
+	if f == nil {
+		t.Fatal("no cache part")
+	}
+	if _, err := f.Write(audioData); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if _, ok := c.keep(2, st, f.Name(), st.Size); !ok {
+		t.Fatal("failed to cache track 2")
+	}
+
+	origLyrics, origSongURL := songLyrics, songURL
+	t.Cleanup(func() { songLyrics, songURL = origLyrics, origSongURL })
+	songLyrics = func(int64) (string, string, string, error) { return "", "", "", nil }
+
+	tracks := []qqmusic.Track{
+		{ID: 1, MID: "m1", Name: "一", Duration: 100000},
+		{ID: 2, MID: "m2", Name: "二", Duration: 100000},
+		{ID: 3, MID: "m3", Name: "三", Duration: 100000},
+	}
+
+	drain := func(t *testing.T, ch chan func(), done func() bool) {
+		t.Helper()
+		deadline := time.After(2 * time.Second)
+		for !done() {
+			select {
+			case fn := <-ch:
+				fn()
+			case <-deadline:
+				t.Fatal("timed out waiting for player callbacks")
+			}
+		}
+	}
+
+	t.Run("paused Restore never skips even on ErrUnavailable or ErrLoginRequired", func(t *testing.T) {
+		for _, urlErr := range []error{qqmusic.ErrUnavailable, qqmusic.ErrLoginRequired} {
+			calls := 0
+			songURL = func(id int64, level string) (*qqmusic.Stream, error) {
+				calls++
+				return nil, urlErr
+			}
+			ch := make(chan func(), 16)
+			synced := 0
+			p := New(func(fn func()) { ch <- fn })
+			p.Quality = func() string { return "standard" }
+			p.Changed = func() { synced++ }
+			p.Restore(Session{
+				Queue:    tracks,
+				Order:    []int{0, 1, 2},
+				At:       0,
+				Position: 47000,
+			})
+			drain(t, ch, func() bool { return !p.Loading() && synced > 0 })
+			if calls != 1 {
+				t.Fatalf("paused Restore called songURL %d times, want 1", calls)
+			}
+			if p.Current() == nil || p.Current().ID != 1 || p.Playing() || p.Position() != 47*time.Second || p.Err() == "" {
+				t.Fatalf("paused Restore altered track/position/state: cur=%v playing=%v pos=%v err=%q", p.Current(), p.Playing(), p.Position(), p.Err())
+			}
+		}
+	})
+
+	t.Run("active PlayQueue stops on ErrLoginRequired without traversing queue", func(t *testing.T) {
+		calls := 0
+		songURL = func(id int64, level string) (*qqmusic.Stream, error) {
+			calls++
+			return nil, qqmusic.ErrLoginRequired
+		}
+		ch := make(chan func(), 16)
+		synced := 0
+		p := New(func(fn func()) { ch <- fn })
+		p.Quality = func() string { return "standard" }
+		p.Changed = func() { synced++ }
+		p.PlayQueue(tracks, 0)
+		drain(t, ch, func() bool { return !p.Loading() && synced > 0 })
+		if calls != 1 {
+			t.Fatalf("PlayQueue with ErrLoginRequired called songURL %d times, want 1", calls)
+		}
+		if p.Current() == nil || p.Current().ID != 1 || p.Playing() || p.Err() != qqmusic.ErrLoginRequired.Error() {
+			t.Fatalf("PlayQueue did not stop on ErrLoginRequired: cur=%v playing=%v err=%q", p.Current(), p.Playing(), p.Err())
+		}
+		beforeClear := synced
+		p.ClearErr()
+		if p.Err() != "" || synced != beforeClear+1 {
+			t.Fatalf("ClearErr did not clear error and sync: err=%q synced=%d->%d", p.Err(), beforeClear, synced)
+		}
+	})
+
+	t.Run("active PlayQueue still skips per-track ErrUnavailable to next playable track", func(t *testing.T) {
+		calls := 0
+		songURL = func(id int64, level string) (*qqmusic.Stream, error) {
+			calls++
+			return nil, qqmusic.ErrUnavailable
+		}
+		ch := make(chan func(), 16)
+		p := New(func(fn func()) { ch <- fn })
+		p.Cache = c
+		p.Quality = func() string { return "standard" }
+		p.PlayQueue(tracks, 0)
+		drain(t, ch, func() bool { return p.Ready() })
+		defer p.stop()
+		if calls != 1 {
+			t.Fatalf("PlayQueue skipped wrong number of unavailable tracks: calls=%d, want 1", calls)
+		}
+		if p.Current() == nil || p.Current().ID != 2 || !p.Playing() || p.Err() != "" {
+			t.Fatalf("PlayQueue did not advance to cached track 2: cur=%v playing=%v err=%q", p.Current(), p.Playing(), p.Err())
+		}
+	})
+}
+
+
 

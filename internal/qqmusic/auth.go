@@ -45,10 +45,12 @@ type Session struct {
 
 var authState struct {
 	sync.RWMutex
-	session Session
-	pending bool
-	version uint64
-	qr      map[string]qrLogin
+	session       Session
+	pending       bool
+	version       uint64
+	refreshFailed bool
+	refreshErr    error
+	qr            map[string]qrLogin
 }
 
 type qrLogin struct {
@@ -72,6 +74,7 @@ func sessionSnapshot() Session {
 func setSession(s Session) {
 	authState.Lock()
 	authState.session, authState.pending = s, false
+	authState.refreshFailed, authState.refreshErr = false, nil
 	authState.version++
 	authState.Unlock()
 }
@@ -139,6 +142,7 @@ func RestoreSession() (bool, error) {
 		return authState.session.valid() || authState.session.canRefresh(), nil
 	}
 	authState.session, authState.pending = s, false
+	authState.refreshFailed, authState.refreshErr = false, nil
 	authState.version++
 	return true, nil
 }
@@ -186,6 +190,7 @@ func ClearSession() {
 	authState.Lock()
 	defer authState.Unlock()
 	authState.session, authState.pending = Session{}, false
+	authState.refreshFailed, authState.refreshErr = false, nil
 	authState.version++
 	deletePersistedSession()
 }
@@ -211,7 +216,7 @@ func Logout() { ClearSession() }
 // Account uses the credential's ID: GetLoginUserInfo does not return one.
 func Account() (*Profile, error) {
 	prior := sessionSnapshot()
-	s, err := activeSession()
+	s, err := activeSessionForAccount()
 	if err != nil {
 		return nil, err
 	}
@@ -242,6 +247,7 @@ func Account() (*Profile, error) {
 				return nil, nil
 			}
 			authState.session, authState.pending = Session{}, false
+			authState.refreshFailed, authState.refreshErr = false, nil
 			authState.version++
 			deletePersistedSession()
 			return nil, sessionFailure("unusable", s, err)
@@ -412,6 +418,7 @@ func finishQR(key string, s Session) bool {
 	}
 	authState.session = s
 	authState.pending = false
+	authState.refreshFailed, authState.refreshErr = false, nil
 	authState.version++
 	delete(authState.qr, key)
 	return true

@@ -112,6 +112,9 @@ func (a *app) signedIn(prof *qqmusic.Profile) {
 	// Playback picks up where it was left, once the session that lets
 	// the listener play their songs is back.
 	a.restoreSession()
+	if prof != nil && a.pl != nil && a.pl.Err() == qqmusic.ErrLoginRequired.Error() {
+		a.pl.ClearErr()
+	}
 	a.mine, a.saved, a.recPlaylists, a.liked = nil, nil, nil, nil
 	a.clearSongShelves()
 	a.likedPrograms, a.askedPrograms = nil, nil

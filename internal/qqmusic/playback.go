@@ -31,14 +31,23 @@ func trackForPlayback(id int64) (Track, error) {
 
 // SongURL asks QQ for a full stream at the requested quality, falling back to MP3.
 func SongURL(id int64, level string) (*Stream, error) {
+	if err := sessionRefreshError(); err != nil {
+		return nil, err
+	}
 	t, err := trackForPlayback(id)
 	if err != nil {
+		if prompt := sessionRefreshError(); prompt != nil {
+			return nil, prompt
+		}
 		return nil, err
 	}
 	// Queues saved before Hi-Res support may have all other playback fields.
 	if level == "hires" && sessionSnapshot().MusicKey != "" && t.SizeHiRes == 0 {
 		tracks, err := SongDetails([]int64{id})
 		if err != nil {
+			if prompt := sessionRefreshError(); prompt != nil {
+				return nil, prompt
+			}
 			return nil, err
 		}
 		if len(tracks) > 0 {
@@ -87,6 +96,9 @@ func SongURL(id int64, level string) (*Stream, error) {
 			param["ctx"] = 0
 		}
 		if err := rpc(module, method, param, &data); err != nil {
+			if prompt := sessionRefreshError(); prompt != nil {
+				return nil, prompt
+			}
 			var protocol *ProtocolError
 			if q.level == "hires" && errors.As(err, &protocol) {
 				continue

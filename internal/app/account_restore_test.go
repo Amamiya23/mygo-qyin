@@ -270,6 +270,48 @@ func TestAccountRestoreUnrecoverableDataOffersScan(t *testing.T) {
 	}
 }
 
+func TestAccountRecoveryClearsLoginPlaybackError(t *testing.T) {
+	oldHomeF, oldHomeC, oldHomeD, oldHomeR := homeFeatured, homeCharts, homeDaily, homeRecommended
+	oldShelves, oldPlaylists, oldLiked := readSongShelves, userPlaylists, readLikedIDs
+	homeFeatured = func(int) ([]qqmusic.Playlist, error) { return nil, nil }
+	homeCharts = func() ([]qqmusic.Playlist, error) { return nil, nil }
+	homeDaily = func() ([]qqmusic.Track, error) { return nil, nil }
+	homeRecommended = func() ([]qqmusic.Playlist, error) { return nil, nil }
+	readSongShelves = func() ([]qqmusic.SongShelf, error) { return nil, nil }
+	userPlaylists = func(int64) ([]qqmusic.Playlist, []qqmusic.Playlist, error) { return nil, nil, nil }
+	readLikedIDs = func(int64) ([]int64, error) { return nil, nil }
+	t.Cleanup(func() {
+		homeFeatured, homeCharts, homeDaily, homeRecommended = oldHomeF, oldHomeC, oldHomeD, oldHomeR
+		readSongShelves, userPlaylists, readLikedIDs = oldShelves, oldPlaylists, oldLiked
+	})
+
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.restored = true
+	a.pl.Cue([]qqmusic.Track{{ID: 1, MID: "m1", Name: "Song"}})
+	a.pl.SetErr(qqmusic.ErrLoginRequired.Error())
+
+	// Signing out (prof == nil) must keep the login prompt error.
+	a.signedIn(nil)
+	if a.pl.Err() != qqmusic.ErrLoginRequired.Error() {
+		t.Fatalf("signedIn(nil) cleared login error: %q", a.pl.Err())
+	}
+
+	// Recovering the account clears the login-required playback error.
+	a.signedIn(&qqmusic.Profile{UserID: 42, Nickname: "Listener"})
+	if a.pl.Err() != "" {
+		t.Fatalf("unexpected playback error after sign-in: %q", a.pl.Err())
+	}
+
+	// Non-login errors (e.g. VIP-only) must not be cleared on sign-in.
+	const vipErr = "这首歌需要 VIP 才能播放"
+	a.pl.SetErr(vipErr)
+	a.signedIn(&qqmusic.Profile{UserID: 42, Nickname: "Listener"})
+	if a.pl.Err() != vipErr {
+		t.Fatalf("non-login playback error was cleared on sign-in: %q", a.pl.Err())
+	}
+}
+
 // With NM_FRAMES set, saves failed and pending recovery menus in both appearances.
 func TestAccountRestoreFrames(t *testing.T) {
 	dir := os.Getenv("NM_FRAMES")

@@ -3,6 +3,7 @@ package qqmusic
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"testing"
@@ -228,3 +229,83 @@ func TestQQRefreshRejectsWrongCredentialFamily(t *testing.T) {
 		t.Fatal("wrong credential family overwrote or deleted the original QQ session")
 	}
 }
+
+// Once global session renewal fails, SongURL must immediately return a login prompt without
+// repeating refresh network requests for every uncached track, while Account() can still retry.
+func TestSongURLShortCircuitsOnFailedSessionRenewal(t *testing.T) {
+	refreshes, vkeys, allowSuccess := 0, 0, false
+	fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Req struct {
+				Method string
+			} `json:"req"`
+			Req0 struct {
+				Module, Method string
+			} `json:"req_0"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch {
+		case body.Req.Method == "Login":
+			refreshes++
+			if !allowSuccess {
+				io.WriteString(w, `{"code":0,"req":{"code":1000}}`)
+				return
+			}
+			io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"recovered-key","loginType":2,"refresh_token":"rotated-token"}}}`)
+		case body.Req0.Method == "GetLoginUserInfo":
+			io.WriteString(w, `{"code":0,"req_0":{"code":0,"data":{"info":{}}}}`)
+		case body.Req0.Method == "UrlGetVkey" || body.Req0.Method == "CgiGetVkey":
+			vkeys++
+			rpcReply(w, map[string]any{"sip": []string{"https://dl.stream.qqmusic.qq.com/"}, "midurlinfo": []any{map[string]any{"songmid": "songMid1", "purl": "M500file.mp3"}}})
+		default:
+			t.Errorf("unexpected RPC %+v", body)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	})
+	oldHTTP, oldWrite, oldDelete := httpClient, writePersistedSession, deletePersistedSession
+	httpClient = authHTTP
+	writePersistedSession = func([]byte) error { return nil }
+	deletePersistedSession = func() {}
+	t.Cleanup(func() {
+		httpClient, writePersistedSession, deletePersistedSession = oldHTTP, oldWrite, oldDelete
+		setSession(Session{})
+	})
+	RememberTracks([]Track{
+		{ID: 7001, MID: "songMid1", MediaMID: "mediaMid1"},
+		{ID: 7002, MID: "songMid2", MediaMID: "mediaMid2"},
+	})
+	setSession(Session{
+		MusicID: "10001", MusicKey: "expired-key", LoginType: 2, CreatedAt: 1, ExpiresIn: 1,
+		OpenID: "saved-openid", RefreshToken: "saved-token", Device: &wechatDevice{Qimei: "q16", Qimei36: "q36"},
+	})
+
+	// Failure at startup Account() puts global session into renewal-failed state.
+	if profile, err := Account(); err == nil || profile != nil {
+		t.Fatalf("expected failed startup Account(), got profile=%v err=%v", profile, err)
+	}
+	if refreshes != 1 {
+		t.Fatalf("startup Account() refreshes = %d, want 1", refreshes)
+	}
+
+	// Multiple SongURL calls must not trigger any additional refresh or vkey requests.
+	for _, id := range []int64{7001, 7002, 7001} {
+		if _, err := SongURL(id, "standard"); !errors.Is(err, ErrLoginRequired) {
+			t.Fatalf("SongURL(%d) = %v, want ErrLoginRequired", id, err)
+		}
+	}
+	if refreshes != 1 || vkeys != 0 {
+		t.Fatalf("SongURL triggered unexpected requests after failed renewal: refreshes=%d vkeys=%d", refreshes, vkeys)
+	}
+
+	// Explicit Account() recovery retries and clears the renewal-failed state on success.
+	allowSuccess = true
+	profile, err := Account()
+	if err != nil || profile == nil || refreshes != 2 {
+		t.Fatalf("Account() recovery failed: profile=%v err=%v refreshes=%d", profile, err, refreshes)
+	}
+	stream, err := SongURL(7001, "standard")
+	if err != nil || stream == nil || vkeys != 1 {
+		t.Fatalf("SongURL after recovery failed: stream=%+v err=%v vkeys=%d", stream, err, vkeys)
+	}
+}
+

@@ -269,10 +269,13 @@ func (a *app) albumLikeAnswered(uid int64, d *albumData, liked bool, err error) 
 	}
 }
 
+var readLikedIDs = qqmusic.LikedIDs
+
 // loadLiked loads the listener's liked songs.
 func (a *app) loadLiked(uid int64) {
+	fetch := readLikedIDs
 	go func() {
-		ids, err := qqmusic.LikedIDs(uid)
+		ids, err := fetch(uid)
 		a.post(func() {
 			if err != nil || a.profile == nil || a.profile.UserID != uid {
 				return

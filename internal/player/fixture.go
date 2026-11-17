@@ -50,3 +50,7 @@ func (p *Player) Attach(out *audio.Player) {
 
 // SetStream makes st what the current track streams.
 func (p *Player) SetStream(st *qqmusic.Stream) { p.info = st }
+
+// SetErr sets a pending playback error message for app-level tests.
+func (p *Player) SetErr(err string) { p.err = err }
+
