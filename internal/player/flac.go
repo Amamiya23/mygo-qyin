@@ -162,10 +162,17 @@ func (s *flacStream) SetPosition(target int64) error {
 	if size <= 0 {
 		size = s.dl.waitFor(math.MaxInt64)
 	}
+	// Probe before the estimated frame: scanning forwards from inside the
+	// target frame can find its successor, then miss every header before
+	// that upper bound and fall back to decoding the entire song prefix.
+	frameBytes := int64(s.info.FrameSizeMax)
+	if frameBytes == 0 {
+		frameBytes = int64(s.info.BlockSizeMax)*int64(s.info.NChannels)*int64((s.info.BitsPerSample+7)/8) + 64
+	}
 	loOff, lo := s.start, int64(0)
 	hiOff, hi := size, total
 	for tries := 0; tries < 8 && target-lo > int64(s.info.SampleRate) && hi > lo; tries++ {
-		guess := loOff + int64(float64(hiOff-loOff)*float64(target-lo)/float64(hi-lo))
+		guess := loOff + int64(float64(hiOff-loOff)*float64(target-lo)/float64(hi-lo)) - frameBytes
 		off, at, ok := s.frameAfter(max(guess, loOff+1), hiOff)
 		if !ok {
 			break
