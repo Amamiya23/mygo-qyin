@@ -37,7 +37,9 @@ func TestNotchWordFillAndSeek(t *testing.T) {
 	var layout notchLyricLayout
 	tt := ui.NewTester(func(c *ui.Context) {
 		layout = makeNotchLyricLayout(c, line, position)
-		ui.Box(c).Size(100, 32).Background(ui.Hex("#000000")).Draw(func(p *ui.Painter, r ui.Rect) {
+		// Render without an opaque box background so Windows ClearType subpixel
+		// fringes on white text are not mistaken for gold highlight pixels.
+		ui.Box(c).Size(100, 32).Draw(func(p *ui.Painter, r ui.Rect) {
 			layout.draw(p, r, ui.Start)
 		})
 	}, 100, 32)
@@ -54,7 +56,7 @@ func TestNotchWordFillAndSeek(t *testing.T) {
 	}
 	position = 5 * time.Second
 	tt.Frame()
-	if notchGoldPixels(tt.Image(), tt.Image().Bounds()) != 0 || layout.colors[0] != notchLyricSung || layout.colors[1] != notchLyricRest {
+	if notchGoldPixels(tt.Image(), tt.Image().Bounds()) != 0 || len(layout.fills) != 0 || layout.colors[0] != notchLyricSung || layout.colors[1] != notchLyricRest {
 		t.Fatal("a silent gap must leave completed words white and future words gray")
 	}
 	position = 7 * time.Second
@@ -133,7 +135,7 @@ func TestNotchLongWordLine(t *testing.T) {
 	a.pl.Seek(5500 * time.Millisecond)
 	n := &notch{a: a}
 	tt := ui.NewTester(func(c *ui.Context) {
-		ui.Box(c).Size(150, 32).Background(ui.Hex("#000000")).Children(func() {
+		ui.Box(c).Size(150, 32).Children(func() {
 			n.lyric(c, a.pl.Current(), ui.Start).Absolute().Left(30).Top(8).Width(90)
 		})
 	}, 150, 32)
