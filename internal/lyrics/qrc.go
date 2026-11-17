@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	qrcContent = regexp.MustCompile(`(?s)\bLyricContent="([^"]*)"`)
+	qrcContent = regexp.MustCompile(`(?s)\bLyricContent="(.*?)"\s*/>`)
 	qrcWord    = regexp.MustCompile(`\((\d+),(\d+)\)`)
 )
 
@@ -18,8 +18,10 @@ var (
 // in milliseconds; literal parentheses and timed spaces remain in the text.
 func ParseQRC(qrc string) []Line {
 	if m := qrcContent.FindStringSubmatch(qrc); m != nil {
-		// Extract the attribute before unescaping it: escaped quotes belong
-		// to the lyrics, and the real newlines separate their timed lines.
+		// QQ sometimes leaves quotes in credits unescaped. End at the tag's
+		// closing marker, not the next quote (as LX Music's removeTag does).
+		// Unescape only after extraction: even an encoded closing marker
+		// can be part of the lyrics. Preserve the real newlines for timing.
 		qrc = html.UnescapeString(m[1])
 	}
 	ms := func(s string) time.Duration {

@@ -58,6 +58,33 @@ func TestParseQRCText(t *testing.T) {
 	}
 }
 
+// QQ can leave quotes in credit names unescaped inside LyricContent. Those
+// quotes must not truncate the singing lines that follow the credits.
+func TestBuildQRCEmbeddedQuotes(t *testing.T) {
+	const content = `[0,100]测试歌曲(0,100)
+[100,400]词：作者 "(100,100)alias"(200,100) 姓氏(300,200)
+[1000,500]第一句(1000,200)歌词(1200,300)
+[2000,600]保留 &quot;/&gt; 与 &amp;(2000,600)`
+	for _, ending := range []string{`"/>`, "\" \r\n/>"} {
+		t.Run(ending, func(t *testing.T) {
+			qrc := `<QrcInfos><LyricInfo><Lyric_1 LyricType="1" LyricContent="` + content + ending + `
+<Lyric_2 LyricType="2" LyricContent="[9000,500]其他歌词块(9000,500)"/>
+</LyricInfo></QrcInfos>`
+			lines := Build("[00:01.00]普通歌词备用", "[00:01.00]译文", qrc)
+			if len(lines) != 4 {
+				t.Fatalf("embedded quote truncated lyrics or swallowed another block: got %d lines", len(lines))
+			}
+			if lines[1].Text != `词：作者 "alias" 姓氏` || lines[2].Text != "第一句歌词" || lines[3].Text != `保留 "/> 与 &` {
+				t.Fatalf("quotes or entities changed the lyric text: %+v", lines)
+			}
+			if !lines[2].Timed || lines[2].At != time.Second || lines[2].Translation != "译文" ||
+				len(lines[2].Words) != 2 || lines[2].Words[1].Start != 1200*time.Millisecond || lines[2].Words[1].End != 1500*time.Millisecond {
+				t.Fatalf("singing line lost word timing or translation: %+v", lines[2])
+			}
+		})
+	}
+}
+
 // Missing or malformed QRC falls back to line timing, with no claim that
 // the estimated word times are real; instrumental placeholders stay hidden.
 func TestBuildQRCFallback(t *testing.T) {
