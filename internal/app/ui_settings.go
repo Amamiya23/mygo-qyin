@@ -119,14 +119,22 @@ func (a *app) settingsContent(c *ui.Context) {
 				a.changed()
 			}
 		})
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 			row("侧边栏材质", "", func() {
-				i := 0
-				if s.sidebarVibrancy() == mygo.VibrancyMica {
-					i = 1
+				modes := []string{"acrylic", "mica", "solid"}
+				labels := []string{"亚克力", "Mica", "纯色"}
+				if runtime.GOOS == "darwin" {
+					modes = []string{"sidebar", "solid"}
+					labels = []string{"系统材质", "纯色"}
 				}
-				if segmented(c.Key("sidebar-material"), &i, "亚克力", "Mica") {
-					s.SidebarMaterial = []string{"acrylic", "mica"}[i]
+				i := 0
+				for k, mode := range modes {
+					if mode == s.SidebarMaterial {
+						i = k
+					}
+				}
+				if segmented(c.Key("sidebar-material"), &i, labels...) {
+					s.SidebarMaterial = modes[i]
 					if a.win != nil {
 						a.win.SetVibrancy(s.sidebarVibrancy())
 					}

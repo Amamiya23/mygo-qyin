@@ -67,9 +67,12 @@ func (a *app) view(c *ui.Context) {
 				return
 			}
 			side := ui.Column(c).Width(sidebarWidth)
-			if !c.Vibrancy() {
+			switch {
+			case a.settings.sidebarVibrancy() == mygo.VibrancyNone:
+				side.Background(radixGray(p.dark, 3))
+			case !c.Vibrancy():
 				side.Background(p.sidebar)
-			} else if a.acrylicSidebar(c) {
+			case a.acrylicSidebar(c):
 				// Neutral frost quiets the desktop's color without adding a
 				// green cast, while leaving the system acrylic visible beneath.
 				side.Background(radixGray(p.dark, 2).Alpha(0.5))
@@ -260,8 +263,11 @@ func (a *app) navItem(c *ui.Context, icon *ui.SVG, label string, r route) {
 // distinct from hover even over a colorful desktop material.
 func (a *app) styleSidebarItem(c *ui.Context, b ui.Element, selected bool) {
 	p := a.pal
+	solid := a.settings.sidebarVibrancy() == mygo.VibrancyNone
 	bg := ui.Transparent
 	switch {
+	case selected && solid:
+		bg = radixGray(p.dark, 5)
 	case selected:
 		bg = p.bg.Alpha(0.4)
 		if p.dark {
@@ -269,7 +275,11 @@ func (a *app) styleSidebarItem(c *ui.Context, b ui.Element, selected bool) {
 		}
 		bg = a.sidebarSurface(c, bg, 0.09)
 	case b.Hovered():
-		bg = a.sidebarSurface(c, p.hover.Alpha(0.45), 0.035)
+		if solid {
+			bg = radixGray(p.dark, 4)
+		} else {
+			bg = a.sidebarSurface(c, p.hover.Alpha(0.45), 0.035)
+		}
 	}
 	// Keep the existing inset without drawing a frame around the selection.
 	b.Selected(selected).Border(1, ui.Transparent).

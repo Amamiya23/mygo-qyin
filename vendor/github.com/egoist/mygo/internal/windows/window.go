@@ -1145,6 +1145,7 @@ func (w *window) Show() {
 		procShowWindow.Call(w.hwnd, swShow)
 	}
 	procSetForegroundWindow.Call(w.hwnd)
+	w.activateAcrylicFlyoutFrame()
 }
 
 func (w *window) ShowInactive() {
@@ -1486,6 +1487,7 @@ func (w *window) SetVibrancy(material string) {
 	backdrop := backdropFor(material)
 	w.extendGlass(true)
 	procDwmSetWindowAttribute.Call(w.hwnd, dwmwaSystemBackdropType, uintptr(unsafe.Pointer(&backdrop)), 4)
+	w.activateAcrylicFlyoutFrame()
 	if material == "" && w.captionless() && w.shadow {
 		w.SetHasShadow(true)
 	}

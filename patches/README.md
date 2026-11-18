@@ -10,6 +10,7 @@
 | `mygo-v0.9.2-linux-layer-drag.patch` | 沿用上游 layer-shell 移动和缩放，保留面板边界约束与 xdg-output 逻辑坐标，修复 KDE 分数缩放下的底边定位与恢复。 |
 | `mygo-v0.9.2-macos-dev-icon.patch` | 开发包优先选择 `macos.icon` 的 `-dev` 兄弟文件，正确读取和缓存 ICNS，并监听文件或资产目录变化。 |
 | `mygo-v0.9.2-windows-state-compat.patch` | 将旧版本地补丁保存的 `windowsBounds` 读入上游 `pixel*` 字段；已有 `pixel*` 优先，下次保存使用上游格式。 |
+| `mygo-v0.9.2-windows-acrylic-flyout.patch` | 为支持系统背板的亚克力弹层保留隐藏的窗口标题框架，恢复 Windows DWM 的桌面模糊。 |
 | `mygo-v0.9.2-desktop-audio.patch` | 在上游新版重采样与输出实现上保留原采样率、可选预热、尾音排空及重开、ALSA 回退、暂停旧曲隔离、终止性 Shutdown 和 WSOLA 输出率步进。 |
 | `mygo-v0.9.2-render-resource-lifetime.patch` | 在预算压力下跨开关复用闲置遮罩，固定坐标裁剪保留可复用尺寸；D3D11 / GL / Metal 清理退场的临时纹理及离屏层，保留新版视频处理。 |
 | `mygo-v0.9.2-retained-text-colors.patch` | 为保留的 TextLayout 缓存原绘制元数据并增加逐 span 前景色覆盖，外部歌词逐字淡入及重复描边时复用整行 shaping 与静态绘制信息。 |

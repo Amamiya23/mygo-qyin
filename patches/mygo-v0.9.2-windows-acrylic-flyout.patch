@@ -1,0 +1,56 @@
+diff --git a/internal/windows/flyout.go b/internal/windows/flyout.go
+index f2d1a04..eff3771 100644
+--- a/internal/windows/flyout.go
++++ b/internal/windows/flyout.go
+@@ -46,6 +46,11 @@ func (w *window) roundFlyout() {
+ // flyoutStyles returns the styles of a flyout's window.
+ func (w *window) flyoutStyles() (style, ex uint32) {
+ 	style = wsPopup | wsClipChildren
++	if w.acrylicFlyoutFrame() {
++		// DWM may paint only the solid fallback on a bare popup. Give it a
++		// caption frame for Acrylic; WM_NCCALCSIZE still makes it all client area.
++		style |= wsCaption
++	}
+ 	ex = wsExToolWindow
+ 	if w.opts.Flyout.Tray != nil {
+ 		ex |= wsExTopmost // over other apps' windows, without an owner
+@@ -59,6 +64,19 @@ func (w *window) flyoutStyles() (style, ex uint32) {
+ 	return style, ex
+ }
+ 
++func (w *window) acrylicFlyoutFrame() bool {
++	f := w.opts.Flyout
++	return f != nil && f.Focusable && w.noRedirect && systemBackdrops() && w.opts.Vibrancy == "acrylic"
++}
++
++// DWM can leave the frame inactive when a flyout is opened by a taskbar
++// child. Update its appearance without changing keyboard focus.
++func (w *window) activateAcrylicFlyoutFrame() {
++	if w.vibrancy == "acrylic" && w.acrylicFlyoutFrame() && w.IsVisible() {
++		procSendMessageW.Call(w.hwnd, wmNCActivate, 1, 0)
++	}
++}
++
+ // PlaceFlyout places a flyout next to its anchor, in the parent's client
+ // area or a tray's icon, as Flyout.Place resolves it in the work area of
+ // the monitor that has most of the anchor, in physical pixels at the
+diff --git a/internal/windows/window.go b/internal/windows/window.go
+index 3a112e5..dd65c12 100644
+--- a/internal/windows/window.go
++++ b/internal/windows/window.go
+@@ -1145,6 +1145,7 @@ func (w *window) Show() {
+ 		procShowWindow.Call(w.hwnd, swShow)
+ 	}
+ 	procSetForegroundWindow.Call(w.hwnd)
++	w.activateAcrylicFlyoutFrame()
+ }
+ 
+ func (w *window) ShowInactive() {
+@@ -1486,6 +1487,7 @@ func (w *window) SetVibrancy(material string) {
+ 	backdrop := backdropFor(material)
+ 	w.extendGlass(true)
+ 	procDwmSetWindowAttribute.Call(w.hwnd, dwmwaSystemBackdropType, uintptr(unsafe.Pointer(&backdrop)), 4)
++	w.activateAcrylicFlyoutFrame()
+ 	if material == "" && w.captionless() && w.shadow {
+ 		w.SetHasShadow(true)
+ 	}

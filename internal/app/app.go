@@ -351,6 +351,12 @@ func Run() error {
 		a.pl.Changed = a.playerChanged
 		a.volume = a.settings.Volume
 		a.pl.SetVolume(a.volume)
+		vibrancy := a.settings.sidebarVibrancy()
+		solidSidebar := runtime.GOOS == "windows" && vibrancy == mygo.VibrancyNone
+		if solidSidebar {
+			// Windows needs material support at creation to switch back to a backdrop later.
+			vibrancy = mygo.VibrancyAcrylic
+		}
 		a.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:         mygo.App.Name(),
 			Width:         1180,
@@ -364,10 +370,15 @@ func Run() error {
 			// Inset from the corner, within the sidebar, as macOS 26's
 			// apps with a sidebar place them.
 			TrafficLightPosition: &mygo.Point{X: 20, Y: 20},
-			Vibrancy:             a.settings.sidebarVibrancy(),
+			Vibrancy:             vibrancy,
+			Hidden:               solidSidebar,
 			BackgroundColor:      "light-dark(#fbfdfc, #101211)",
 			Content:              ui.View(a.view),
 		})
+		if solidSidebar {
+			a.win.SetVibrancy(mygo.VibrancyNone)
+			a.win.OnReadyToShow(a.win.Show)
+		}
 		a.setMenu()
 		if a.cacheMoving {
 			a.startCacheMigration()

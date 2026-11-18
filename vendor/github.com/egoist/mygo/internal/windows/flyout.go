@@ -46,6 +46,11 @@ func (w *window) roundFlyout() {
 // flyoutStyles returns the styles of a flyout's window.
 func (w *window) flyoutStyles() (style, ex uint32) {
 	style = wsPopup | wsClipChildren
+	if w.acrylicFlyoutFrame() {
+		// DWM may paint only the solid fallback on a bare popup. Give it a
+		// caption frame for Acrylic; WM_NCCALCSIZE still makes it all client area.
+		style |= wsCaption
+	}
 	ex = wsExToolWindow
 	if w.opts.Flyout.Tray != nil {
 		ex |= wsExTopmost // over other apps' windows, without an owner
@@ -57,6 +62,19 @@ func (w *window) flyoutStyles() (style, ex uint32) {
 		ex |= wsExNoRedirect
 	}
 	return style, ex
+}
+
+func (w *window) acrylicFlyoutFrame() bool {
+	f := w.opts.Flyout
+	return f != nil && f.Focusable && w.noRedirect && systemBackdrops() && w.opts.Vibrancy == "acrylic"
+}
+
+// DWM can leave the frame inactive when a flyout is opened by a taskbar
+// child. Update its appearance without changing keyboard focus.
+func (w *window) activateAcrylicFlyoutFrame() {
+	if w.vibrancy == "acrylic" && w.acrylicFlyoutFrame() && w.IsVisible() {
+		procSendMessageW.Call(w.hwnd, wmNCActivate, 1, 0)
+	}
 }
 
 // PlaceFlyout places a flyout next to its anchor, in the parent's client

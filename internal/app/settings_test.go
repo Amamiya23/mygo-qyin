@@ -211,25 +211,38 @@ func TestSettingsFrames(t *testing.T) {
 	}
 }
 
-// Choosing a Windows sidebar material saves it for the next launch, in both directions.
+// Switching between sidebar materials saves the chosen material for the next launch.
 func TestSidebarMaterialSettings(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows system backdrops")
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		t.Skip("desktop sidebar material settings")
 	}
 	a := newTestApp()
 	a.settings = defaultSettings()
 	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
 	tt := ui.NewTester(a.settingsView, 560, 2000)
 	tt.Frame()
-	for _, choice := range []struct {
+	choices := []struct {
 		label    string
 		material string
 		vibrancy mygo.Vibrancy
 	}{
 		{"Mica", "mica", mygo.VibrancyMica},
+		{"纯色", "solid", mygo.VibrancyNone},
 		{"亚克力", "acrylic", mygo.VibrancyAcrylic},
 		{"Mica", "mica", mygo.VibrancyMica},
-	} {
+	}
+	if runtime.GOOS == "darwin" {
+		choices = []struct {
+			label    string
+			material string
+			vibrancy mygo.Vibrancy
+		}{
+			{"纯色", "solid", mygo.VibrancyNone},
+			{"系统材质", "sidebar", mygo.VibrancySidebar},
+			{"纯色", "solid", mygo.VibrancyNone},
+		}
+	}
+	for _, choice := range choices {
 		if err := tt.Click(choice.label); err != nil {
 			t.Fatal(err)
 		}

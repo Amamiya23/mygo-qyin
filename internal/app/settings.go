@@ -47,7 +47,7 @@ type settings struct {
 	Quality string `json:"quality"`
 	// Appearance is light, dark, or system to follow the system.
 	Appearance string `json:"appearance"`
-	// SidebarMaterial selects mica or acrylic (also when empty) on Windows.
+	// SidebarMaterial selects solid or the platform's available translucent materials.
 	SidebarMaterial string `json:"sidebarMaterial,omitempty"`
 	// Smoke makes the progress bars comets trailing smoke as music plays,
 	// for a few percent of a core: the listener turns it on.
@@ -248,13 +248,18 @@ func (s settings) save() error {
 // sidebarVibrancy keeps the Windows material choice across launches while
 // preserving the platform's sidebar material elsewhere.
 func (s settings) sidebarVibrancy() mygo.Vibrancy {
+	if s.SidebarMaterial == "solid" && (runtime.GOOS == "windows" || runtime.GOOS == "darwin") {
+		return mygo.VibrancyNone
+	}
 	if runtime.GOOS != "windows" {
 		return mygo.VibrancySidebar
 	}
-	if s.SidebarMaterial == "mica" {
+	switch s.SidebarMaterial {
+	case "mica":
 		return mygo.VibrancyMica
+	default:
+		return mygo.VibrancyAcrylic
 	}
-	return mygo.VibrancyAcrylic
 }
 
 // applyAppearance makes the windows light, dark, or follow the system.
