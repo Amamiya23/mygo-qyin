@@ -251,6 +251,35 @@ func TestSidebarMaterialSettings(t *testing.T) {
 	}
 }
 
+// The taskbar placement choices default to the original behavior and survive a save.
+func TestTaskbarLyricsPlacementSettings(t *testing.T) {
+	s := defaultSettings()
+	if s.taskbarLyricsAlign() != taskbarAlignLeft || s.TaskbarLyricsDisplay != "" || s.TaskbarLyricsOffsetX != 0 {
+		t.Fatalf("defaults changed: align=%q display=%q offset=%v", s.TaskbarLyricsAlign, s.TaskbarLyricsDisplay, s.TaskbarLyricsOffsetX)
+	}
+	legacy := defaultSettings()
+	if err := json.Unmarshal([]byte(`{"taskbarLyrics":true}`), &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.taskbarLyricsAlign() != taskbarAlignLeft || legacy.TaskbarLyricsDisplay != "" || legacy.TaskbarLyricsOffsetX != 0 {
+		t.Fatal("settings saved before the placement choices must keep the original behavior")
+	}
+	s.TaskbarLyricsAlign = taskbarAlignRight
+	s.TaskbarLyricsDisplay = `\\.\DISPLAY2`
+	s.TaskbarLyricsOffsetX = -120
+	b, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored := defaultSettings()
+	if err := json.Unmarshal(b, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.taskbarLyricsAlign() != taskbarAlignRight || restored.TaskbarLyricsDisplay != `\\.\DISPLAY2` || restored.TaskbarLyricsOffsetX != -120 {
+		t.Fatalf("restored placement: align=%q display=%q offset=%v", restored.TaskbarLyricsAlign, restored.TaskbarLyricsDisplay, restored.TaskbarLyricsOffsetX)
+	}
+}
+
 // Choosing a progress effect from the dropdown saves it across launches and replaces the old smoke-only choice.
 func TestProgressEffectSettings(t *testing.T) {
 	a := newTestApp()

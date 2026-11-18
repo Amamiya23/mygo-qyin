@@ -204,6 +204,7 @@ type app struct {
 	settings                      settings
 	settingsWin                   *mygo.Window
 	settingsPane                  ui.Handle
+	taskbarDisplays               []mygo.Display // connected monitors, for the taskbar lyrics screen picker
 	cacheUsed                     int64  // the bytes the song cache takes, -1 until measured
 	cacheDirError                 string // a directory selection that could not be applied
 	cacheMoving                   bool   // startup migration finishes before playback is restored
@@ -394,6 +395,14 @@ func Run() error {
 			a.resumeMainWindow()
 		})
 		a.applyTray()
+		if supportsTaskbarLyrics() {
+			a.refreshTaskbarDisplays()
+			mygo.Screen.OnDisplaysChanged(func() {
+				a.refreshTaskbarDisplays()
+				a.taskbarLyricsOptionsChanged()
+				a.redraw()
+			})
+		}
 		a.syncDesktopLyrics()
 		a.syncTaskbarLyrics()
 		if shotHook != nil {

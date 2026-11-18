@@ -1,12 +1,23 @@
 package app
 
 import (
+	"fmt"
 	"log"
+	"math"
 	"runtime"
+	"sync/atomic"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
+
+// taskbarLyricsOptions is the placement preference snapshot the monitor reads
+// off-thread. display is the platform monitor handle; 0 keeps the primary taskbar.
+type taskbarLyricsOptions struct {
+	align   string
+	offsetX int
+	display int64
+}
 
 // taskbarLyrics owns the Explorer child used by the taskbar lyrics mode.
 // Only the taskbar monitor works off-thread. Window and player state stay on main.
@@ -20,6 +31,8 @@ type taskbarLyrics struct {
 	coverReady        bool
 	scrub             scrubState
 	stop              func()
+	refresh           func()
+	options           atomic.Pointer[taskbarLyricsOptions]
 	placement         taskbarLyricsPlacement
 	parent            uintptr
 	revision          uint64
@@ -61,12 +74,79 @@ func (a *app) syncTaskbarLyrics() {
 	if a.win == nil || d.stop != nil {
 		return
 	}
-	d.stop = startTaskbarLyricsMonitor(func(p taskbarLyricsPlacement) {
+	d.applyOptions()
+	d.stop, d.refresh = startTaskbarLyricsMonitor(d.loadOptions, func(p taskbarLyricsPlacement) {
 		if a.taskbarLyrics != d || !a.settings.TaskbarLyrics || a.quitting {
 			return
 		}
 		d.updatePlacement(p)
 	})
+}
+
+// applyOptions snapshots the placement preferences on the main thread, where
+// the display list is readable, for the monitor's off-thread samples.
+func (d *taskbarLyrics) applyOptions() {
+	s := d.a.settings
+	o := taskbarLyricsOptions{
+		align:   s.taskbarLyricsAlign(),
+		offsetX: max(-taskbarLyricsOffsetLimit, min(taskbarLyricsOffsetLimit, int(math.Round(s.TaskbarLyricsOffsetX)))),
+		display: taskbarLyricsDisplayID(d.a.taskbarDisplays, s.TaskbarLyricsDisplay),
+	}
+	d.options.Store(&o)
+}
+
+// taskbarLyricsDisplayID resolves the saved monitor name to its current
+// handle; a disconnected or unknown monitor keeps the primary taskbar.
+func taskbarLyricsDisplayID(displays []mygo.Display, label string) int64 {
+	if label != "" {
+		for _, d := range displays {
+			if d.Label == label {
+				return d.ID
+			}
+		}
+	}
+	return 0
+}
+
+func (d *taskbarLyrics) loadOptions() taskbarLyricsOptions {
+	if o := d.options.Load(); o != nil {
+		return *o
+	}
+	return taskbarLyricsOptions{}
+}
+
+// taskbarLyricsOptionsChanged applies edited placement preferences right away
+// instead of waiting for the monitor's next sample.
+func (a *app) taskbarLyricsOptionsChanged() {
+	if d := a.taskbarLyrics; d != nil && d.stop != nil {
+		d.applyOptions()
+		if d.refresh != nil {
+			d.refresh()
+		}
+	}
+}
+
+// refreshTaskbarDisplays caches the monitor list on the main thread, for the
+// screen picker and the placement options.
+func (a *app) refreshTaskbarDisplays() {
+	if supportsTaskbarLyrics() && a.win != nil {
+		a.taskbarDisplays = mygo.Screen.Displays()
+	}
+}
+
+// taskbarDisplayLabel names a monitor for the screen picker, with its native
+// resolution so two alike monitors can be told apart.
+func taskbarDisplayLabel(i int, d mygo.Display) string {
+	name := fmt.Sprintf("屏幕 %d", i+1)
+	if d.Primary {
+		name = "主屏幕"
+	}
+	w := int(math.Round(float64(d.Bounds.Width) * d.ScaleFactor))
+	h := int(math.Round(float64(d.Bounds.Height) * d.ScaleFactor))
+	if w > 0 && h > 0 {
+		return fmt.Sprintf("%s（%d×%d）", name, w, h)
+	}
+	return name
 }
 
 func (d *taskbarLyrics) updatePlacement(p taskbarLyricsPlacement) {
@@ -179,5 +259,6 @@ func (d *taskbarLyrics) destroy() {
 		d.stop()
 		d.stop = nil
 	}
+	d.refresh = nil
 	d.destroyWindow()
 }

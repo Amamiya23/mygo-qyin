@@ -53,8 +53,10 @@ type taskbarGUID struct {
 }
 
 // Explorer UIA calls run on one dedicated MTA thread, never the UI thread.
-func startTaskbarLyricsMonitor(deliver func(taskbarLyricsPlacement)) func() {
+// refresh wakes an immediate sample after a preference change.
+func startTaskbarLyricsMonitor(options func() taskbarLyricsOptions, deliver func(taskbarLyricsPlacement)) (func(), func()) {
 	stop := make(chan struct{})
+	wake := make(chan struct{}, 1)
 	var stopped atomic.Bool
 	go func() {
 		runtime.LockOSThread()
@@ -68,7 +70,7 @@ func startTaskbarLyricsMonitor(deliver func(taskbarLyricsPlacement)) func() {
 		defer ticker.Stop()
 		for {
 			started := time.Now()
-			p, err := readTaskbarLyricsPlacement()
+			p, err := readTaskbarLyricsPlacement(options())
 			if err != nil || time.Since(started) > 2*time.Second {
 				p = taskbarLyricsPlacement{}
 			}
@@ -83,15 +85,23 @@ func startTaskbarLyricsMonitor(deliver func(taskbarLyricsPlacement)) func() {
 			select {
 			case <-stop:
 				return
+			case <-wake:
 			case <-ticker.C:
 			}
 		}
 	}()
 	return func() {
-		if stopped.CompareAndSwap(false, true) {
-			close(stop)
+			if stopped.CompareAndSwap(false, true) {
+				close(stop)
+			}
+		}, func() {
+			if !stopped.Load() {
+				select {
+				case wake <- struct{}{}:
+				default:
+				}
+			}
 		}
-	}
 }
 
 func taskbarFindChild(parent uintptr, name string) uintptr {
@@ -105,11 +115,47 @@ func taskbarRect(hwnd uintptr) (taskbarNativeRect, bool) {
 	return r, ok != 0 && r.right > r.left && r.bottom > r.top
 }
 
-func readTaskbarLyricsPlacement() (taskbarLyricsPlacement, error) {
+// taskbarLyricsRoots lists the primary taskbar first, then every secondary one.
+func taskbarLyricsRoots() []uintptr {
+	var roots []uintptr
 	class, _ := syscall.UTF16PtrFromString("Shell_TrayWnd")
-	root, _, _ := taskbarUser32.NewProc("FindWindowW").Call(uintptr(unsafe.Pointer(class)), 0)
-	if root == 0 {
-		return taskbarLyricsPlacement{}, fmt.Errorf("Explorer taskbar unavailable")
+	if root, _, _ := taskbarUser32.NewProc("FindWindowW").Call(uintptr(unsafe.Pointer(class)), 0); root != 0 {
+		roots = append(roots, root)
+	}
+	secondary, _ := syscall.UTF16PtrFromString("Shell_SecondaryTrayWnd")
+	var previous uintptr
+	for {
+		h, _, _ := taskbarUser32.NewProc("FindWindowExW").Call(0, previous, uintptr(unsafe.Pointer(secondary)), 0)
+		if h == 0 {
+			break
+		}
+		roots = append(roots, h)
+		previous = h
+	}
+	return roots
+}
+
+// The chosen monitor's taskbar, or the primary one when it has none.
+func selectTaskbarLyricsRoot(opts taskbarLyricsOptions) (uintptr, error) {
+	roots := taskbarLyricsRoots()
+	if len(roots) == 0 {
+		return 0, fmt.Errorf("Explorer taskbar unavailable")
+	}
+	if opts.display != 0 {
+		for _, root := range roots {
+			monitor, _, _ := taskbarUser32.NewProc("MonitorFromWindow").Call(root, 2)
+			if monitor != 0 && monitor == uintptr(opts.display) {
+				return root, nil
+			}
+		}
+	}
+	return roots[0], nil
+}
+
+func readTaskbarLyricsPlacement(opts taskbarLyricsOptions) (taskbarLyricsPlacement, error) {
+	root, err := selectTaskbarLyricsRoot(opts)
+	if err != nil {
+		return taskbarLyricsPlacement{}, err
 	}
 	visible, _, _ := taskbarUser32.NewProc("IsWindowVisible").Call(root)
 	rootRect, hasRootRect := taskbarRect(root)
@@ -160,10 +206,15 @@ func readTaskbarLyricsPlacement() (taskbarLyricsPlacement, error) {
 	if err != nil {
 		return taskbarLyricsPlacement{}, err
 	}
-	x, width := taskbarLyricsFreeSpace(int(client.right), 280*int(dpi)/96, 100*int(dpi)/96, taskbarLyricsEdgeGap*int(dpi)/96, occupied)
+	freeSpace := taskbarLyricsFreeSpace
+	if opts.align == taskbarAlignRight {
+		freeSpace = taskbarLyricsFreeSpaceRight
+	}
+	x, width := freeSpace(int(client.right), 280*int(dpi)/96, 100*int(dpi)/96, taskbarLyricsEdgeGap*int(dpi)/96, occupied)
 	if width == 0 {
 		return taskbarLyricsPlacement{}, fmt.Errorf("taskbar has insufficient free space")
 	}
+	x = taskbarLyricsShiftX(x, width, int(client.right), opts.offsetX, uint32(dpi))
 	height := min(int(client.bottom), 42*int(dpi)/96)
 	return taskbarLyricsPlacement{parent: parent, taskbar: root, x: x, y: (int(client.bottom) - height) / 2, width: width, height: height, dpi: uint32(dpi), dark: taskbarUsesDarkTheme()}, nil
 }

@@ -7,7 +7,21 @@ const (
 	taskbarLyricsCoverInset = 6
 	// Match the visible margin from the taskbar edge to the album cover.
 	taskbarLyricsCoverGap = taskbarLyricsEdgeGap + taskbarLyricsCoverInset
+	// The offset input's bounds, far past any taskbar's width.
+	taskbarLyricsOffsetLimit = 5000
 )
+
+const (
+	taskbarAlignLeft  = "left"
+	taskbarAlignRight = "right"
+)
+
+func (s settings) taskbarLyricsAlign() string {
+	if s.TaskbarLyricsAlign == taskbarAlignRight {
+		return taskbarAlignRight
+	}
+	return taskbarAlignLeft
+}
 
 // Native placement uses physical pixels in the Explorer parent's client space.
 type taskbarLyricsPlacement struct {
@@ -48,4 +62,26 @@ func taskbarLyricsFreeSpace(length, requested, minimum, gap int, occupied []task
 		return cursor, width
 	}
 	return 0, 0
+}
+
+// Right alignment mirrors the taskbar so the same leftmost-gap scan picks the
+// rightmost usable gap, beside the notification area, then mirrors it back.
+func taskbarLyricsFreeSpaceRight(length, requested, minimum, gap int, occupied []taskbarLyricsInterval) (int, int) {
+	mirrored := make([]taskbarLyricsInterval, len(occupied))
+	for i, item := range occupied {
+		mirrored[i] = taskbarLyricsInterval{length - item.end, length - item.start}
+	}
+	x, width := taskbarLyricsFreeSpace(length, requested, minimum, gap, mirrored)
+	if width == 0 {
+		return 0, 0
+	}
+	return length - x - width, width
+}
+
+// The listener's nudge, in logical pixels, never pushes the lyrics off the taskbar.
+func taskbarLyricsShiftX(x, width, length, offset int, dpi uint32) int {
+	if offset == 0 {
+		return x
+	}
+	return max(0, min(length-width, x+offset*int(dpi)/96))
 }

@@ -1,7 +1,10 @@
 package app
 
 import (
+	"math"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -311,6 +314,62 @@ func (a *app) settingsContent(c *ui.Context) {
 			})
 		}
 		if supportsTaskbarLyrics() && s.lyricsMode() == lyricsTaskbar {
+			row("任务栏歌词位置", "", func() {
+				i := 0
+				if s.taskbarLyricsAlign() == taskbarAlignRight {
+					i = 1
+				}
+				if segmented(c.Key("taskbar-lyrics-align"), &i, "靠左", "靠右") {
+					s.TaskbarLyricsAlign = []string{taskbarAlignLeft, taskbarAlignRight}[i]
+					s.save()
+					a.taskbarLyricsOptionsChanged()
+					a.redraw()
+				}
+			})
+			row("显示任务栏歌词屏幕", "", func() {
+				displays := a.taskbarDisplays
+				labels := make([]string, len(displays))
+				for i, disp := range displays {
+					labels[i] = taskbarDisplayLabel(i, disp)
+				}
+				if len(labels) == 0 {
+					labels = []string{"主屏幕"}
+				}
+				chosen := labels[0]
+				for i, disp := range displays {
+					if disp.Label == s.TaskbarLyricsDisplay {
+						chosen = labels[i]
+					}
+				}
+				if ui.Select(c.Key("taskbar-lyrics-display"), &chosen, labels).Label("选择任务栏歌词屏幕").Width(180).Changed() {
+					s.TaskbarLyricsDisplay = ""
+					for i, disp := range displays {
+						if labels[i] == chosen && !disp.Primary {
+							s.TaskbarLyricsDisplay = disp.Label
+						}
+					}
+					s.save()
+					a.taskbarLyricsOptionsChanged()
+					a.redraw()
+				}
+			})
+			row("歌词水平偏移", "正数向右偏移，负数向左偏移", func() {
+				text := ui.Local(c.Root(), "taskbar-lyrics-offset-text", func() string {
+					return strconv.FormatFloat(s.TaskbarLyricsOffsetX, 'f', 0, 64)
+				})
+				in := ui.TextInput(c.Key("taskbar-lyrics-offset"), text).Label("输入歌词水平偏移").Width(120)
+				if in.Changed() {
+					if v, err := strconv.ParseFloat(strings.TrimSpace(*text), 64); err == nil && v >= -taskbarLyricsOffsetLimit && v <= taskbarLyricsOffsetLimit {
+						s.TaskbarLyricsOffsetX = math.Round(v)
+						s.save()
+						a.taskbarLyricsOptionsChanged()
+						a.redraw()
+					}
+				}
+				if !in.Focused() {
+					*text = strconv.FormatFloat(s.TaskbarLyricsOffsetX, 'f', 0, 64)
+				}
+			})
 			row("任务栏面板材质", "", func() {
 				i := 0
 				if s.TaskbarLyricsMaterial == taskbarMaterialWhite {

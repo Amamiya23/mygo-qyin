@@ -2,6 +2,7 @@ package app
 
 import (
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -46,6 +47,194 @@ func TestTaskbarLyricsMaterialSettings(t *testing.T) {
 			t.Fatal("material change closed controls, changed lyrics mode, or disturbed the pending seek")
 		}
 	}
+}
+
+// Choosing the taskbar edge saves the alignment and refreshes the live monitor snapshot.
+func TestTaskbarLyricsAlignSettings(t *testing.T) {
+	if !supportsTaskbarLyrics() {
+		t.Skip("taskbar lyrics are Windows-only")
+	}
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.LyricsMode = lyricsTaskbar
+	a.settings.TaskbarLyrics = true
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	a.syncTaskbarLyrics()
+	d := a.taskbarLyrics
+	if d == nil {
+		t.Fatal("taskbar mode did not create its owner")
+	}
+	refreshed := 0
+	d.stop, d.refresh = func() {}, func() { refreshed++ }
+	tt := ui.NewTester(a.settingsView, 560, 2400)
+	tt.Frame()
+	for _, choice := range []struct{ label, align string }{
+		{"靠右", taskbarAlignRight},
+		{"靠左", taskbarAlignLeft},
+		{"靠右", taskbarAlignRight},
+	} {
+		before := refreshed
+		if err := tt.Click(choice.label); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		restored := readDesktopLyricsEntrySettings(t, a)
+		if a.settings.taskbarLyricsAlign() != choice.align || restored.taskbarLyricsAlign() != choice.align {
+			t.Fatalf("alignment %q not applied/saved: live=%q saved=%q", choice.label, a.settings.TaskbarLyricsAlign, restored.TaskbarLyricsAlign)
+		}
+		if d.loadOptions().align != choice.align || refreshed != before+1 {
+			t.Fatalf("alignment %q did not reach the monitor: options=%+v refreshed=%d", choice.label, d.loadOptions(), refreshed)
+		}
+		if a.settings.lyricsMode() != lyricsTaskbar {
+			t.Fatal("alignment change disturbed the lyrics mode")
+		}
+	}
+}
+
+// Typing a horizontal offset saves whole pixels and refreshes the live monitor snapshot.
+func TestTaskbarLyricsOffsetSettings(t *testing.T) {
+	if !supportsTaskbarLyrics() {
+		t.Skip("taskbar lyrics are Windows-only")
+	}
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.LyricsMode = lyricsTaskbar
+	a.settings.TaskbarLyrics = true
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	a.syncTaskbarLyrics()
+	d := a.taskbarLyrics
+	refreshed := 0
+	d.stop, d.refresh = func() {}, func() { refreshed++ }
+	tt := ui.NewTester(a.settingsView, 560, 2400)
+	tt.Frame()
+	for _, want := range []float64{-120, 80, 0} {
+		before := refreshed
+		if err := tt.Click("输入歌词水平偏移"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Key(ui.Cmd, ui.KeyA)
+		tt.Type(strconv.FormatFloat(want, 'f', -1, 64))
+		tt.Frame()
+		restored := readDesktopLyricsEntrySettings(t, a)
+		if a.settings.TaskbarLyricsOffsetX != want || restored.TaskbarLyricsOffsetX != want {
+			t.Fatalf("offset not applied/saved: live=%v saved=%v, want %v", a.settings.TaskbarLyricsOffsetX, restored.TaskbarLyricsOffsetX, want)
+		}
+		if d.loadOptions().offsetX != int(want) || refreshed <= before {
+			t.Fatalf("offset %v did not reach the monitor: options=%+v refreshed=%d", want, d.loadOptions(), refreshed)
+		}
+	}
+	// Out-of-range typing keeps the last in-range prefix; losing focus reformats the field.
+	tt.Key(ui.Cmd, ui.KeyA)
+	for _, r := range "5001" {
+		tt.Type(string(r))
+		tt.Frame()
+	}
+	if a.settings.TaskbarLyricsOffsetX != 500 {
+		t.Fatalf("out-of-range offset applied: %v", a.settings.TaskbarLyricsOffsetX)
+	}
+	if err := tt.Click("歌词水平偏移"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+}
+
+// The saved monitor name resolves to its current handle; unknown names keep the primary taskbar.
+func TestTaskbarLyricsDisplayID(t *testing.T) {
+	displays := []mygo.Display{
+		{ID: 11, Label: `\\.\DISPLAY1`, Primary: true},
+		{ID: 22, Label: `\\.\DISPLAY2`},
+	}
+	for _, tc := range []struct {
+		label string
+		want  int64
+	}{
+		{"", 0},
+		{`\\.\DISPLAY2`, 22},
+		{`\\.\DISPLAY1`, 11},
+		{`\\.\DISPLAY3`, 0},
+	} {
+		if got := taskbarLyricsDisplayID(displays, tc.label); got != tc.want {
+			t.Fatalf("label %q resolved to %d, want %d", tc.label, got, tc.want)
+		}
+	}
+	if got := taskbarLyricsDisplayID(nil, `\\.\DISPLAY2`); got != 0 {
+		t.Fatalf("disconnected monitor resolved to %d, want the primary taskbar", got)
+	}
+}
+
+// Monitor labels name the primary screen and show native resolutions.
+func TestTaskbarDisplayLabel(t *testing.T) {
+	primary := mygo.Display{ID: 1, Primary: true, Bounds: mygo.Rectangle{Width: 1920, Height: 1080}, ScaleFactor: 1}
+	secondary := mygo.Display{ID: 2, Bounds: mygo.Rectangle{Width: 1280, Height: 720}, ScaleFactor: 2}
+	if got := taskbarDisplayLabel(0, primary); got != "主屏幕（1920×1080）" {
+		t.Fatalf("primary label = %q", got)
+	}
+	if got := taskbarDisplayLabel(1, secondary); got != "屏幕 2（2560×1440）" {
+		t.Fatalf("secondary label = %q", got)
+	}
+	if got := taskbarDisplayLabel(1, mygo.Display{}); got != "屏幕 2" {
+		t.Fatalf("label without bounds = %q", got)
+	}
+}
+
+// Choosing a screen saves its monitor name, retargets the live monitor, and falls back when it disconnects.
+func TestTaskbarLyricsDisplaySettings(t *testing.T) {
+	if !supportsTaskbarLyrics() {
+		t.Skip("taskbar lyrics are Windows-only")
+	}
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.LyricsMode = lyricsTaskbar
+	a.settings.TaskbarLyrics = true
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	a.taskbarDisplays = []mygo.Display{
+		{ID: 11, Label: `\\.\DISPLAY1`, Primary: true, Bounds: mygo.Rectangle{Width: 1920, Height: 1080}, ScaleFactor: 1},
+		{ID: 22, Label: `\\.\DISPLAY2`, Bounds: mygo.Rectangle{Width: 2560, Height: 1440}, ScaleFactor: 1},
+	}
+	a.syncTaskbarLyrics()
+	d := a.taskbarLyrics
+	refreshed := 0
+	d.stop, d.refresh = func() {}, func() { refreshed++ }
+	tt := ui.NewTester(a.settingsView, 560, 2400)
+	tt.Frame()
+	for _, choice := range []struct {
+		label, saved string
+		display      int64
+	}{
+		{"屏幕 2（2560×1440）", `\\.\DISPLAY2`, 22},
+		{"主屏幕（1920×1080）", "", 0},
+		{"屏幕 2（2560×1440）", `\\.\DISPLAY2`, 22},
+	} {
+		before := refreshed
+		if err := tt.Click("选择任务栏歌词屏幕"); err != nil {
+			t.Fatal(err)
+		}
+		if err := tt.Click(choice.label); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		restored := readDesktopLyricsEntrySettings(t, a)
+		if a.settings.TaskbarLyricsDisplay != choice.saved || restored.TaskbarLyricsDisplay != choice.saved {
+			t.Fatalf("screen %q not applied/saved: live=%q saved=%q", choice.label, a.settings.TaskbarLyricsDisplay, restored.TaskbarLyricsDisplay)
+		}
+		if d.loadOptions().display != choice.display || refreshed != before+1 {
+			t.Fatalf("screen %q did not reach the monitor: options=%+v refreshed=%d", choice.label, d.loadOptions(), refreshed)
+		}
+	}
+	// The chosen monitor disconnects: the picker shows the primary and the monitor falls back.
+	a.taskbarDisplays = a.taskbarDisplays[:1]
+	a.taskbarLyricsOptionsChanged()
+	tt.Frame()
+	if d.loadOptions().display != 0 {
+		t.Fatalf("disconnected monitor kept handle %d", d.loadOptions().display)
+	}
+	if err := tt.Click("选择任务栏歌词屏幕"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("主屏幕（1920×1080）"); err != nil {
+		t.Fatalf("picker did not fall back to the primary screen: %v", err)
+	}
+	tt.Frame()
 }
 
 // Choosing a lyric position swaps the active owner, saves the mode, and stops the previous taskbar monitor.

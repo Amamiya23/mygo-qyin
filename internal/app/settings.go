@@ -31,6 +31,12 @@ type settings struct {
 	TaskbarLyrics bool `json:"taskbarLyrics,omitempty"`
 	// TaskbarLyricsMaterial selects white or acrylic (also when empty) for the song panel.
 	TaskbarLyricsMaterial string `json:"taskbarLyricsMaterial,omitempty"`
+	// TaskbarLyricsAlign keeps the lyrics to the left (also when empty) or right taskbar edge.
+	TaskbarLyricsAlign string `json:"taskbarLyricsAlign,omitempty"`
+	// TaskbarLyricsDisplay names the monitor whose taskbar shows the lyrics; empty follows the primary one.
+	TaskbarLyricsDisplay string `json:"taskbarLyricsDisplay,omitempty"`
+	// TaskbarLyricsOffsetX nudges the lyrics horizontally, in whole logical pixels.
+	TaskbarLyricsOffsetX float64 `json:"taskbarLyricsOffsetX,omitempty"`
 	// LyricsMode keeps the preferred location independently of its enabled state.
 	LyricsMode string `json:"lyricsMode,omitempty"`
 	// NotchActivity shows the cover and the music's levels beside the
