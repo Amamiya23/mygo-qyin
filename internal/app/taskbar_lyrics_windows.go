@@ -300,8 +300,8 @@ func placeTaskbarLyricsWindow(w *mygo.Window, p taskbarLyricsPlacement) error {
 	}
 	return nil
 }
-func placeTaskbarLyricsCover(w *mygo.Window, p taskbarLyricsPlacement) error {
-	p = taskbarLyricsCoverPlacement(p)
+func placeTaskbarLyricsCover(w *mygo.Window, p taskbarLyricsPlacement, mirror bool) error {
+	p = taskbarLyricsCoverPlacement(p, mirror)
 	if p.parent == 0 {
 		return fmt.Errorf("taskbar cover placement unavailable")
 	}

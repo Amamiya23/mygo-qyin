@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"lilt/internal/lyrics"
+	"lilt/internal/qqmusic"
 )
 
 func taskbarLyricsViewFixture() (*app, *taskbarLyrics) {
@@ -154,6 +155,48 @@ func TestTaskbarLyricsDoubleLineAlternation(t *testing.T) {
 	}
 }
 
+// Mirroring moves the cover to the right edge and flushes the text to the viewport's right.
+func TestTaskbarLyricsMirrorLayout(t *testing.T) {
+	a, d := taskbarLyricsViewFixture()
+	a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "测试歌曲", Duration: 60000, Album: qqmusic.Album{PicURL: "https://example.invalid/cover.jpg"}}})
+	a.pl.SetLyrics(lyrics.Build("[00:01]我们一起听音乐", "", ""))
+	a.pl.Seek(2 * time.Second)
+	measure := func() (coverX, textMaxX float32) {
+		t.Helper()
+		tt := ui.NewTester(d.view, 280, 42)
+		tt.Frame()
+		r, ok := tt.Find("歌曲控制")
+		if !ok {
+			t.Fatal("cover button not painted")
+		}
+		frame := tt.Image()
+		for y := 0; y < 42; y++ {
+			for x := 0; x < 236; x++ {
+				if _, _, _, alpha := frame.At(x, y).RGBA(); alpha != 0 {
+					textMaxX = float32(x)
+				}
+			}
+		}
+		return r.X, textMaxX
+	}
+	a.settings.TaskbarLyricsAlign = taskbarAlignRight
+	a.settings.TaskbarLyricsMirror = false
+	leftX, leftText := measure()
+	a.settings.TaskbarLyricsMirror = true
+	mirrorX, mirrorText := measure()
+	if leftX > 10 || mirrorX < 230 {
+		t.Fatalf("cover did not move to the right edge: left=%v mirror=%v", leftX, mirrorX)
+	}
+	if leftText > 200 || mirrorText < 200 {
+		t.Fatalf("text not right-aligned: left=%v mirror=%v", leftText, mirrorText)
+	}
+	a.settings.TaskbarLyricsAlign = taskbarAlignLeft
+	inertX, inertText := measure()
+	if inertX != leftX || inertText != leftText {
+		t.Fatalf("saved mirror changed the left-aligned layout: cover=%v text=%v", inertX, inertText)
+	}
+}
+
 // Instrumentals used to be filtered into missing lyrics and never painted in the taskbar.
 func TestTaskbarLyricsInstrumental(t *testing.T) {
 	a, d := taskbarLyricsViewFixture()
@@ -243,21 +286,30 @@ func TestTaskbarLyricsFrames(t *testing.T) {
 		width, height               int
 		dark                        bool
 		position                    time.Duration
+		mirror                      bool
 	}{
-		{"chinese-dark", "", "", "[1000,9000]我们一起(1000,4000)听音乐(5000,5000)\n[12000,4000]让歌声陪伴远方(12000,4000)", 280, 42, true, 3 * time.Second},
-		{"chinese-row2-dark", "", "", "[1000,4000]我们一起(1000,2000)听音乐(3000,2000)\n[6000,6000]让歌声(6000,3000)陪伴远方(9000,3000)", 280, 42, true, 7500 * time.Millisecond},
-		{"chinese-row2-long-dark", "", "", "[1000,2000]我们(1000,2000)\n[4000,10000]我们一起走过漫长道路(4000,5000)直到音乐带我们走向远方(9000,5000)", 160, 42, true, 11 * time.Second},
-		{"chinese-light", "", "", "[1000,9000]我们一起(1000,4000)听音乐(5000,5000)\n[12000,4000]让歌声陪伴远方(12000,4000)", 280, 42, false, 3 * time.Second},
-		{"chinese-compact-light", "[00:01]我们一起听音乐\n[00:12]让歌声陪伴远方", "", "", 240, 28, false, 3 * time.Second},
-		{"chinese-unrecognized-light", "[00:44.16]那个样子\n[00:48.39]友情 在积蓄", "", "", 280, 42, false, 45 * time.Second},
-		{"instrumental-light", "[00:00:00]此歌曲为没有填词的纯音乐，请您欣赏", "", "", 280, 42, false, 0},
-		{"translation-dark", "[00:01]君をのせて 空へ続く道", "[00:01]伴随着你，走向天空的路", "", 280, 42, true, 3 * time.Second},
-		{"long-dark", "", "", "[1000,10000]我们一起走过漫长道路(1000,5000)直到音乐带我们走向远方(6000,5000)\n[20000,4000]让歌声陪伴远方(20000,4000)", 160, 42, true, 8 * time.Second},
-		{"compact-light", "[00:01]Stay with me through the night", "[00:01]留在我身边", "", 240, 28, false, 3 * time.Second},
+		{"chinese-dark", "", "", "[1000,9000]我们一起(1000,4000)听音乐(5000,5000)\n[12000,4000]让歌声陪伴远方(12000,4000)", 280, 42, true, 3 * time.Second, false},
+		{"chinese-row2-dark", "", "", "[1000,4000]我们一起(1000,2000)听音乐(3000,2000)\n[6000,6000]让歌声(6000,3000)陪伴远方(9000,3000)", 280, 42, true, 7500 * time.Millisecond, false},
+		{"chinese-row2-long-dark", "", "", "[1000,2000]我们(1000,2000)\n[4000,10000]我们一起走过漫长道路(4000,5000)直到音乐带我们走向远方(9000,5000)", 160, 42, true, 11 * time.Second, false},
+		{"chinese-light", "", "", "[1000,9000]我们一起(1000,4000)听音乐(5000,5000)\n[12000,4000]让歌声陪伴远方(12000,4000)", 280, 42, false, 3 * time.Second, false},
+		{"chinese-compact-light", "[00:01]我们一起听音乐\n[00:12]让歌声陪伴远方", "", "", 240, 28, false, 3 * time.Second, false},
+		{"chinese-unrecognized-light", "[00:44.16]那个样子\n[00:48.39]友情 在积蓄", "", "", 280, 42, false, 45 * time.Second, false},
+		{"instrumental-light", "[00:00:00]此歌曲为没有填词的纯音乐，请您欣赏", "", "", 280, 42, false, 0, false},
+		{"translation-dark", "[00:01]君をのせて 空へ続く道", "[00:01]伴随着你，走向天空的路", "", 280, 42, true, 3 * time.Second, false},
+		{"long-dark", "", "", "[1000,10000]我们一起走过漫长道路(1000,5000)直到音乐带我们走向远方(6000,5000)\n[20000,4000]让歌声陪伴远方(20000,4000)", 160, 42, true, 8 * time.Second, false},
+		{"compact-light", "[00:01]Stay with me through the night", "[00:01]留在我身边", "", 240, 28, false, 3 * time.Second, false},
+		{"mirror-dark", "", "", "[1000,9000]我们一起(1000,4000)听音乐(5000,5000)\n[12000,4000]让歌声陪伴远方(12000,4000)", 280, 42, true, 3 * time.Second, true},
+		{"mirror-long-dark", "", "", "[1000,10000]我们一起走过漫长道路(1000,5000)直到音乐带我们走向远方(6000,5000)\n[20000,4000]让歌声陪伴远方(20000,4000)", 160, 42, true, 8 * time.Second, true},
+		{"mirror-light", "", "", "[1000,9000]我们一起(1000,4000)听音乐(5000,5000)\n[12000,4000]让歌声陪伴远方(12000,4000)", 280, 42, false, 3 * time.Second, true},
 	} {
 		t.Run(scene.name, func(t *testing.T) {
 			a, d := taskbarLyricsViewFixture()
 			d.dark = scene.dark
+			if scene.mirror {
+				a.settings.TaskbarLyricsAlign = taskbarAlignRight
+				a.settings.TaskbarLyricsMirror = true
+				a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "测试歌曲", Duration: 60000, Album: qqmusic.Album{PicURL: "https://example.invalid/cover.jpg"}}})
+			}
 			a.pl.SetLyrics(lyrics.Build(scene.lrc, scene.translation, scene.qrc))
 			if lyrics.IsInstrumental(scene.lrc) {
 				a.pl.SetInstrumentalLyrics()

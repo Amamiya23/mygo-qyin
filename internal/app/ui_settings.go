@@ -326,6 +326,15 @@ func (a *app) settingsContent(c *ui.Context) {
 					a.redraw()
 				}
 			})
+			if s.taskbarLyricsAlign() == taskbarAlignRight {
+				row("靠右时镜像布局", "专辑封面靠右展示，歌词文本右对齐", func() {
+					if ui.Switch(c.Key("taskbar-lyrics-mirror"), &s.TaskbarLyricsMirror).Label("切换靠右时镜像布局").Changed() {
+						s.save()
+						a.taskbarLyricsOptionsChanged()
+						a.redraw()
+					}
+				})
+			}
 			row("显示任务栏歌词屏幕", "", func() {
 				displays := a.taskbarDisplays
 				labels := make([]string, len(displays))

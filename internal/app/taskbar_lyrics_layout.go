@@ -23,6 +23,11 @@ func (s settings) taskbarLyricsAlign() string {
 	return taskbarAlignLeft
 }
 
+// Mirroring is offered only beside the right edge; a saved switch stays inert on the left.
+func (s settings) taskbarLyricsMirrored() bool {
+	return s.TaskbarLyricsMirror && s.taskbarLyricsAlign() == taskbarAlignRight
+}
+
 // Native placement uses physical pixels in the Explorer parent's client space.
 type taskbarLyricsPlacement struct {
 	parent, taskbar     uintptr

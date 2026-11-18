@@ -40,7 +40,7 @@ func (d *taskbarLyrics) syncCoverWindow() {
 		return
 	}
 	if d.coverWin == nil || d.coverWin.IsDestroyed() {
-		p := taskbarLyricsCoverPlacement(d.placement)
+		p := taskbarLyricsCoverPlacement(d.placement, d.a.settings.taskbarLyricsMirrored())
 		if p.width <= 0 || p.height <= 0 {
 			return
 		}
@@ -54,7 +54,7 @@ func (d *taskbarLyrics) syncCoverWindow() {
 		d.coverWin, d.coverReady = w, false
 		w.SetIgnoreMouseEvents(false)
 		styleDesktopLyricsWindow(w)
-		if err := placeTaskbarLyricsCover(w, d.placement); err != nil {
+		if err := placeTaskbarLyricsCover(w, d.placement, d.a.settings.taskbarLyricsMirrored()); err != nil {
 			d.reportError(err)
 			d.destroyCoverWindow()
 			return
@@ -73,7 +73,7 @@ func (d *taskbarLyrics) syncCoverWindow() {
 		})
 		return
 	}
-	if err := placeTaskbarLyricsCover(d.coverWin, d.placement); err != nil {
+	if err := placeTaskbarLyricsCover(d.coverWin, d.placement, d.a.settings.taskbarLyricsMirrored()); err != nil {
 		d.reportError(err)
 		d.destroyCoverWindow()
 		return

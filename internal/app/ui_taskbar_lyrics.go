@@ -20,11 +20,12 @@ func (d *taskbarLyrics) view(c *ui.Context) {
 	position := d.a.pl.Position()
 	content := d.content(position)
 	width, height := c.Size()
+	mirror := d.a.settings.taskbarLyricsMirrored()
 	left := float32(taskbarLyricsCoverInset)
 	if url := d.a.pl.Current().Album.PicURL; url != "" {
 		size := min(float32(34), max(1, height-4))
 		if d.coverWin == nil {
-			d.cover(c, url, size, height)
+			d.cover(c, url, size, height, mirror)
 		}
 		left += size + taskbarLyricsCoverGap
 	}
@@ -63,12 +64,15 @@ func (d *taskbarLyrics) view(c *ui.Context) {
 		}
 		root.Draw(func(p *ui.Painter, r ui.Rect) {
 			viewport := ui.Rect{X: r.X + left, Y: r.Y, W: available, H: r.H}
+			if mirror {
+				viewport.X = r.X + 6
+			}
 			// Move whole blocks through a fixed viewport, keeping the two lines
 			// together and preventing outgoing text from drawing over the cover.
 			if offset > 0 {
-				previous.draw(p, viewport, d.dark, offset-height)
+				previous.draw(p, viewport, d.dark, offset-height, mirror)
 			}
-			layout.draw(p, viewport, d.dark, offset)
+			layout.draw(p, viewport, d.dark, offset, mirror)
 		})
 		if playing {
 			next := desktopLyricWake(content, position)
@@ -90,10 +94,15 @@ func (d *taskbarLyrics) view(c *ui.Context) {
 
 // Request the current album directly from the shared cache. A pending new cover
 // uses its own placeholder rather than keeping the previous song's artwork.
-func (d *taskbarLyrics) cover(c *ui.Context, url string, size, height float32) {
-	cover := ui.ButtonBase(c.Key("taskbar-cover")).Absolute().Left(taskbarLyricsCoverInset).Top((height-size)/2).
+func (d *taskbarLyrics) cover(c *ui.Context, url string, size, height float32, mirror bool) {
+	cover := ui.ButtonBase(c.Key("taskbar-cover")).Absolute().Top((height-size)/2).
 		Size(size, size).Radius(min(6, size/2)).Background(radixGray(d.dark, 3)).Center().
 		Label("歌曲控制").Cursor(ui.CursorPointer).OnClick(d.toggleControls)
+	if mirror {
+		cover = cover.Right(taskbarLyricsCoverInset)
+	} else {
+		cover = cover.Left(taskbarLyricsCoverInset)
+	}
 	d.coverButton(c, cover, url, size)
 }
 
@@ -287,12 +296,22 @@ func taskbarLyricOffset(width, available, progressX float32) float32 {
 	return -min(width-available, max(0, progressX-available*0.55))
 }
 
-func (layout taskbarLyricLayout) draw(p *ui.Painter, r ui.Rect, dark bool, offsetY float32) {
+// Mirrored rows flush short sentences to the right edge and scroll the overflow
+// from its tail, the horizontal flip of the left-aligned scroll.
+func taskbarLyricDrawX(x, available, width, progressX float32, mirror bool) float32 {
+	offset := taskbarLyricOffset(width, available, progressX)
+	if mirror {
+		return x + available - width - offset
+	}
+	return x + offset
+}
+
+func (layout taskbarLyricLayout) draw(p *ui.Painter, r ui.Rect, dark bool, offsetY float32, mirror bool) {
 	if layout.text == nil {
 		return
 	}
 	y := r.Y + (r.H-layout.height)/2 + offsetY
-	x := r.X + taskbarLyricOffset(layout.width, r.W, layout.progressX)
+	x := taskbarLyricDrawX(r.X, r.W, layout.width, layout.progressX, mirror)
 	outline := radixGray(dark, 1).Alpha(0.8)
 	p.Clip(r, 0, func() {
 		// A fine contrasting edge remains legible on translucent taskbars.
@@ -311,7 +330,7 @@ func (layout taskbarLyricLayout) draw(p *ui.Painter, r ui.Rect, dark bool, offse
 				}
 				color = color.Alpha(alpha)
 			}
-			x = r.X + taskbarLyricOffset(w, r.W, progressX)
+			x = taskbarLyricDrawX(r.X, r.W, w, progressX, mirror)
 			y += layout.originalHeight + 1
 			for _, offset := range []ui.Point{{X: -0.5}, {X: 0.5}, {Y: -0.5}, {Y: 0.5}} {
 				p.TextLayout(layout.secondaryOutline, x+offset.X, y+offset.Y, outline)

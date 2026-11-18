@@ -91,6 +91,55 @@ func TestTaskbarLyricsAlignSettings(t *testing.T) {
 	}
 }
 
+// The mirror switch exists only beside the right edge, saves, and stays inert on the left.
+func TestTaskbarLyricsMirrorSettings(t *testing.T) {
+	if !supportsTaskbarLyrics() {
+		t.Skip("taskbar lyrics are Windows-only")
+	}
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.LyricsMode = lyricsTaskbar
+	a.settings.TaskbarLyrics = true
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	a.syncTaskbarLyrics()
+	d := a.taskbarLyrics
+	refreshed := 0
+	d.stop, d.refresh = func() {}, func() { refreshed++ }
+	tt := ui.NewTester(a.settingsView, 560, 2400)
+	tt.Frame()
+	if _, ok := tt.Find("靠右时镜像布局"); ok {
+		t.Fatal("mirror switch visible while left-aligned")
+	}
+	if err := tt.Click("靠右"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	for _, want := range []bool{true, false, true} {
+		before := refreshed
+		if err := tt.Click("切换靠右时镜像布局"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		restored := readDesktopLyricsEntrySettings(t, a)
+		if a.settings.TaskbarLyricsMirror != want || restored.TaskbarLyricsMirror != want {
+			t.Fatalf("mirror not applied/saved: live=%t saved=%t want=%t", a.settings.TaskbarLyricsMirror, restored.TaskbarLyricsMirror, want)
+		}
+		if a.settings.taskbarLyricsMirrored() != want || refreshed <= before {
+			t.Fatalf("mirror %t did not reach the monitor: mirrored=%t refreshed=%d", want, a.settings.taskbarLyricsMirrored(), refreshed)
+		}
+	}
+	if err := tt.Click("靠左"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("靠右时镜像布局"); ok {
+		t.Fatal("mirror switch survived the left edge")
+	}
+	if a.settings.taskbarLyricsMirrored() {
+		t.Fatal("saved mirror stayed active on the left edge")
+	}
+}
+
 // Typing a horizontal offset saves whole pixels and refreshes the live monitor snapshot.
 func TestTaskbarLyricsOffsetSettings(t *testing.T) {
 	if !supportsTaskbarLyrics() {

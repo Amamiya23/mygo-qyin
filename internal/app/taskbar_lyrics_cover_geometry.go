@@ -4,7 +4,7 @@ import "math"
 
 // The interactive native child covers only the album art. The lyric window
 // remains entirely click-through, including the text and surrounding space.
-func taskbarLyricsCoverPlacement(p taskbarLyricsPlacement) taskbarLyricsPlacement {
+func taskbarLyricsCoverPlacement(p taskbarLyricsPlacement, mirror bool) taskbarLyricsPlacement {
 	if p.parent == 0 || p.width <= 0 || p.height <= 0 {
 		return taskbarLyricsPlacement{}
 	}
@@ -14,7 +14,11 @@ func taskbarLyricsCoverPlacement(p taskbarLyricsPlacement) taskbarLyricsPlacemen
 	if size <= 0 || left+size > p.width {
 		return taskbarLyricsPlacement{}
 	}
-	p.x += left
+	if mirror {
+		p.x += p.width - left - size
+	} else {
+		p.x += left
+	}
 	p.y += int(math.Round(float64(p.height-size) / 2))
 	p.width, p.height = size, size
 	return p

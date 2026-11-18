@@ -254,19 +254,20 @@ func TestSidebarMaterialSettings(t *testing.T) {
 // The taskbar placement choices default to the original behavior and survive a save.
 func TestTaskbarLyricsPlacementSettings(t *testing.T) {
 	s := defaultSettings()
-	if s.taskbarLyricsAlign() != taskbarAlignLeft || s.TaskbarLyricsDisplay != "" || s.TaskbarLyricsOffsetX != 0 {
-		t.Fatalf("defaults changed: align=%q display=%q offset=%v", s.TaskbarLyricsAlign, s.TaskbarLyricsDisplay, s.TaskbarLyricsOffsetX)
+	if s.taskbarLyricsAlign() != taskbarAlignLeft || s.TaskbarLyricsDisplay != "" || s.TaskbarLyricsOffsetX != 0 || s.TaskbarLyricsMirror {
+		t.Fatalf("defaults changed: align=%q display=%q offset=%v mirror=%t", s.TaskbarLyricsAlign, s.TaskbarLyricsDisplay, s.TaskbarLyricsOffsetX, s.TaskbarLyricsMirror)
 	}
 	legacy := defaultSettings()
 	if err := json.Unmarshal([]byte(`{"taskbarLyrics":true}`), &legacy); err != nil {
 		t.Fatal(err)
 	}
-	if legacy.taskbarLyricsAlign() != taskbarAlignLeft || legacy.TaskbarLyricsDisplay != "" || legacy.TaskbarLyricsOffsetX != 0 {
+	if legacy.taskbarLyricsAlign() != taskbarAlignLeft || legacy.TaskbarLyricsDisplay != "" || legacy.TaskbarLyricsOffsetX != 0 || legacy.TaskbarLyricsMirror {
 		t.Fatal("settings saved before the placement choices must keep the original behavior")
 	}
 	s.TaskbarLyricsAlign = taskbarAlignRight
 	s.TaskbarLyricsDisplay = `\\.\DISPLAY2`
 	s.TaskbarLyricsOffsetX = -120
+	s.TaskbarLyricsMirror = true
 	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
@@ -275,8 +276,8 @@ func TestTaskbarLyricsPlacementSettings(t *testing.T) {
 	if err := json.Unmarshal(b, &restored); err != nil {
 		t.Fatal(err)
 	}
-	if restored.taskbarLyricsAlign() != taskbarAlignRight || restored.TaskbarLyricsDisplay != `\\.\DISPLAY2` || restored.TaskbarLyricsOffsetX != -120 {
-		t.Fatalf("restored placement: align=%q display=%q offset=%v", restored.TaskbarLyricsAlign, restored.TaskbarLyricsDisplay, restored.TaskbarLyricsOffsetX)
+	if restored.taskbarLyricsAlign() != taskbarAlignRight || restored.TaskbarLyricsDisplay != `\\.\DISPLAY2` || restored.TaskbarLyricsOffsetX != -120 || !restored.TaskbarLyricsMirror {
+		t.Fatalf("restored placement: align=%q display=%q offset=%v mirror=%t", restored.TaskbarLyricsAlign, restored.TaskbarLyricsDisplay, restored.TaskbarLyricsOffsetX, restored.TaskbarLyricsMirror)
 	}
 }
 

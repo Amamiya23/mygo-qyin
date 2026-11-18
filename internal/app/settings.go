@@ -33,6 +33,8 @@ type settings struct {
 	TaskbarLyricsMaterial string `json:"taskbarLyricsMaterial,omitempty"`
 	// TaskbarLyricsAlign keeps the lyrics to the left (also when empty) or right taskbar edge.
 	TaskbarLyricsAlign string `json:"taskbarLyricsAlign,omitempty"`
+	// TaskbarLyricsMirror flips the cover to the right edge and right-aligns the text, only while right-aligned.
+	TaskbarLyricsMirror bool `json:"taskbarLyricsMirror,omitempty"`
 	// TaskbarLyricsDisplay names the monitor whose taskbar shows the lyrics; empty follows the primary one.
 	TaskbarLyricsDisplay string `json:"taskbarLyricsDisplay,omitempty"`
 	// TaskbarLyricsOffsetX nudges the lyrics horizontally, in whole logical pixels.

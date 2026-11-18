@@ -77,3 +77,25 @@ func TestTaskbarLyricsShiftX(t *testing.T) {
 		})
 	}
 }
+
+// Mirrored drawing flushes short rows to the right edge and flips the overflow scroll.
+func TestTaskbarLyricDrawX(t *testing.T) {
+	for _, tc := range []struct {
+		x, available, width, progress float32
+		mirror                        bool
+		want                          float32
+	}{
+		{10, 100, 80, 0, false, 10},
+		{10, 100, 80, 0, true, 30},
+		{10, 100, 300, 0, false, 10},
+		{10, 100, 300, 0, true, -190},
+		{10, 100, 300, 100, false, -35},
+		{10, 100, 300, 100, true, -145},
+		{10, 100, 300, 500, false, -190},
+		{10, 100, 300, 500, true, 10},
+	} {
+		if got := taskbarLyricDrawX(tc.x, tc.available, tc.width, tc.progress, tc.mirror); got != tc.want {
+			t.Errorf("drawX(%v,%v,%v,%v,mirror=%t)=%v want=%v", tc.x, tc.available, tc.width, tc.progress, tc.mirror, got, tc.want)
+		}
+	}
+}
