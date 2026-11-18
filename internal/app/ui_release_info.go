@@ -8,8 +8,8 @@ import (
 )
 
 type releaseInfoHover struct {
-	entered, left           time.Time
-	open, pinned, dismissed bool
+	entered, left             time.Time
+	open, keyboard, dismissed bool
 }
 
 func (a *app) releaseInfoButton(c *ui.Context, notice string) {
@@ -40,12 +40,7 @@ func (a *app) releaseInfoButton(c *ui.Context, notice string) {
 		}
 	}
 	if b.Clicked() {
-		// Clicking a hover preview keeps it open for reading or copying.
-		if s.pinned {
-			s.open, s.pinned, s.dismissed = false, false, hovered
-		} else {
-			s.open, s.pinned = true, true
-		}
+		s.open, s.keyboard = true, b.FocusVisible()
 		s.left = time.Time{}
 	}
 
@@ -62,21 +57,30 @@ func (a *app) releaseInfoButton(c *ui.Context, notice string) {
 		})
 	})
 	if panel.Dismissed() {
-		s.pinned, s.dismissed, s.left = false, hovered, time.Time{}
+		s.keyboard, s.dismissed, s.left = false, hovered, time.Time{}
 		if panel.FocusWithin() && !panel.PressedOutside() {
 			b.Focus()
 		}
-	} else if hovered || panel.Hovered() || panel.FocusWithin() {
+		return
+	}
+	// Keep a keyboard-opened panel readable while focus moves into it.
+	if s.keyboard && (panel.PressedInside() || !b.Focused() && !panel.FocusWithin()) {
+		s.keyboard = false
+	}
+	if hovered || panel.Hovered() || s.keyboard {
 		s.left = time.Time{}
-	} else if s.open && !s.pinned {
-		if s.left.IsZero() {
-			s.left = now
-		}
-		if wait := readingHoverGrace - now.Sub(s.left); wait > 0 {
-			c.After(wait)
-		} else {
-			s.open = false
-			c.Invalidate()
-		}
+		return
+	}
+	if !s.open {
+		return
+	}
+	if s.left.IsZero() {
+		s.left = now
+	}
+	if wait := readingHoverGrace - now.Sub(s.left); wait > 0 {
+		c.After(wait)
+	} else {
+		s.open = false
+		c.Invalidate()
 	}
 }

@@ -64,11 +64,20 @@ func TestAlbumReleaseInfoHover(t *testing.T) {
 	if err := tt.Click("发行信息"); err != nil {
 		t.Fatal(err)
 	}
+	card = descriptionBox(t, tt, "发行信息详情")
+	tt.ClickAt(card.X+20, card.Y+24)
+	if !open() {
+		t.Fatal("click inside the panel dismissed it")
+	}
 	tt.Move(20, 500)
 	tt.Advance(time.Second)
-	if !open() {
-		t.Fatal("clicked panel did not stay open")
+	if open() {
+		t.Fatal("mouse clicks kept the panel open after the pointer left")
 	}
+	if err := tt.Click("发行信息"); err != nil {
+		t.Fatal(err)
+	}
+	descriptionBox(t, tt, "发行信息详情")
 	tt.ClickAt(650, 520)
 	if open() {
 		t.Fatal("outside click did not dismiss the panel")
@@ -82,16 +91,31 @@ func TestReleaseInfoKeyboard(t *testing.T) {
 	a := newTestApp()
 	tt := ui.NewTester(func(c *ui.Context) {
 		a.pal = paletteFor(c.Theme())
-		ui.Row(c).Padding(24).Children(func() { a.releaseInfoButton(c, "独立发行") })
+		ui.Row(c).Padding(24).Children(func() {
+			a.releaseInfoButton(c, "独立发行")
+			ui.Button(c.Key("next"), "下一项")
+		})
 	}, 640, 480)
 	tt.Frame()
 	tt.Key(0, ui.KeyTab)
 	tt.Key(0, ui.KeyEnter)
+	tt.Advance(time.Second)
 	if _, ok := tt.Find("独立发行"); !ok {
-		t.Fatal("Enter did not open the panel")
+		t.Fatal("Enter did not keep the panel open for keyboard reading")
 	}
 	tt.Key(0, ui.KeyEscape)
 	if _, ok := tt.Find("独立发行"); ok || !tt.Focused("发行信息") {
 		t.Fatal("Escape did not dismiss the panel and keep focus on its button")
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Key(0, ui.KeyTab)
+	tt.Advance(time.Second)
+	if _, ok := tt.Find("独立发行"); !ok || !tt.Focused("发行信息内容") {
+		t.Fatal("moving keyboard focus into the panel did not keep it open")
+	}
+	tt.Key(0, ui.KeyTab)
+	tt.Advance(time.Second)
+	if _, ok := tt.Find("独立发行"); ok || !tt.Focused("下一项") {
+		t.Fatal("moving keyboard focus outside did not dismiss the panel")
 	}
 }
