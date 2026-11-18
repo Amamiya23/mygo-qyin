@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	descriptionDelay = 500 * time.Millisecond
-	descriptionGrace = 180 * time.Millisecond
+	readingHoverDelay = 500 * time.Millisecond
+	readingHoverGrace = 180 * time.Millisecond
 )
 
 type descriptionHover struct {
@@ -57,7 +57,7 @@ func (a *app) collectionDescription(c *ui.Context, description string) {
 			s.entered = now
 		}
 		if !s.dismissed {
-			if wait := descriptionDelay - now.Sub(s.entered); wait > 0 && !focused {
+			if wait := readingHoverDelay - now.Sub(s.entered); wait > 0 && !focused {
 				c.After(wait)
 			} else {
 				s.open = true
@@ -75,8 +75,7 @@ func (a *app) collectionDescription(c *ui.Context, description string) {
 			s.popupWidth = cardWidth
 			_, s.popupHeight = ui.ShapeText(description, ui.Font{Family: font.Family, Size: 13, LineHeight: 1.6, Lang: font.Lang}, cardWidth-32).Size()
 		}
-		panel.Width(cardWidth).Padding(16, 4, 16, 16).Radius(12).Margin(8, 0, 0, 0).
-			Background(radixSage(p.dark, 2)).Border(1, p.hairline).Shadow(0, 8, 28, -6, p.cardShade).Label("完整简介")
+		a.styleReadingPopover(panel, cardWidth).Label("完整简介")
 		ui.Scroll(c.Key("description-scroll")).Height(min(s.popupHeight, min(float32(320), h*0.45)-32)).Padding(0, scrollbarGutter, 0, 0).Focusable().Label("简介内容").Children(func() {
 			ui.Text(c, description).FontSize(13).TextColor(p.text).LineHeight(1.6).Selectable()
 		})
@@ -94,11 +93,17 @@ func (a *app) collectionDescription(c *ui.Context, description string) {
 		if s.left.IsZero() {
 			s.left = now
 		}
-		if wait := descriptionGrace - now.Sub(s.left); wait > 0 {
+		if wait := readingHoverGrace - now.Sub(s.left); wait > 0 {
 			c.After(wait)
 		} else {
 			s.open = false
 			c.Invalidate()
 		}
 	}
+}
+
+func (a *app) styleReadingPopover(panel ui.Element, width float32) ui.Element {
+	p := a.pal
+	return panel.Width(width).Padding(16, 4, 16, 16).Radius(12).Margin(8, 0, 0, 0).
+		Background(radixSage(p.dark, 2)).Border(1, p.hairline).Shadow(0, 8, 28, -6, p.cardShade)
 }

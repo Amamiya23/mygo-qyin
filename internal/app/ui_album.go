@@ -87,7 +87,7 @@ func (a *app) albumHeader(c *ui.Context, al *qqmusic.AlbumProfile) {
 				ui.Text(c, meta)
 			})
 			a.collectionDescription(c, al.Description)
-			ui.Row(c).Gap(10).Margin(10, 0, 0, 0).Children(func() {
+			ui.Row(c).Gap(10).AlignItems(ui.Center).Margin(10, 0, 0, 0).Children(func() {
 				if pillButton(c.Key("play"), iconPlay, "播放", p.accent, p.onAccent).Clicked() {
 					if a.pl.Shuffle() {
 						a.pl.ToggleShuffle()
@@ -95,6 +95,7 @@ func (a *app) albumHeader(c *ui.Context, al *qqmusic.AlbumProfile) {
 					a.pl.PlayQueue(al.Songs, firstPlayable(al.Songs))
 				}
 				a.albumLikeButton(c, al)
+				a.releaseInfoButton(c, al.Company)
 			})
 		})
 	})
