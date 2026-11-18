@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"github.com/egoist/mygo"
 	"math"
@@ -16,6 +17,18 @@ var taskbarUser32 = syscall.NewLazyDLL("user32.dll")
 var taskbarOle32 = syscall.NewLazyDLL("ole32.dll")
 var taskbarOleaut32 = syscall.NewLazyDLL("oleaut32.dll")
 var taskbarComctl32 = syscall.NewLazyDLL("comctl32.dll")
+
+// errTaskbarNoSpace separates a full taskbar from transient sampling failures.
+var errTaskbarNoSpace = errors.New("taskbar has insufficient free space")
+
+// Failed or stale samples drop their geometry but keep the no-space reason,
+// so a full taskbar can be told apart from a hidden or slow one.
+func sampleTaskbarLyricsPlacement(p taskbarLyricsPlacement, err error, elapsed time.Duration) taskbarLyricsPlacement {
+	if err != nil || elapsed > 2*time.Second {
+		return taskbarLyricsPlacement{noSpace: errors.Is(err, errTaskbarNoSpace)}
+	}
+	return p
+}
 
 var taskbarContextMenuProc uintptr
 
@@ -71,9 +84,7 @@ func startTaskbarLyricsMonitor(options func() taskbarLyricsOptions, deliver func
 		for {
 			started := time.Now()
 			p, err := readTaskbarLyricsPlacement(options())
-			if err != nil || time.Since(started) > 2*time.Second {
-				p = taskbarLyricsPlacement{}
-			}
+			p = sampleTaskbarLyricsPlacement(p, err, time.Since(started))
 			if stopped.Load() {
 				return
 			}
@@ -212,7 +223,7 @@ func readTaskbarLyricsPlacement(opts taskbarLyricsOptions) (taskbarLyricsPlaceme
 	}
 	x, width := freeSpace(int(client.right), 280*int(dpi)/96, 100*int(dpi)/96, taskbarLyricsEdgeGap*int(dpi)/96, occupied)
 	if width == 0 {
-		return taskbarLyricsPlacement{}, fmt.Errorf("taskbar has insufficient free space")
+		return taskbarLyricsPlacement{}, errTaskbarNoSpace
 	}
 	x = taskbarLyricsShiftX(x, width, int(client.right), opts.offsetX, uint32(dpi))
 	height := min(int(client.bottom), 42*int(dpi)/96)

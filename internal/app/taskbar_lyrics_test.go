@@ -140,6 +140,57 @@ func TestTaskbarLyricsMirrorSettings(t *testing.T) {
 	}
 }
 
+// A taskbar without room hides the lyrics and says so once, re-arming after recovery.
+func TestTaskbarLyricsNoSpaceToast(t *testing.T) {
+	if !supportsTaskbarLyrics() {
+		t.Skip("taskbar lyrics are Windows-only")
+	}
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.LyricsMode = lyricsTaskbar
+	a.settings.TaskbarLyrics = true
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "测试歌曲", Duration: 60000}})
+	a.syncTaskbarLyrics()
+	d := a.taskbarLyrics
+	d.stop, d.refresh = func() {}, func() {}
+	noSpace := taskbarLyricsPlacement{noSpace: true}
+	usable := taskbarLyricsPlacement{parent: 1, taskbar: 2, width: 280, height: 42, dpi: 96}
+	const msg = "任务栏空间不足，无法显示任务栏歌词，可改用桌面歌词"
+	d.updatePlacement(noSpace)
+	if a.toast != msg || d.visible {
+		t.Fatalf("no space did not warn once: toast=%q visible=%t", a.toast, d.visible)
+	}
+	a.toast = ""
+	d.updatePlacement(noSpace)
+	d.updatePlacement(taskbarLyricsPlacement{})
+	if a.toast != "" {
+		t.Fatalf("repeat or unrelated samples re-warned: %q", a.toast)
+	}
+	if d.notePlacementSpace(usable) {
+		t.Fatal("usable placement asked for a warning")
+	}
+	d.updatePlacement(noSpace)
+	if a.toast != msg {
+		t.Fatalf("recovered space did not re-arm the warning: %q", a.toast)
+	}
+	a.toast = ""
+	d.spaceWarned = false
+	trackless := newTestApp()
+	trackless.settings.TaskbarLyrics = true
+	d.a = trackless
+	d.updatePlacement(noSpace)
+	if trackless.toast != "" {
+		t.Fatalf("warned without a track: %q", trackless.toast)
+	}
+	d.a = a
+	a.settings.TaskbarLyrics = false
+	d.updatePlacement(noSpace)
+	if a.toast != "" {
+		t.Fatalf("warned while disabled: %q", a.toast)
+	}
+}
+
 // Typing a horizontal offset saves whole pixels and refreshes the live monitor snapshot.
 func TestTaskbarLyricsOffsetSettings(t *testing.T) {
 	if !supportsTaskbarLyrics() {

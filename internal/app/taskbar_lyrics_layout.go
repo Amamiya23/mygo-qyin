@@ -34,6 +34,8 @@ type taskbarLyricsPlacement struct {
 	x, y, width, height int
 	dpi                 uint32
 	dark                bool
+	// noSpace marks a sample where the taskbar exists but offers no usable gap.
+	noSpace bool
 }
 
 type taskbarLyricsInterval struct{ start, end int }

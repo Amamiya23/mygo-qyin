@@ -3,10 +3,29 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 	"testing"
+	"time"
 )
+
+// Failed samples keep the no-space reason but drop transient geometry.
+func TestTaskbarLyricsSampleMapping(t *testing.T) {
+	usable := taskbarLyricsPlacement{parent: 1, width: 280, height: 42}
+	if got := sampleTaskbarLyricsPlacement(usable, nil, time.Second); got != usable {
+		t.Fatalf("successful sample altered: %+v", got)
+	}
+	if got := sampleTaskbarLyricsPlacement(usable, errTaskbarNoSpace, time.Second); !got.noSpace || got.parent != 0 {
+		t.Fatalf("no-space reason lost: %+v", got)
+	}
+	if got := sampleTaskbarLyricsPlacement(usable, fmt.Errorf("hidden"), time.Second); got.noSpace || got.parent != 0 {
+		t.Fatalf("transient failure marked as no space: %+v", got)
+	}
+	if got := sampleTaskbarLyricsPlacement(usable, nil, 3*time.Second); got.noSpace || got.parent != 0 {
+		t.Fatalf("slow sample kept stale geometry: %+v", got)
+	}
+}
 
 // A live Explorer query must produce an actual free region, not an empty success.
 func TestTaskbarLyricsNativePlacement(t *testing.T) {

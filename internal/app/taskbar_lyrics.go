@@ -40,6 +40,7 @@ type taskbarLyrics struct {
 	visible           bool
 	dark              bool
 	lastError         string
+	spaceWarned       bool
 }
 
 func supportsTaskbarLyrics() bool { return runtime.GOOS == "windows" }
@@ -152,6 +153,10 @@ func taskbarDisplayLabel(i int, d mygo.Display) string {
 func (d *taskbarLyrics) updatePlacement(p taskbarLyricsPlacement) {
 	changed := d.placement != p
 	d.placement, d.dark = p, p.dark
+	if d.notePlacementSpace(p) {
+		d.a.toast = "任务栏空间不足，无法显示任务栏歌词，可改用桌面歌词"
+		d.a.redraw()
+	}
 	if p.parent == 0 || p.width <= 0 || p.height <= 0 {
 		d.hide()
 		return
@@ -231,6 +236,20 @@ func (d *taskbarLyrics) reportError(err error) {
 		log.Printf("taskbar lyrics: %s", msg)
 		d.lastError = msg
 	}
+}
+
+// A taskbar without a usable gap hides the lyrics silently every second; say so
+// once per episode, and only while a track actually expects lyrics there.
+func (d *taskbarLyrics) notePlacementSpace(p taskbarLyricsPlacement) bool {
+	if p.parent != 0 && p.width > 0 && p.height > 0 {
+		d.spaceWarned = false
+		return false
+	}
+	if !p.noSpace || d.spaceWarned || !d.a.settings.TaskbarLyrics || d.a.pl.Current() == nil || d.a.quitting {
+		return false
+	}
+	d.spaceWarned = true
+	return true
 }
 
 func (d *taskbarLyrics) hide() {
