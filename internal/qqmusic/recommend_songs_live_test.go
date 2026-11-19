@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"os"
 	"testing"
-
-	"github.com/egoist/mygo"
 )
 
 type songShelfFeedCapture struct {
@@ -82,9 +80,7 @@ func TestLiveRecommendedSongShelves(t *testing.T) {
 	if os.Getenv("LIVE") == "" || os.Getenv("LIVE_SONG_SHELVES_ACCOUNT") != "1" {
 		t.Skip("set LIVE=1 LIVE_SONG_SHELVES_ACCOUNT=1 to read Lilt's saved account for song recommendations")
 	}
-	// Test binaries do not carry the packaged app identifier. Use the same
-	// explicit credential service as the account search integration tests.
-	b, err := mygo.Secrets.Service("dev.amamiya.qqmusic").Get(qqSessionSecret)
+	b, err := readInstalledSession()
 	if err != nil {
 		t.Fatal("cannot read the saved Lilt session")
 	}

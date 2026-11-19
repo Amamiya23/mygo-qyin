@@ -6,11 +6,46 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/egoist/mygo"
 )
+
+func TestSessionRenamePath(t *testing.T) {
+	for _, tc := range []struct{ path, want string }{
+		{`C:/data/dir/../session`, `\\?\C:\data\session`},
+		{`\\server\share\data\session`, `\\?\UNC\server\share\data\session`},
+		{`\\?\UNC\server\share\data\session`, `\\?\UNC\server\share\data\session`},
+	} {
+		got, err := sessionRenamePath(tc.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if path := syscall.UTF16ToString(got); path != tc.want {
+			t.Errorf("sessionRenamePath(%q) = %q, want %q", tc.path, path, tc.want)
+		}
+	}
+}
+
+func TestWindowsSessionSecretLongPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), strings.Repeat("a", 125), strings.Repeat("b", 125), sessionFileDir)
+	if len(dir) <= syscall.MAX_PATH {
+		t.Fatal("test session directory must exceed MAX_PATH")
+	}
+	testSessionSecretDir(t, dir)
+	store := &testSessionSecrets{}
+	b := bytes.Repeat([]byte("x"), mygo.MaxSecretSize+1)
+	if err := writeSessionSecret(store, b); err != nil {
+		t.Fatalf("could not save encrypted session in a long path: %v", err)
+	}
+	got, err := readSessionSecret(store, sessionSecretDir)
+	if err != nil || !bytes.Equal(got, b) {
+		t.Fatalf("could not restore session from a long path: %v", err)
+	}
+}
 
 // A separate service keeps this platform check away from the listener's real
 // credentials. The child process verifies that Credential Manager outlives us.
@@ -22,7 +57,7 @@ func TestWindowsSessionSecretAcrossProcesses(t *testing.T) {
 	s.ExpiredAt = 1760000000
 	if service := os.Getenv(childService); service != "" {
 		testSessionSecretDir(t, os.Getenv(childDir))
-		b, err := readSessionSecret(mygo.Secrets.Service(service))
+		b, err := readSessionSecret(mygo.Secrets.Service(service), sessionSecretDir)
 		if err != nil {
 			t.Fatal("child process could not read its test credential")
 		}
@@ -46,7 +81,7 @@ func TestWindowsSessionSecretAcrossProcesses(t *testing.T) {
 	}
 	service := "dev.amamiya.qqmusic.auth-test." + suffix
 	store := mygo.Secrets.Service(service)
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "user-data", sessionFileDir)
 	testSessionSecretDir(t, dir)
 	t.Cleanup(func() {
 		if err := deleteSessionSecret(store); err != nil {

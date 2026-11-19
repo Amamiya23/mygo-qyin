@@ -18,6 +18,7 @@ import (
 const (
 	sessionFilePrefix = "lilt-encrypted-session-v1:"
 	sessionFileKeyLen = 32
+	sessionFileDir    = "qqmusic-session.d"
 	maxSessionSize    = 64 << 10
 )
 
@@ -32,7 +33,7 @@ var sessionSecretDir = func() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "qqmusic-session.d"), nil
+	return filepath.Join(dir, sessionFileDir), nil
 }
 
 func sessionFileKey(entry []byte) ([]byte, error) {
@@ -46,13 +47,9 @@ func sessionFileKey(entry []byte) ([]byte, error) {
 	return raw, nil
 }
 
-func sessionFilePath(key []byte) (string, error) {
-	dir, err := sessionSecretDir()
-	if err != nil {
-		return "", err
-	}
+func sessionFilePath(dir string, key []byte) string {
 	digest := sha256.Sum256(key)
-	return filepath.Join(dir, hex.EncodeToString(digest[:])), nil
+	return filepath.Join(dir, hex.EncodeToString(digest[:]))
 }
 
 func sessionFileCipher(key []byte) cipher.AEAD {
@@ -61,7 +58,7 @@ func sessionFileCipher(key []byte) cipher.AEAD {
 	return aead
 }
 
-func readSessionSecret(store sessionSecrets) ([]byte, error) {
+func readSessionSecret(store sessionSecrets, secretDir func() (string, error)) ([]byte, error) {
 	entry, err := store.Get(qqSessionSecret)
 	if err != nil {
 		return nil, err
@@ -70,11 +67,11 @@ func readSessionSecret(store sessionSecrets) ([]byte, error) {
 	if err != nil || key == nil {
 		return entry, err
 	}
-	path, err := sessionFilePath(key)
+	dir, err := secretDir()
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(sessionFilePath(dir, key))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, errors.New("qqmusic: encrypted session file is missing")
 	}
@@ -107,10 +104,11 @@ func writeSessionSecret(store sessionSecrets, b []byte) error {
 	if len(b) > mygo.MaxSecretSize {
 		key := make([]byte, sessionFileKeyLen)
 		rand.Read(key)
-		path, err = sessionFilePath(key)
+		dir, err := sessionSecretDir()
 		if err != nil {
 			return err
 		}
+		path = sessionFilePath(dir, key)
 		if err = writeSessionFile(path, sessionFileCipher(key).Seal(nil, nil, b, nil)); err != nil {
 			return err
 		}
@@ -127,21 +125,25 @@ func writeSessionSecret(store sessionSecrets, b []byte) error {
 	return nil
 }
 
+var publishSessionFile = durableSessionRename
+
 func writeSessionFile(path string, ciphertext []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	dir := filepath.Dir(path)
+	if err := prepareSessionDirectory(dir); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	f, err := os.CreateTemp(dir, ".session-*")
 	if err != nil {
 		return err
 	}
+	defer os.Remove(f.Name())
 	if _, err = f.Write(ciphertext); err == nil {
 		err = f.Sync()
 	}
 	if err = errors.Join(err, f.Close()); err != nil {
-		os.Remove(path)
+		return err
 	}
-	return err
+	return publishSessionFile(f.Name(), path)
 }
 
 func deleteSessionSecret(store sessionSecrets) error {
@@ -156,8 +158,8 @@ func deleteSessionSecret(store sessionSecrets) error {
 func removeSessionFile(entry []byte) {
 	key, err := sessionFileKey(entry)
 	if err == nil && key != nil {
-		if path, err := sessionFilePath(key); err == nil {
-			os.Remove(path)
+		if dir, err := sessionSecretDir(); err == nil {
+			os.Remove(sessionFilePath(dir, key))
 		}
 	}
 }

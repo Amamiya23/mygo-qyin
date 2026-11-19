@@ -297,7 +297,7 @@ func TestOversizedQQRenewalSurvivesRestart(t *testing.T) {
 	testSessionSecretDir(t, dir)
 	store := &testSessionSecrets{entry: b}
 	memorySessionStore(t, nil)
-	readPersistedSession = func() ([]byte, error) { return readSessionSecret(store) }
+	readPersistedSession = func() ([]byte, error) { return readSessionSecret(store, sessionSecretDir) }
 	writePersistedSession = func(b []byte) error { return writeSessionSecret(store, b) }
 	refreshes := 0
 	rotatedToken := "new" + original.RefreshToken[3:]
@@ -308,6 +308,14 @@ func TestOversizedQQRenewalSurvivesRestart(t *testing.T) {
 	if ok, err := RestoreSession(); !ok || err != nil {
 		t.Fatalf("legacy credential did not restore: %v", err)
 	}
+	originalPublish := publishSessionFile
+	t.Cleanup(func() { publishSessionFile = originalPublish })
+	publishErr := errors.New("test ciphertext publication failed")
+	publishSessionFile = func(_, _ string) error { return publishErr }
+	if _, err := activeSession(); !errors.Is(err, publishErr) || !bytes.Equal(store.entry, b) {
+		t.Fatalf("ciphertext publication failure replaced the credential: %v", err)
+	}
+	publishSessionFile = originalPublish
 	store.writeErr = errors.New("test credential store write failed")
 	if _, err := activeSession(); !errors.Is(err, store.writeErr) {
 		t.Fatalf("publication failure was not reported: %v", err)

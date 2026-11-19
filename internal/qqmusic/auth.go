@@ -113,7 +113,7 @@ var readPersistedSession = func() ([]byte, error) {
 			b, err = os.ReadFile(path)
 		}
 	} else {
-		b, err = readSessionSecret(mygo.Secrets)
+		b, err = readSessionSecret(mygo.Secrets, sessionSecretDir)
 	}
 	return b, err
 }
