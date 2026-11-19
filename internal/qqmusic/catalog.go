@@ -299,7 +299,8 @@ func AlbumDetail(id int64) (*AlbumProfile, error) {
 
 func albumCompany(data object) string {
 	for _, company := range []string{text(data, "company"), text(obj(data["company_new"]), "name")} {
-		switch strings.TrimSpace(company) {
+		company = strings.TrimSpace(strings.ReplaceAll(company, "\r\n", "\n"))
+		switch company {
 		case "", "未确定", "未確定":
 			continue
 		default:

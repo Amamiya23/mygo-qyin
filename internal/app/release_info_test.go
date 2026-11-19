@@ -1,6 +1,9 @@
 package app
 
 import (
+	"image/png"
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
@@ -8,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// Hovering or clicking the metadata info icon reveals the release notice without shifting tracks, sizes compactly for short text, and resets when the album notice changes.
 func TestAlbumReleaseInfoHover(t *testing.T) {
 	switch runtime.GOOS {
 	case "windows", "darwin", "linux":
@@ -69,6 +73,19 @@ func TestAlbumReleaseInfoHover(t *testing.T) {
 	if !open() {
 		t.Fatal("click inside the panel dismissed it")
 	}
+	// Switching to another album resets the open popover instead of carrying it across routes.
+	album.Company = "独立发行"
+	tt.Frame()
+	if open() {
+		t.Fatal("changing album release info left the previous popover open")
+	}
+	if err := tt.Click("发行信息"); err != nil {
+		t.Fatal(err)
+	}
+	shortCard := descriptionBox(t, tt, "发行信息详情")
+	if shortCard.W >= 200 {
+		t.Fatalf("short release notice stretched popover to %.1fpx", shortCard.W)
+	}
 	tt.Move(20, 500)
 	tt.Advance(time.Second)
 	if open() {
@@ -84,6 +101,7 @@ func TestAlbumReleaseInfoHover(t *testing.T) {
 	}
 }
 
+// Pressing Enter opens the release notice for keyboard reading, Tab moves into its scroll area, and leaving or pressing Escape closes it.
 func TestReleaseInfoKeyboard(t *testing.T) {
 	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Skip("desktop release information")
@@ -117,5 +135,53 @@ func TestReleaseInfoKeyboard(t *testing.T) {
 	tt.Advance(time.Second)
 	if _, ok := tt.Find("独立发行"); ok || !tt.Focused("下一项") {
 		t.Fatal("moving keyboard focus outside did not dismiss the panel")
+	}
+}
+
+// With NM_FRAMES set, saves album release info frames for short and long notices in both light and dark appearances.
+func TestAlbumReleaseInfoFrames(t *testing.T) {
+	dir := os.Getenv("NM_FRAMES")
+	if dir == "" {
+		t.Skip()
+	}
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("desktop album page")
+	}
+	const longNotice = "(P) 2020(5,7),2021(2-4,11),2022(1,6,8,10,12,14) Sony Music Labels Inc. / 2019(9,13) Sony Music Entertainment (Japan) Inc."
+	for _, scene := range []struct {
+		name, company string
+		open          bool
+	}{
+		{"closed", longNotice, false},
+		{"short-open", "独立发行", true},
+		{"long-open", longNotice, true},
+	} {
+		for _, dark := range []bool{false, true} {
+			a := descriptionApp(pageAlbum, "每一首歌，都记录着一段旅程。")
+			a.albums[8].album.PublishTime = time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+			a.albums[8].album.Company = scene.company
+			tt := ui.NewTester(a.view, 960, 620)
+			tt.SetDark(dark)
+			tt.Frame()
+			if scene.open {
+				if err := tt.Click("发行信息"); err != nil {
+					t.Fatal(err)
+				}
+				tt.Advance(200 * time.Millisecond)
+			}
+			theme := "light"
+			if dark {
+				theme = "dark"
+			}
+			f, err := os.Create(filepath.Join(dir, "release-info-"+scene.name+"-"+theme+".png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := png.Encode(f, tt.Image()); err != nil {
+				f.Close()
+				t.Fatal(err)
+			}
+			f.Close()
+		}
 	}
 }

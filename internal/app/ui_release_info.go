@@ -1,13 +1,20 @@
 package app
 
 import (
+	"math"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 )
 
 type releaseInfoHover struct {
+	notice                    string
+	font                      ui.Font
+	maxWidth                  float32
+	popupWidth                float32
+	popupHeight               float32
 	entered, left             time.Time
 	open, keyboard, dismissed bool
 }
@@ -18,14 +25,16 @@ func (a *app) releaseInfoButton(c *ui.Context, notice string) {
 	default:
 		return
 	}
+	notice = strings.TrimSpace(strings.ReplaceAll(notice, "\r\n", "\n"))
 	if notice == "" {
 		return
 	}
 
-	b := ui.ButtonBase(c.Key("release-info")).Height(36).PaddingX(8).Radius(8).Center().Label("发行信息")
-	mediaFeedback(b, a.pal.muted)
-	b.Children(func() { ui.Text(c, "发行信息").FontSize(12.5).SingleLine() })
+	b := ui.ButtonBase(c.Key("release-info")).Size(22, 22).Radius(999).Center().Label("发行信息")
 	s := ui.Local(b, "hover", func() releaseInfoHover { return releaseInfoHover{} })
+	if s.notice != notice {
+		*s = releaseInfoHover{notice: notice}
+	}
 	hovered, now := b.Hovered(), c.Now()
 	if !hovered {
 		s.entered, s.dismissed = time.Time{}, false
@@ -44,16 +53,36 @@ func (a *app) releaseInfoButton(c *ui.Context, notice string) {
 		s.left = time.Time{}
 	}
 
+	p := a.pal
+	bg, fg := ui.Transparent, p.faint.Alpha(0.75)
+	if hovered || b.FocusVisible() || s.open {
+		bg, fg = p.hover, p.text
+	}
+	pose := ui.Pose{}
+	if b.Pressed() {
+		bg, fg, pose.Scale = p.press, p.text, 0.92
+	}
+	motion := ui.Animation{Duration: 120 * time.Millisecond}
+	b.Background(b.AnimateColor("bg", bg, motion)).
+		TextColor(b.AnimateColor("fg", fg, motion)).
+		AnimatePose(pose, ui.Snappy).
+		Children(func() { ui.Icon(c, iconInfo).Size(14, 14) })
+
 	panel := ui.PopoverBase(c.Key("release-info-card"), b, &s.open, func(panel ui.Element) {
 		w, h := c.Size()
-		width := min(float32(480), max(float32(64), w-32))
-		const size, leading, gutter = 13, 1.6, 12
+		maxWidth := min(float32(480), max(float32(64), w-32))
+		const size, leading, gutter, chrome = 13, 1.6, 12, 34
 		font := ui.Font{Family: c.Theme().Font, Size: size, LineHeight: leading, Lang: c.Locale()}
-		_, height := ui.ShapeText(notice, font, width-32).Size()
-		a.styleReadingPopover(panel, width).Label("发行信息详情")
-		ui.Scroll(c.Key("release-info-scroll")).Height(min(height, max(size*leading, min(float32(320), h*0.45)-32))).
+		if s.font != font || s.maxWidth != maxWidth || s.popupWidth == 0 {
+			textW, textH := ui.ShapeText(notice, font, maxWidth-chrome).Size()
+			s.font, s.maxWidth = font, maxWidth
+			s.popupWidth = min(maxWidth, max(float32(64), float32(math.Ceil(float64(textW)))+chrome+2))
+			s.popupHeight = float32(math.Ceil(float64(textH)))
+		}
+		a.styleReadingPopover(panel, s.popupWidth).Label("发行信息详情")
+		ui.Scroll(c.Key("release-info-scroll")).Height(min(s.popupHeight, max(size*leading, min(float32(320), h*0.45)-32))).
 			Padding(0, gutter, 0, 0).Focusable().Label("发行信息内容").Children(func() {
-			ui.Text(c, notice).FontSize(size).LineHeight(leading).TextColor(a.pal.text).Selectable()
+			ui.Text(c, notice).FontSize(size).LineHeight(leading).TextColor(p.text).Selectable()
 		})
 	})
 	if panel.Dismissed() {
