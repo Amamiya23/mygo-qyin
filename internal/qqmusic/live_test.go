@@ -7,7 +7,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"testing"
+
+	"lilt/internal/lyrics"
 )
 
 // Song comments must load from the current web service and advance past the first page.
@@ -288,5 +291,164 @@ func TestLivePublicQQ(t *testing.T) {
 	}
 	if !streamed {
 		t.Fatal("no public stream verified")
+	}
+}
+
+// QQ's public login endpoint must return an actual PNG and a waiting QR status.
+func TestLiveQQQRCode(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip("set LIVE=1 to contact QQ Music")
+	}
+	key, err := QRKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	png, err := QRImage(key)
+	if err != nil || len(png) < 8 {
+		t.Fatalf("QR image: %d bytes, %v", len(png), err)
+	}
+	code, _, _, _, err := QRCheck(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != QRWaiting {
+		t.Fatalf("new QR status %d", code)
+	}
+	t.Logf("QQ returned a %d-byte QR image and waiting status", len(png))
+}
+
+// The WeChat web flow must bootstrap a device, return an image and accept an anonymous status poll.
+func TestLiveWechatQRCode(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip("set LIVE=1 to contact QQ Music")
+	}
+	key, err := WechatQRKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer CancelQR(key)
+	image, err := QRImage(key)
+	if err != nil || len(image) < 8 {
+		t.Fatalf("QR image: %d bytes, %v", len(image), err)
+	}
+	code, _, _, _, err := QRCheck(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != QRWaiting {
+		t.Fatalf("new QR status %d", code)
+	}
+	t.Logf("WeChat returned a %d-byte QR image and waiting status", len(image))
+}
+
+// Every advertised song chart must return usable tracks rather than a successful empty custom page.
+func TestLiveSongCharts(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip("set LIVE to contact QQ Music")
+	}
+	previous := sessionSnapshot()
+	t.Cleanup(func() { setSession(previous) })
+	// Exercise public chart reads while an account is present without using real credentials.
+	setSession(Session{MusicID: "123", MusicKey: "fixture-credential", LoginType: 2})
+	charts, err := Charts()
+	if err != nil || len(charts) == 0 {
+		t.Fatalf("chart catalog: count=%d, error=%v", len(charts), err)
+	}
+	for _, chart := range charts {
+		t.Run(strconv.FormatInt(chart.ID-chartIDBase, 10), func(t *testing.T) {
+			detail, err := PlaylistDetail(chart.ID)
+			if err != nil {
+				t.Fatalf("%s: %v", chart.Name, err)
+			}
+			if detail.Name == "" || len(detail.Tracks) == 0 {
+				t.Fatalf("missing chart contents: %+v", detail)
+			}
+			for _, track := range detail.Tracks {
+				if track.ID <= 0 || track.MID == "" || track.Name == "" {
+					t.Fatalf("unusable chart track: %+v", track)
+				}
+			}
+			t.Logf("%s: %d songs", detail.Name, len(detail.Tracks))
+		})
+	}
+}
+
+// QQ's public song detail must return usable measurements without account credentials.
+func TestLiveSongLoudness(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip("set LIVE to contact QQ Music")
+	}
+	isolateLoudnessCache(t)
+	previous := sessionSnapshot()
+	t.Cleanup(func() { setSession(previous) })
+	setSession(Session{})
+	volume, err := SongLoudness(Track{MID: "0039MnYb0qxYhV"})
+	if err != nil || volume.Peak <= 0 || volume.Gain == 0 {
+		t.Fatalf("missing loudness measurement: %+v, error=%v", volume, err)
+	}
+	t.Logf("gain=%g dB peak=%g lra=%g LU", volume.Gain, volume.Peak, volume.LRA)
+}
+
+// Anonymous lyric requests must decode real word times all the way into the player's model.
+func TestLiveLyricsWordTimes(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip("set LIVE to contact QQ Music")
+	}
+	previous := sessionSnapshot()
+	t.Cleanup(func() { setSession(previous) })
+	setSession(Session{})
+	for _, song := range []Track{
+		{ID: 97773, MID: "0039MnYb0qxYhV"},
+		{ID: 1180947, MID: "002pXw073bnbSj"},
+	} {
+		t.Run(song.MID, func(t *testing.T) {
+			RememberTracks([]Track{song})
+			lrc, trans, qrc, err := Lyrics(song.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := lyrics.Build(lrc, trans, qrc)
+			wordCount := 0
+			for _, line := range lines {
+				if line.Timed {
+					wordCount += len(line.Words)
+				}
+			}
+			if qrc == "" || wordCount == 0 {
+				t.Fatalf("real word timing unavailable: lrc bytes=%d qrc bytes=%d lines=%d", len(lrc), len(qrc), len(lines))
+			}
+			if song.ID == 1180947 && trans == "" {
+				t.Fatal("the Japanese sample lost its translation")
+			}
+			t.Logf("decoded %d timed words in %d lines; translation bytes=%d", wordCount, len(lines), len(trans))
+		})
+	}
+}
+
+// Line-only lyrics and instrumental placeholders must not be mistaken for real word timing.
+func TestLiveLyricsLineFallback(t *testing.T) {
+	if os.Getenv("LIVE") == "" {
+		t.Skip("set LIVE to contact QQ Music")
+	}
+	previous := sessionSnapshot()
+	t.Cleanup(func() { setSession(previous) })
+	setSession(Session{})
+	for _, mid := range []string{"003XGaNw3g8rjL", "001nnncU0VsH5O"} {
+		t.Run(mid, func(t *testing.T) {
+			lrc, trans, qrc, err := playLyrics(mid)
+			if err != nil || lrc == "" || qrc != "" {
+				t.Fatalf("unexpected line-only response: lrc bytes=%d qrc bytes=%d error=%v", len(lrc), len(qrc), err)
+			}
+			lines := lyrics.Build(lrc, trans, qrc)
+			for _, line := range lines {
+				if line.Timed {
+					t.Fatalf("invented word timing: %+v", line)
+				}
+			}
+			if mid == "001nnncU0VsH5O" && len(lines) != 0 {
+				t.Fatalf("instrumental placeholder shown as lyrics: %d lines", len(lines))
+			}
+			t.Logf("decoded line-only payload, visible lines=%d", len(lines))
+		})
 	}
 }

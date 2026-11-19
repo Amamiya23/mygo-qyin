@@ -1,8 +1,11 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -104,5 +107,300 @@ func TestSearchMine(t *testing.T) {
 	}
 	if cur := a.pl.Current(); cur == nil || cur.ID != 3 || !slices.Equal(queue, []int64{1, 3, 4}) {
 		t.Fatalf("playing %+v of %v", cur, queue)
+	}
+}
+
+// A failed first page used to stay cached when the listener searched for it again from another page.
+func TestSearchRetriesFailedFirstPage(t *testing.T) {
+	for _, history := range []bool{false, true} {
+		name := "submit"
+		if history {
+			name = "history"
+		}
+		t.Run(name, func(t *testing.T) {
+			asked := fakeSearch(t)
+			a := newTestApp()
+			a.settings = defaultSettings()
+			a.settings.SearchHistory = []string{"春日影"}
+			r := route{page: pageSearch, query: "春日影", kind: qqmusic.SearchSongs}
+			failed := &searchData{page: paged{err: "搜索失败，请稍后再试"}}
+			a.searches[r] = failed
+			tt := ui.NewTester(a.view, 1200, 800)
+			tt.Frame()
+			if err := tt.Click("搜索"); err != nil {
+				t.Fatal(err)
+			}
+			if history {
+				if err := tt.Click("春日影"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				tt.Type("春日影")
+				tt.Key(0, ui.KeyEnter)
+			}
+			tt.Frame()
+			d := a.searches[r]
+			if d == failed || !d.page.loading || d.page.err != "" {
+				t.Fatal("search reused the failed first page instead of requesting it again")
+			}
+			if got := wait(t, asked, "the failed search again"); got != (searchRequest{"春日影", qqmusic.SearchSongs, 0}) {
+				t.Fatalf("searched %+v", got)
+			}
+		})
+	}
+}
+
+// Returning to a failed search category retries it, while the already loaded category stays cached.
+func TestSearchKindRetriesFailedFirstPage(t *testing.T) {
+	asked := fakeSearch(t)
+	a := newTestApp()
+	a.settings = defaultSettings()
+	songs := route{page: pageSearch, query: "春日影", kind: qqmusic.SearchSongs}
+	artists := songs
+	artists.kind = qqmusic.SearchArtists
+	failed := &searchData{page: paged{err: "搜索失败，请稍后再试"}}
+	loaded := &searchData{page: paged{loaded: true}}
+	a.searches[songs], a.searches[artists] = failed, loaded
+	a.route, a.searched, a.query = songs, songs, songs.query
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	if err := tt.Click("歌手"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.route != artists || a.searches[artists] != loaded {
+		t.Fatal("switching category discarded its loaded results")
+	}
+	if err := tt.Click("单曲"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if d := a.searches[songs]; d == failed || !d.page.loading || d.page.err != "" {
+		t.Fatal("returning to a category reused its failed first page")
+	}
+	if got := wait(t, asked, "the failed category again"); got != (searchRequest{"春日影", qqmusic.SearchSongs, 0}) {
+		t.Fatalf("searched %+v", got)
+	}
+}
+
+// Navigating to loaded results or an in-flight first page reuses that search rather than starting another request.
+func TestSearchReusesLoadedAndLoadingPages(t *testing.T) {
+	fakeSearch(t)
+	for _, pg := range []paged{{loaded: true}, {loading: true}} {
+		a := newTestApp()
+		r := route{page: pageSearch, query: "春日影", kind: qqmusic.SearchSongs}
+		d := &searchData{page: pg}
+		a.searches[r] = d
+		a.show(r)
+		if a.searches[r] != d {
+			t.Fatalf("navigation replaced a cached search: %+v", pg)
+		}
+	}
+}
+
+// Retrying a later page keeps the songs already loaded and requests from their end.
+func TestSearchPageRetryKeepsResults(t *testing.T) {
+	asked := fakeSearch(t)
+	a := newTestApp()
+	a.settings = defaultSettings()
+	r := route{page: pageSearch, query: "春日影", kind: qqmusic.SearchSongs}
+	d := &searchData{
+		res:  qqmusic.SearchResult{Songs: []qqmusic.Track{{ID: 1, Name: "春日影"}, {ID: 2, Name: "迷星叫"}}, Total: 40},
+		page: paged{loaded: true, more: true, err: "搜索失败，请稍后再试"},
+	}
+	a.searches[r] = d
+	a.show(r)
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	if err := tt.Click("重试"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.searches[r] != d || len(d.res.Songs) != 2 || d.res.Songs[0].ID != 1 || !d.page.loading || d.page.err != "" {
+		t.Fatal("retrying a later page discarded the songs already loaded")
+	}
+	if got := wait(t, asked, "the failed next page again"); got != (searchRequest{"春日影", qqmusic.SearchSongs, 2}) {
+		t.Fatalf("searched %+v", got)
+	}
+}
+
+type sourceSearchRequest struct {
+	query         string
+	kind          qqmusic.SearchType
+	limit, offset int
+	source        qqmusic.SearchSource
+}
+
+// Filtering unusable rows must not move pagination off its upstream boundary or switch the chosen backend.
+func TestSearchPaginationPinsSourceAndOffset(t *testing.T) {
+	oldSearch, oldFrom := searchResults, searchResultsFrom
+	t.Cleanup(func() { searchResults, searchResultsFrom = oldSearch, oldFrom })
+	called := make(chan sourceSearchRequest, 4)
+	searchResults = func(q string, kind qqmusic.SearchType, limit, offset int) (qqmusic.SearchResult, error) {
+		called <- sourceSearchRequest{q, kind, limit, offset, qqmusic.SearchAuto}
+		return qqmusic.SearchResult{}, errors.New("offline")
+	}
+	searchResultsFrom = func(q string, kind qqmusic.SearchType, limit, offset int, source qqmusic.SearchSource) (qqmusic.SearchResult, error) {
+		called <- sourceSearchRequest{q, kind, limit, offset, source}
+		return qqmusic.SearchResult{}, errors.New("offline")
+	}
+	a := newTestApp()
+	r := route{page: pageSearch, query: "晴天", kind: qqmusic.SearchSongs}
+	d := &searchData{}
+	first := qqmusic.SearchResult{Source: qqmusic.SearchLegacy, NextOffset: 20, Total: 40}
+	for i := range 18 {
+		first.Songs = append(first.Songs, qqmusic.Track{ID: int64(i + 1), Name: "Song"})
+	}
+	d.finishPage(first, nil)
+	if len(d.res.Songs) != 18 || d.res.Source != qqmusic.SearchLegacy || d.res.NextOffset != 20 || !d.page.more {
+		t.Fatal("first page lost its source or raw page boundary")
+	}
+	a.moreResults(r, d)
+	want := sourceSearchRequest{"晴天", qqmusic.SearchSongs, searchLimit, 20, qqmusic.SearchLegacy}
+	if got := wait(t, called, "pinned next page"); got != want {
+		t.Fatalf("requested %+v, want %+v", got, want)
+	}
+	// An error arriving after the first page must keep its rows, cursor and source.
+	d.finishPage(qqmusic.SearchResult{}, &qqmusic.SearchCooldownError{RetryAfter: 6 * time.Second, Cause: errors.New("server rejected")})
+	if len(d.res.Songs) != 18 || d.res.Source != qqmusic.SearchLegacy || d.res.NextOffset != 20 || d.page.loading || !d.page.loaded || !d.page.more || d.page.err == "" {
+		t.Fatal("failed pagination discarded existing results or changed source")
+	}
+	a.moreResults(r, d)
+	if got := wait(t, called, "pinned retry"); got != want {
+		t.Fatalf("retried %+v, want %+v", got, want)
+	}
+	last := qqmusic.SearchResult{Source: qqmusic.SearchLegacy, NextOffset: 40, Total: 40, Songs: []qqmusic.Track{{ID: 19}, {ID: 20}}}
+	d.finishPage(last, nil)
+	if len(d.res.Songs) != 20 || d.res.NextOffset != 40 || d.page.more {
+		t.Fatal("search kept paging by filtered row count after the upstream end")
+	}
+}
+
+type suggestionRequest struct {
+	query string
+	ctx   context.Context
+}
+
+func cancelableSuggestions(t *testing.T) (chan suggestionRequest, chan string) {
+	t.Helper()
+	started, stopped := make(chan suggestionRequest, 8), make(chan string, 8)
+	original := searchSuggest
+	searchSuggest = func(ctx context.Context, q string) (qqmusic.Suggestions, error) {
+		started <- suggestionRequest{q, ctx}
+		<-ctx.Done()
+		stopped <- q
+		return qqmusic.Suggestions{}, ctx.Err()
+	}
+	t.Cleanup(func() { searchSuggest = original })
+	return started, stopped
+}
+
+// Editing, dismissing, leaving or submitting the search cancels an already running suggestion request.
+func TestSuggestionRequestCancellation(t *testing.T) {
+	for _, action := range []string{"edit", "escape", "blur", "submit", "clear"} {
+		t.Run(action, func(t *testing.T) {
+			queries := fakeSearch(t)
+			started, stopped := cancelableSuggestions(t)
+			a := newTestApp()
+			a.settings = defaultSettings()
+			t.Cleanup(a.dismissSuggestions)
+			tt := ui.NewTester(a.view, 1200, 800)
+			tt.Frame()
+			if err := tt.Click("搜索"); err != nil {
+				t.Fatal(err)
+			}
+			tt.Type("晴")
+			tt.Frame()
+			req := wait(t, started, "suggestions")
+			if req.query != "晴" {
+				t.Fatalf("suggestions for %q", req.query)
+			}
+			switch action {
+			case "edit":
+				tt.Type("天")
+			case "escape":
+				tt.Key(0, ui.KeyEscape)
+			case "blur":
+				tt.ClickAt(1100, 650)
+			case "submit":
+				tt.Key(0, ui.KeyEnter)
+			case "clear":
+				tt.Key(ui.Cmd, ui.KeyA)
+				tt.Key(0, ui.KeyBackspace)
+			}
+			tt.Frame()
+			if action == "submit" {
+				if got := wait(t, queries, "submitted search"); got.query != "晴" {
+					t.Fatalf("searched %q", got.query)
+				}
+			}
+			if q := wait(t, stopped, "canceled suggestions"); q != "晴" {
+				t.Fatalf("canceled %q", q)
+			}
+			select {
+			case <-req.ctx.Done():
+			default:
+				t.Fatal("obsolete suggestion context remains active")
+			}
+		})
+	}
+}
+
+// Returning to the same word must not let an older success or failure overwrite its new request.
+func TestSuggestionReplyAfterQueryReentered(t *testing.T) {
+	original := searchSuggest
+	searchSuggest = func(context.Context, string) (qqmusic.Suggestions, error) { return qqmusic.Suggestions{}, nil }
+	t.Cleanup(func() { searchSuggest = original })
+	a := newTestApp()
+	t.Cleanup(a.dismissSuggestions)
+	a.suggest("晴天")
+	old := a.suggestions.gen
+	a.suggest("春日影")
+	a.suggest("晴天")
+	current := a.suggestions.gen
+	if a.suggestions.timer != nil {
+		a.suggestions.timer.Stop()
+	}
+	stale := qqmusic.Suggestions{Songs: []qqmusic.Track{{MID: "old", Name: "old"}}}
+	a.finishSuggestions(old, "晴天", stale, nil)
+	a.finishSuggestions(old, "晴天", qqmusic.Suggestions{}, errors.New("old failure"))
+	if !a.suggestions.loading || a.suggestions.failed || len(a.suggestions.items) != 0 {
+		t.Fatal("obsolete reply changed the reentered query")
+	}
+	fresh := qqmusic.Suggestions{Songs: []qqmusic.Track{{MID: "new", Name: "new"}}}
+	a.finishSuggestions(current, "晴天", fresh, nil)
+	if a.suggestions.loading || a.suggestions.failed || len(a.suggestions.items) != 1 || a.suggestions.items[0].name != "new" {
+		t.Fatal("the current reply was not applied")
+	}
+}
+
+// Sparse smartbox songs without numeric IDs still select the right candidate instead of sharing song:0.
+func TestSuggestionMIDIdentity(t *testing.T) {
+	queries := fakeSearch(t)
+	original := searchSuggest
+	searchSuggest = func(context.Context, string) (qqmusic.Suggestions, error) { return qqmusic.Suggestions{}, nil }
+	t.Cleanup(func() { searchSuggest = original })
+	a := newTestApp()
+	a.settings = defaultSettings()
+	t.Cleanup(a.dismissSuggestions)
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	if err := tt.Click("搜索"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("晴")
+	tt.Frame()
+	a.suggestions.loading = false
+	a.suggestions.items = suggestionList(qqmusic.Suggestions{Songs: []qqmusic.Track{{MID: "first", Name: "晴天"}, {MID: "second", Name: "春日影"}}})
+	if len(a.suggestions.items) != 2 || a.suggestions.items[0].key == a.suggestions.items[1].key {
+		t.Fatal("suggestions share an identity")
+	}
+	tt.Frame()
+	if err := tt.Click("单曲：春日影"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if got := wait(t, queries, "chosen song search"); got.query != "春日影" {
+		t.Fatalf("searched %q", got.query)
 	}
 }

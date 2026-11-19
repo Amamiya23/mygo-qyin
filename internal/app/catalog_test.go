@@ -574,3 +574,164 @@ func TestCatalogFrameBudget(t *testing.T) {
 		}
 	}
 }
+
+// Each artist's name opens their page: from Now Playing, which closes, and
+// from a song's row, which doesn't play the song as the row's click would.
+func TestArtistNameOpensTheirPage(t *testing.T) {
+	artistDetail = func(int64) (*qqmusic.ArtistProfile, error) { return nil, errors.New("offline") }
+	defer func() { artistDetail = qqmusic.ArtistDetail }()
+	a := newTestApp()
+	a.settings = defaultSettings()
+	duet := qqmusic.Track{ID: 1, Name: "广寒宫", Artists: []qqmusic.Artist{{ID: 11, Name: "甲"}, {ID: 12, Name: "乙"}}, Duration: 200000}
+	a.pl.Cue([]qqmusic.Track{duet})
+	a.pl.SetLyrics(nil)
+	a.artists[12] = &artistData{profile: &qqmusic.ArtistProfile{
+		Artist: qqmusic.Artist{ID: 12, Name: "乙"},
+		Songs:  []qqmusic.Track{{ID: 2, Name: "起风了", Artists: []qqmusic.Artist{{ID: 13, Name: "丙"}}, Duration: 200000}},
+	}}
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.nowPlaying = true
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+
+	// The second of two artists credited.
+	if err := tt.Click("乙"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.nowPlaying || a.route != (route{page: pageArtist, id: 12}) {
+		t.Fatalf("after the click: Now Playing open %v, page %+v", a.nowPlaying, a.route)
+	}
+
+	tt.Advance(time.Second)
+	tt.Frame()
+	if err := tt.Click("丙"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.route != (route{page: pageArtist, id: 13}) {
+		t.Fatalf("a row's artist opened %+v", a.route)
+	}
+	if cur := a.pl.Current(); cur == nil || cur.ID != duet.ID {
+		t.Errorf("a click on a row's artist played %+v", cur)
+	}
+
+	// Back goes to the artist before.
+	tt.Key(0, ui.KeyBack)
+	tt.Frame()
+	if a.route.id != 12 {
+		t.Errorf("back went to %+v", a.route)
+	}
+}
+
+// 最新 lists an artist's newest songs, asked of NetEase once, and a click
+// on one plays the list shown.
+func TestArtistSongsByLatest(t *testing.T) {
+	asked := make(chan int64, 4)
+	artistLatestSongs = func(id int64, _ int) ([]qqmusic.Track, error) { asked <- id; return nil, errors.New("offline") }
+	defer func() { artistLatestSongs = qqmusic.ArtistLatestSongs }()
+	a := newTestApp()
+	a.settings = defaultSettings()
+	song := func(id int64, name string) qqmusic.Track {
+		return qqmusic.Track{ID: id, Name: name, Artists: []qqmusic.Artist{{ID: 12, Name: "乙"}}, Duration: 200000}
+	}
+	d := &artistData{profile: &qqmusic.ArtistProfile{Artist: qqmusic.Artist{ID: 12, Name: "乙"}, Songs: []qqmusic.Track{song(1, "老歌")}}}
+	a.artists[12] = d
+	a.open(route{page: pageArtist, id: 12})
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+
+	if err := tt.Click("最新"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	select {
+	case id := <-asked:
+		if id != 12 {
+			t.Fatalf("asked for the songs of %d", id)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the newest songs weren't asked for")
+	}
+	// As the answer lands, which post drops without a window.
+	d.latest, d.latestLoading = []qqmusic.Track{song(2, "新歌"), song(3, "更新的歌")}, false
+	tt.Frame()
+	if err := tt.Click("新歌"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if cur := a.pl.Current(); cur == nil || cur.ID != 2 || len(a.pl.Queue()) != 2 {
+		t.Fatalf("playing %+v of %d", cur, len(a.pl.Queue()))
+	}
+
+	// Back and forth, the songs loaded stay.
+	tt.Click("热门")
+	tt.Frame()
+	tt.Click("最新")
+	tt.Frame()
+	if len(asked) > 0 {
+		t.Error("the newest songs were asked for again")
+	}
+}
+
+// The count on the comments' tab holds the last song's while the next
+// one's loads, for it to roll from one to the other, and goes once the
+// next song turns out to have none.
+func TestCommentCountHoldsWhileLoading(t *testing.T) {
+	a, tt, _ := coverApp(t)
+	a.comments = commentState{track: 2, loaded: true, total: 128}
+	tt.Frame()
+	a.pl.Next()
+	a.comments = commentState{track: 3, loading: true}
+	tt.Frame()
+	if _, ok := tt.Find("评论 128"); !ok {
+		t.Fatal("the count went as the next song's loads")
+	}
+	a.comments.loading, a.comments.loaded, a.comments.total = false, true, 96
+	tt.Frame()
+	if _, ok := tt.Find("评论 96"); !ok {
+		t.Error("the count did not change once loaded")
+	}
+	a.pl.Next()
+	a.comments = commentState{track: 1, loaded: true}
+	tt.Advance(time.Second)
+	tt.Frame()
+	if _, ok := tt.Find("评论"); !ok {
+		t.Error("a song without comments shows a count")
+	}
+}
+
+// Now Playing shows an episode's comments, the episode's and not its
+// audio's, under a tab of their own beside what it is about, which stays
+// chosen as the frames go.
+func TestEpisodeComments(t *testing.T) {
+	asked := make(chan string, 4)
+	threadComments = func(thread string, offset, limit int) (*qqmusic.Comments, error) {
+		asked <- thread
+		return &qqmusic.Comments{}, nil
+	}
+	defer func() { threadComments = qqmusic.ThreadComments }()
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.pl.Cue([]qqmusic.Track{{ID: 13, Name: "第一期", ProgramID: 3, PodcastID: 5, Duration: 600000}})
+	a.pl.SetLyrics(nil)
+	a.nowPlaying = true
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if thread := wait(t, asked, "the comments"); thread != "A_DJ_1_3" {
+		t.Fatalf("asked for the comments of %s", thread)
+	}
+	if a.npPane != paneProgram {
+		t.Fatalf("opened on pane %d", a.npPane)
+	}
+	if err := tt.Click("评论"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	tt.Frame()
+	if a.npPane != paneComments {
+		t.Errorf("on pane %d", a.npPane)
+	}
+}

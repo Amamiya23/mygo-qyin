@@ -2,6 +2,7 @@ package qqmusic
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo"
 )
@@ -102,14 +104,14 @@ func TestQQWebSessionRecoveryAcrossRestarts(t *testing.T) {
 		default:
 			refreshes++
 			p := body.Req.Param
-			wantToken := "fake-refresh-token"
+			wantKey, wantToken := "fake-musickey", "fake-refresh-token"
 			if refreshes == 2 {
-				wantToken = "rotated-token"
+				wantKey, wantToken = "new-key", "rotated-token"
 			}
 			if body.Req.Module != "music.login.LoginServer" || body.Req.Method != "Login" ||
 				body.Comm["tmeLoginType"] != float64(2) || body.Comm["uid"] != "uid" ||
 				p["musicid"] != "10001" || p["str_musicid"] != "10001" || p["loginMode"] != float64(2) ||
-				p["openid"] != "fake-openid" || p["unionid"] != "fake-unionid" || p["refresh_token"] != wantToken {
+				p["openid"] != "fake-openid" || p["unionid"] != "fake-unionid" || p["musickey"] != wantKey || p["refresh_token"] != wantToken {
 				t.Error("QQ renewal changed protocol family or lost saved refresh data")
 			}
 			io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"new-key","loginType":2,"refresh_token":"rotated-token","refresh_key":"rotated-key"}}}`)
@@ -162,8 +164,68 @@ func TestQQWebSessionRecoveryAcrossRestarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if bootstraps != 2 || sessions != 1 || refreshes != 2 || reads != 2 ||
-		saved.Device == nil || saved.Device.UID != "uid" || saved.RefreshKey != "rotated-key" || saved.RefreshToken != "rotated-token" {
+		saved.MusicKey != "new-key" || saved.Device == nil || saved.Device.Qimei != "q16" || saved.Device.UID != "uid" ||
+		saved.RefreshKey != "rotated-key" || saved.RefreshToken != "rotated-token" {
 		t.Fatalf("unexpected recovery effects: bootstrap=%d sessions=%d refresh=%d reads=%d", bootstraps, sessions, refreshes, reads)
+	}
+}
+
+func TestConcurrentQQRefreshAndAccountReplacement(t *testing.T) {
+	for _, scenario := range []string{"concurrent", "switch account", "logout"} {
+		t.Run(scenario, func(t *testing.T) {
+			started, release := make(chan struct{}), make(chan struct{})
+			var calls atomic.Int32
+			fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if calls.Add(1) == 1 {
+					close(started)
+				}
+				<-release
+				io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"new-key","loginType":2}}}`)
+			})
+			_, writes := memorySessionStore(t, nil)
+			deleted := false
+			deletePersistedSession = func() { deleted = true }
+			setSession(Session{MusicID: "10001", MusicKey: "expired", LoginType: 2, CreatedAt: 1, ExpiresIn: 1, RefreshToken: "token", Device: &wechatDevice{}})
+			callers := 8
+			if scenario == "logout" {
+				callers = 1
+			}
+			var wg sync.WaitGroup
+			for range callers {
+				wg.Go(func() {
+					if _, err := activeSession(); err != nil {
+						t.Error(err)
+					}
+				})
+			}
+			<-started
+			switch scenario {
+			case "switch account":
+				setSession(Session{MusicID: "10002", MusicKey: "replacement", LoginType: 2})
+			case "logout":
+				Logout()
+			}
+			close(release)
+			wg.Wait()
+			if calls.Load() != 1 {
+				t.Fatalf("concurrent calls refreshed %d times", calls.Load())
+			}
+			s := sessionSnapshot()
+			switch scenario {
+			case "concurrent":
+				if *writes != 1 || deleted || s.MusicKey != "new-key" {
+					t.Fatal("concurrent calls did not share the renewed credential")
+				}
+			case "switch account":
+				if *writes != 0 || deleted || s.MusicID != "10002" {
+					t.Fatal("old renewal overwrote the replacement account")
+				}
+			case "logout":
+				if *writes != 0 || !deleted || s != (Session{}) {
+					t.Fatal("old renewal undid logout")
+				}
+			}
+		})
 	}
 }
 
@@ -201,47 +263,6 @@ func TestQQRefreshRetriesPersistenceWithoutReusingRotatedToken(t *testing.T) {
 	setSession(Session{})
 	if ok, err := RestoreSession(); !ok || err != nil || sessionSnapshot().RefreshToken != "rotated-token" {
 		t.Fatal("successfully retried persistence did not survive restart")
-	}
-}
-
-func TestConcurrentQQRefreshAndAccountReplacement(t *testing.T) {
-	for _, replace := range []bool{false, true} {
-		t.Run(map[bool]string{false: "concurrent", true: "switch account"}[replace], func(t *testing.T) {
-			started, release := make(chan struct{}), make(chan struct{})
-			var calls atomic.Int32
-			fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
-				if calls.Add(1) == 1 {
-					close(started)
-				}
-				<-release
-				io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"new-key","loginType":2}}}`)
-			})
-			_, writes := memorySessionStore(t, nil)
-			setSession(Session{MusicID: "10001", MusicKey: "expired", LoginType: 2, CreatedAt: 1, ExpiresIn: 1, RefreshToken: "token", Device: &wechatDevice{}})
-			var wg sync.WaitGroup
-			for i := 0; i < 8; i++ {
-				wg.Go(func() {
-					if _, err := activeSession(); err != nil {
-						t.Error(err)
-					}
-				})
-			}
-			<-started
-			if replace {
-				setSession(Session{MusicID: "10002", MusicKey: "replacement", LoginType: 2})
-			}
-			close(release)
-			wg.Wait()
-			if calls.Load() != 1 {
-				t.Fatalf("concurrent calls refreshed %d times", calls.Load())
-			}
-			if replace && (*writes != 0 || sessionSnapshot().MusicID != "10002") {
-				t.Fatal("old renewal overwrote the replacement account")
-			}
-			if !replace && (*writes != 1 || sessionSnapshot().MusicKey != "new-key") {
-				t.Fatal("concurrent calls did not share the renewed credential")
-			}
-		})
 	}
 }
 
@@ -330,5 +351,430 @@ func TestQQRefreshRejectsDifferentAccount(t *testing.T) {
 	setSession(original)
 	if _, err := activeSession(); err == nil || SessionNeedsLogin(err) || *writes != 0 || sessionSnapshot() != original {
 		t.Fatal("renewal response for another account replaced the saved credential")
+	}
+}
+
+// Expired QQ sessions used to be discarded even when their saved refresh material could renew the key.
+func TestExpiredQQSessionRestoresAndRefreshes(t *testing.T) {
+	for _, tc := range []struct {
+		name, refreshKey, refreshToken string
+	}{
+		{name: "refresh key", refreshKey: "saved-refresh-key"},
+		{name: "legacy refresh token", refreshToken: "saved-refresh-token"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reads, refreshes := 0, 0
+			fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Comm map[string]any                 `json:"comm"`
+					Req  struct{ Param map[string]any } `json:"req"`
+					Req0 struct{ Method string }        `json:"req_0"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if body.Req0.Method == "GetLoginUserInfo" {
+					reads++
+					if body.Comm["authst"] != "renewed-key" || body.Comm["tmeLoginType"] != float64(2) {
+						t.Error("profile read did not use the renewed QQ credential")
+					}
+					io.WriteString(w, `{"code":0,"req_0":{"code":0,"data":{"info":{}}}}`)
+					return
+				}
+				refreshes++
+				if body.Comm["tmeLoginType"] != float64(2) {
+					t.Error("QQ renewal used the WeChat credential family")
+				}
+				p := body.Req.Param
+				if p["musicid"] != "10001" || p["str_musicid"] != "10001" || p["musickey"] != "expired-key" || p["openid"] != "saved-openid" || p["unionid"] != "saved-unionid" || p["refresh_key"] != tc.refreshKey || p["refresh_token"] != tc.refreshToken || p["loginMode"] != float64(2) {
+					t.Error("QQ renewal lost the saved credential material")
+				}
+				io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"renewed-key","loginType":2,"refresh_token":"rotated-token"}}}`)
+			})
+			oldHTTP := httpClient
+			httpClient = authHTTP
+			t.Cleanup(func() { httpClient = oldHTTP })
+			original := Session{
+				MusicID: "10001", MusicKey: "expired-key", LoginType: 2, CreatedAt: 1, ExpiresIn: 1,
+				OpenID: "saved-openid", UnionID: "saved-unionid", RefreshKey: tc.refreshKey, RefreshToken: tc.refreshToken,
+				Nickname: "Listener", AvatarURL: "https://example.test/avatar", EncryptUin: "saved-encrypt-uin",
+				Device: &wechatDevice{Qimei: "q16", Qimei36: "q36"},
+			}
+			stored, err := json.Marshal(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			oldRead, oldWrite, oldDelete := readPersistedSession, writePersistedSession, deletePersistedSession
+			writes, deleted := 0, false
+			readPersistedSession = func() ([]byte, error) { return bytes.Clone(stored), nil }
+			writePersistedSession = func(b []byte) error { writes++; stored = bytes.Clone(b); return nil }
+			deletePersistedSession = func() { deleted = true }
+			t.Cleanup(func() {
+				readPersistedSession, writePersistedSession, deletePersistedSession = oldRead, oldWrite, oldDelete
+			})
+			if ok, err := RestoreSession(); !ok || err != nil {
+				t.Fatal("refreshable expired QQ credential was discarded")
+			}
+			profile, err := Account()
+			if err != nil || profile == nil || profile.UserID != 10001 || profile.Nickname != original.Nickname {
+				t.Fatalf("QQ account did not recover: profile=%v err=%v", profile, err)
+			}
+			if reads != 1 || refreshes != 1 || writes != 1 || deleted {
+				t.Fatalf("recovery effects: profile reads=%d refreshes=%d writes=%d deleted=%v", reads, refreshes, writes, deleted)
+			}
+			var saved Session
+			if err := json.Unmarshal(stored, &saved); err != nil {
+				t.Fatal(err)
+			}
+			for _, got := range []Session{sessionSnapshot(), saved} {
+				if got.MusicKey != "renewed-key" || got.RefreshToken != "rotated-token" || got.LoginType != 2 || got.MusicID != original.MusicID || got.RefreshKey != original.RefreshKey || got.OpenID != original.OpenID || got.UnionID != original.UnionID || got.Nickname != original.Nickname || got.AvatarURL != original.AvatarURL || got.EncryptUin != original.EncryptUin || got.Device == nil || *got.Device != *original.Device {
+					t.Fatal("QQ renewal did not save the new key and token while retaining omitted fields")
+				}
+			}
+		})
+	}
+}
+
+// A failed renewal must retain the original persisted material so the same expired QQ session can retry.
+func TestQQRefreshFailurePreservesRecoverableSession(t *testing.T) {
+	for _, tc := range []struct {
+		name, response string
+		status         int
+	}{
+		{name: "business 1000", response: `{"code":0,"req":{"code":1000}}`},
+		{name: "business 10006", response: `{"code":0,"req":{"code":10006}}`},
+		{name: "HTTP 503", status: http.StatusServiceUnavailable},
+		{name: "malformed response", response: `not JSON`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			refreshes, reads := 0, 0
+			fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Req0 struct{ Method string } `json:"req_0"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				if body.Req0.Method == "GetLoginUserInfo" {
+					reads++
+					io.WriteString(w, `{"code":0,"req_0":{"code":0,"data":{"info":{}}}}`)
+					return
+				}
+				refreshes++
+				if refreshes == 1 {
+					if tc.status != 0 {
+						w.WriteHeader(tc.status)
+					}
+					io.WriteString(w, tc.response)
+					return
+				}
+				io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"recovered-key","loginType":2}}}`)
+			})
+			oldHTTP := httpClient
+			httpClient = authHTTP
+			t.Cleanup(func() { httpClient = oldHTTP })
+			stored, err := json.Marshal(Session{
+				MusicID: "10001", MusicKey: "expired-key", LoginType: 2, CreatedAt: 1, ExpiresIn: 1,
+				OpenID: "saved-openid", RefreshToken: "saved-token", Device: &wechatDevice{Qimei: "q16", Qimei36: "q36"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			originalBytes := bytes.Clone(stored)
+			oldRead, oldWrite, oldDelete := readPersistedSession, writePersistedSession, deletePersistedSession
+			writes, deleted := 0, false
+			readPersistedSession = func() ([]byte, error) { return bytes.Clone(stored), nil }
+			writePersistedSession = func(b []byte) error { writes++; stored = bytes.Clone(b); return nil }
+			deletePersistedSession = func() { deleted = true }
+			t.Cleanup(func() {
+				readPersistedSession, writePersistedSession, deletePersistedSession = oldRead, oldWrite, oldDelete
+			})
+			if ok, err := RestoreSession(); !ok || err != nil {
+				t.Fatal("expired QQ session was not restored for renewal")
+			}
+			original := sessionSnapshot()
+			if profile, err := Account(); err == nil || profile != nil {
+				t.Fatalf("failed renewal was hidden: profile=%v err=%v", profile, err)
+			}
+			if deleted || writes != 0 || !bytes.Equal(stored, originalBytes) || sessionSnapshot() != original || reads != 0 {
+				t.Fatal("failed renewal changed the recoverable session or queried the expired account")
+			}
+			profile, err := Account()
+			if err != nil || profile == nil || profile.UserID != 10001 || refreshes != 2 || reads != 1 || writes != 1 || deleted || sessionSnapshot().MusicKey != "recovered-key" {
+				t.Fatalf("same session could not retry: err=%v refreshes=%d reads=%d writes=%d deleted=%v", err, refreshes, reads, writes, deleted)
+			}
+		})
+	}
+}
+
+// A profile rejection after successful renewal must stop after one retry without deleting recoverable material.
+func TestQQAccountRetryDoesNotDiscardRenewedSession(t *testing.T) {
+	reads, refreshes := 0, 0
+	// Guard the fixture against an accidental retry loop as well as checking the final request counts.
+	fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Comm map[string]any          `json:"comm"`
+			Req0 struct{ Method string } `json:"req_0"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Req0.Method == "GetLoginUserInfo" {
+			reads++
+			if reads == 2 && body.Comm["authst"] != "renewed-key" {
+				t.Error("profile retry used the old key")
+			}
+			io.WriteString(w, `{"code":0,"req_0":{"code":1000,"data":{}}}`)
+			return
+		}
+		refreshes++
+		if refreshes > 1 {
+			t.Error("account rejection started a second renewal")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"renewed-key","loginType":2}}}`)
+	})
+	oldHTTP := httpClient
+	httpClient = authHTTP
+	t.Cleanup(func() { httpClient = oldHTTP })
+	oldWrite, oldDelete := writePersistedSession, deletePersistedSession
+	writes, deleted := 0, false
+	var persisted Session
+	writePersistedSession = func(b []byte) error { writes++; return json.Unmarshal(b, &persisted) }
+	deletePersistedSession = func() { deleted = true }
+	t.Cleanup(func() { writePersistedSession, deletePersistedSession = oldWrite, oldDelete })
+	setSession(Session{MusicID: "10001", MusicKey: "old-key", LoginType: 2, RefreshToken: "saved-token", Device: &wechatDevice{Qimei: "q16", Qimei36: "q36"}})
+	profile, err := Account()
+	if err == nil || profile != nil || reads != 2 || refreshes != 1 || writes != 1 || deleted {
+		t.Fatalf("repeated profile rejection: err=%v reads=%d refreshes=%d writes=%d deleted=%v", err, reads, refreshes, writes, deleted)
+	}
+	if sessionSnapshot().MusicKey != "renewed-key" || persisted.MusicKey != "renewed-key" || persisted.RefreshToken != "saved-token" {
+		t.Fatal("repeated profile rejection discarded the renewed key or saved refresh material")
+	}
+}
+
+// A renewal response from the wrong credential family must not replace the saved QQ session.
+func TestQQRefreshRejectsWrongCredentialFamily(t *testing.T) {
+	fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","str_musicid":"10001","musickey":"wrong-family-key","loginType":1}}}`)
+	})
+	oldHTTP := httpClient
+	httpClient = authHTTP
+	t.Cleanup(func() { httpClient = oldHTTP })
+	oldWrite, oldDelete := writePersistedSession, deletePersistedSession
+	writes, deleted := 0, false
+	writePersistedSession = func([]byte) error { writes++; return nil }
+	deletePersistedSession = func() { deleted = true }
+	t.Cleanup(func() { writePersistedSession, deletePersistedSession = oldWrite, oldDelete })
+	original := Session{MusicID: "10001", MusicKey: "expired-key", LoginType: 2, CreatedAt: 1, ExpiresIn: 1, RefreshToken: "saved-token", Device: &wechatDevice{Qimei: "q16", Qimei36: "q36"}}
+	setSession(original)
+	if profile, err := Account(); err == nil || profile != nil {
+		t.Fatalf("wrong credential family was accepted: profile=%v err=%v", profile, err)
+	}
+	if writes != 0 || deleted || sessionSnapshot() != original {
+		t.Fatal("wrong credential family overwrote or deleted the original QQ session")
+	}
+}
+
+// Once global session renewal fails, SongURL must immediately return a login prompt without
+// repeating refresh network requests for every uncached track, while Account() can still retry.
+func TestSongURLShortCircuitsOnFailedSessionRenewal(t *testing.T) {
+	refreshes, vkeys, allowSuccess := 0, 0, false
+	fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Req struct {
+				Method string
+			} `json:"req"`
+			Req0 struct {
+				Module, Method string
+			} `json:"req_0"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch {
+		case body.Req.Method == "Login":
+			refreshes++
+			if !allowSuccess {
+				io.WriteString(w, `{"code":0,"req":{"code":1000}}`)
+				return
+			}
+			io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"recovered-key","loginType":2,"refresh_token":"rotated-token"}}}`)
+		case body.Req0.Method == "GetLoginUserInfo":
+			io.WriteString(w, `{"code":0,"req_0":{"code":0,"data":{"info":{}}}}`)
+		case body.Req0.Method == "UrlGetVkey" || body.Req0.Method == "CgiGetVkey":
+			vkeys++
+			rpcReply(w, map[string]any{"sip": []string{"https://dl.stream.qqmusic.qq.com/"}, "midurlinfo": []any{map[string]any{"songmid": "songMid1", "purl": "M500file.mp3"}}})
+		default:
+			t.Errorf("unexpected RPC %+v", body)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	})
+	oldHTTP, oldWrite, oldDelete := httpClient, writePersistedSession, deletePersistedSession
+	httpClient = authHTTP
+	writePersistedSession = func([]byte) error { return nil }
+	deletePersistedSession = func() {}
+	t.Cleanup(func() {
+		httpClient, writePersistedSession, deletePersistedSession = oldHTTP, oldWrite, oldDelete
+		setSession(Session{})
+	})
+	RememberTracks([]Track{
+		{ID: 7001, MID: "songMid1", MediaMID: "mediaMid1"},
+		{ID: 7002, MID: "songMid2", MediaMID: "mediaMid2"},
+	})
+	setSession(Session{
+		MusicID: "10001", MusicKey: "expired-key", LoginType: 2, CreatedAt: 1, ExpiresIn: 1,
+		OpenID: "saved-openid", RefreshToken: "saved-token", Device: &wechatDevice{Qimei: "q16", Qimei36: "q36"},
+	})
+
+	// Failure at startup Account() puts global session into renewal-failed state.
+	if profile, err := Account(); err == nil || profile != nil {
+		t.Fatalf("expected failed startup Account(), got profile=%v err=%v", profile, err)
+	}
+	if refreshes != 1 {
+		t.Fatalf("startup Account() refreshes = %d, want 1", refreshes)
+	}
+
+	// Multiple SongURL calls must not trigger any additional refresh or vkey requests.
+	for _, id := range []int64{7001, 7002, 7001} {
+		if _, err := SongURL(id, "standard"); !errors.Is(err, ErrLoginRequired) {
+			t.Fatalf("SongURL(%d) = %v, want ErrLoginRequired", id, err)
+		}
+	}
+	if refreshes != 1 || vkeys != 0 {
+		t.Fatalf("SongURL triggered unexpected requests after failed renewal: refreshes=%d vkeys=%d", refreshes, vkeys)
+	}
+
+	// Explicit Account() recovery retries and clears the renewal-failed state on success.
+	allowSuccess = true
+	profile, err := Account()
+	if err != nil || profile == nil || refreshes != 2 {
+		t.Fatalf("Account() recovery failed: profile=%v err=%v refreshes=%d", profile, err, refreshes)
+	}
+	stream, err := SongURL(7001, "standard")
+	if err != nil || stream == nil || vkeys != 1 {
+		t.Fatalf("SongURL after recovery failed: stream=%+v err=%v vkeys=%d", stream, err, vkeys)
+	}
+}
+
+// Expired sessions must renew before a library write, radio read or search instead of asking to sign in or becoming anonymous.
+func TestOperationsRenewExpiredSession(t *testing.T) {
+	for _, operation := range []string{"library", "radio", "search"} {
+		t.Run(operation, func(t *testing.T) {
+			refreshes, calls, saves := 0, 0, 0
+			fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Comm map[string]any          `json:"comm"`
+					Req  struct{ Method string } `json:"req"`
+					Req0 struct{ Method string } `json:"req_0"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+					return
+				}
+				if body.Req.Method == "Login" {
+					refreshes++
+					io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"renewed-key","loginType":2}}}`)
+					return
+				}
+				calls++
+				if body.Comm["authst"] != "renewed-key" || body.Comm["tmeLoginType"] != float64(2) || refreshes != 1 {
+					t.Error("operation used an expired or anonymous credential")
+				}
+				switch body.Req0.Method {
+				case "CancelFavPlaylist":
+					rpcReply(w, map[string]any{"result": 0, "v_failedPlaylistId": []int64{}})
+				case "get_radio_track":
+					rpcReply(w, map[string]any{"tracks": []any{map[string]any{"id": 101, "mid": "songMid", "title": "Song"}}})
+				case "DoSearchForQQMusicLite":
+					rpcReply(w, map[string]any{"body": map[string]any{"item_song": []any{map[string]any{"id": 101, "mid": "songMid", "title": "Song"}}}, "meta": map[string]any{"sum": 1}})
+				default:
+					t.Errorf("unexpected operation %s", body.Req0.Method)
+					w.WriteHeader(http.StatusBadRequest)
+				}
+			})
+			oldHTTP, oldSearches, oldWrite := httpClient, searches, writePersistedSession
+			httpClient = authHTTP
+			searches = newSearchEngine()
+			searches.interval = 0
+			writePersistedSession = func([]byte) error { saves++; return nil }
+			t.Cleanup(func() { httpClient, searches, writePersistedSession = oldHTTP, oldSearches, oldWrite })
+			setSession(Session{MusicID: "10001", MusicKey: "expired-key", LoginType: 2, CreatedAt: 1, ExpiresIn: 1, OpenID: "open", RefreshToken: "token", Device: &wechatDevice{}})
+			switch operation {
+			case "library":
+				if err := UnfavoritePlaylist(901); err != nil {
+					t.Fatal(err)
+				}
+			case "radio":
+				tracks, err := PersonalFM(FMDefault)
+				if err != nil || len(tracks) != 1 || tracks[0].ID != 101 {
+					t.Fatalf("radio did not recover: tracks=%d err=%v", len(tracks), err)
+				}
+			case "search":
+				result, err := SearchPageSource("Song", SearchSongs, 20, 0, SearchLite)
+				if err != nil || result.Len() != 1 || result.Songs[0].ID != 101 {
+					t.Fatalf("search did not recover: rows=%d err=%v", result.Len(), err)
+				}
+			}
+			if refreshes != 1 || calls != 1 || saves != 1 {
+				t.Fatalf("operation repeated or skipped: refreshes=%d calls=%d saves=%d", refreshes, calls, saves)
+			}
+		})
+	}
+}
+
+// Canceling a search must also cancel renewal or device bootstrap and retain the original expired session.
+func TestSearchCancellationDuringRenewal(t *testing.T) {
+	for _, stage := range []string{"refresh", "device bootstrap", "canceled before renewal"} {
+		t.Run(stage, func(t *testing.T) {
+			started, aborted := make(chan struct{}), make(chan struct{})
+			fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				close(started)
+				<-r.Context().Done()
+				close(aborted)
+			})
+			original := Session{MusicID: "10001", MusicKey: "expired-key", LoginType: 2, CreatedAt: 1, ExpiresIn: 1, OpenID: "open", RefreshToken: "token", Device: &wechatDevice{}}
+			if stage == "device bootstrap" {
+				original.Device = nil
+			}
+			setSession(original)
+			oldWrite := writePersistedSession
+			saved := false
+			writePersistedSession = func([]byte) error { saved = true; return nil }
+			t.Cleanup(func() { writePersistedSession = oldWrite })
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if stage == "canceled before renewal" {
+				sessionRefreshGate <- struct{}{}
+				defer func() { <-sessionRefreshGate }()
+				cancel()
+			}
+			done := make(chan error, 1)
+			go func() { _, err := SearchPageContext(ctx, "Song", SearchSongs, 20, 0, SearchLite); done <- err }()
+			if stage != "canceled before renewal" {
+				select {
+				case <-started:
+				case <-time.After(2 * time.Second):
+					t.Fatal("renewal did not start")
+				}
+				cancel()
+			}
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("cancellation returned %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("search cancellation waited for authentication timeout")
+			}
+			if stage != "canceled before renewal" {
+				select {
+				case <-aborted:
+				case <-time.After(2 * time.Second):
+					t.Fatal("authentication HTTP request was not canceled")
+				}
+			}
+			if saved || sessionSnapshot() != original {
+				t.Fatal("cancellation changed the recoverable session")
+			}
+		})
 	}
 }

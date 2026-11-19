@@ -1,6 +1,9 @@
 package app
 
 import (
+	"image/png"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -8,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"lilt/internal/lyrics"
+	"lilt/internal/player"
 	"lilt/internal/qqmusic"
 )
 
@@ -367,4 +371,96 @@ func TestSquigglyFrameBudget(t *testing.T) {
 	if tt.FramePending() {
 		t.Fatal("paused reduced-motion seekbar does not settle")
 	}
+}
+
+// skeletonScenes are the views that load, as they show while they do.
+var skeletonScenes = []struct {
+	name string
+	set  func(a *app)
+}{
+	{"home", func(a *app) {}},
+	{"charts", func(a *app) { a.route = route{page: pageCharts} }},
+	{"daily", func(a *app) { a.route = route{page: pageDaily} }},
+	{"playlist", func(a *app) {
+		a.route = route{page: pagePlaylist, id: 7}
+		a.loadingPl[7] = true
+	}},
+	{"search", func(a *app) {
+		a.route = route{page: pageSearch, query: "春日影", kind: qqmusic.SearchSongs}
+		a.searches[a.route] = &searchData{page: paged{loading: true}}
+	}},
+	{"artists", func(a *app) {
+		a.route = route{page: pageSearch, query: "春日影", kind: qqmusic.SearchArtists}
+		a.searches[a.route] = &searchData{page: paged{loading: true}}
+	}},
+	{"login", func(a *app) { a.login = loginState{open: true} }},
+	{"comments", func(a *app) {
+		a.nowPlaying, a.npPane = true, paneComments
+		a.comments = commentState{track: 1, loading: true}
+	}},
+	{"more-comments", func(a *app) {
+		a.nowPlaying, a.npPane = true, paneComments
+		a.comments = commentState{track: 1, loading: true, loaded: true, total: 1, latest: []qqmusic.Comment{{ID: 1, Content: "好听"}}}
+	}},
+	{"lyrics", func(a *app) { a.nowPlaying, a.npPane = true, paneLyrics }},
+	{"stage", func(a *app) { a.nowPlaying, a.npPane = true, paneStage }},
+}
+
+func skeletonApp(set func(a *app)) *app {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.homeLoading = true
+	a.pl.Cue([]qqmusic.Track{{ID: 1, Name: "春日影"}})
+	set(a)
+	return a
+}
+
+// With NM_FRAMES set, saves each skeleton in the light and the dark, the
+// shimmer partway across.
+func TestSkeletonFrames(t *testing.T) {
+	dir := os.Getenv("NM_FRAMES")
+	if dir == "" {
+		t.Skip()
+	}
+	for _, s := range skeletonScenes {
+		for _, dark := range []bool{false, true} {
+			a := skeletonApp(s.set)
+			tt := ui.NewTester(a.view, 1200, 800)
+			tt.SetDark(dark)
+			tt.Advance(450 * time.Millisecond)
+			tt.Frame()
+			name := s.name
+			if dark {
+				name += "-dark"
+			}
+			f, _ := os.Create(filepath.Join(dir, "skeleton-"+name+".png"))
+			png.Encode(f, tt.Image())
+			f.Close()
+		}
+	}
+}
+
+func TestClockAndPlays(t *testing.T) {
+	if s := clock(185 * time.Second); s != "3:05" {
+		t.Error(s)
+	}
+	if s := plays(123456789); s != "1.2亿" {
+		t.Error(s)
+	}
+	if s := plays(56789); s != "6万" {
+		t.Error(s)
+	}
+}
+
+func newTestApp() *app {
+	a := &app{
+		playlists: map[int64]*qqmusic.Playlist{}, loadingPl: map[int64]bool{}, plErr: map[int64]string{},
+		artists: map[int64]*artistData{}, albums: map[int64]*albumData{}, users: map[int64]*userData{},
+		podcasts: map[int64]*podcastData{}, podcastTab: &podcastTab{}, searches: map[route]*searchData{},
+		lyricAt: -1, queueAt: -1,
+	}
+	a.art = newArtCache(func(func()) {})
+	a.pl = player.New(func(func()) {})
+	a.pl.SetVolume(0.5)
+	return a
 }

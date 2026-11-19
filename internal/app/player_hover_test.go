@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/audio"
 	"github.com/egoist/mygo/ui"
 
 	"lilt/internal/qqmusic"
@@ -234,6 +235,203 @@ func TestPlayerBarHoverFrames(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+		}
+	}
+}
+
+// Dragging the progress bar seeks once, where it is let go: not as the
+// pointer moves, even off the thin bar, and not to the end, which would
+// play the next song, before it is let go.
+func TestScrubSeeksOnRelease(t *testing.T) {
+	for _, effect := range progressEffects {
+		t.Run(effect.id, func(t *testing.T) { testScrubSeeksOnRelease(t, effect.id) })
+	}
+}
+
+func testScrubSeeksOnRelease(t *testing.T, effect string) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.setProgressEffect(effect)
+	tr := qqmusic.Track{ID: 7, Name: "宝船", Duration: 200000}
+	a.pl.Cue([]qqmusic.Track{tr, {ID: 8, Name: "下一首"}})
+	a.pl.SetLyrics(nil)
+	out := audio.NewPlayer(&silence{})
+	out.SetVolume(0)
+	out.Play()
+	a.pl.Attach(out)
+	defer out.Close()
+	a.nowPlaying = true
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Advance(time.Second)
+	tt.Frame()
+	bar, ok := tt.Find("播放进度")
+	if !ok {
+		t.Fatal("no progress bar")
+	}
+	y := bar.Y + bar.H/2
+	at := func(f float32) float32 { return bar.X + bar.W*f }
+
+	tt.Press(at(0.25), y)
+	tt.Frame()
+	tt.Move(at(0.6), y-40) // off the bar, above it
+	tt.Frame()
+	tt.Move(at(1)+30, y+30) // past its end, below it
+	tt.Frame()
+	if pos := a.pl.Position(); pos > 10*time.Second {
+		t.Fatalf("seeked to %v while dragging", pos)
+	}
+	if a.pl.Current().ID != 7 {
+		t.Fatal("went to the next song while dragging")
+	}
+	tt.Move(at(0.6), y-40)
+	tt.Frame()
+	tt.Release(at(0.6), y-40)
+	tt.Frame()
+	tt.Frame()
+	if pos := a.pl.Position(); pos < 110*time.Second || pos > 130*time.Second {
+		t.Errorf("let go at 60%%, at %v", pos)
+	}
+}
+
+// Dragging a paused squiggly bar seeks on release and leaves playback paused;
+// the same slider still accepts keyboard seeking after the drag.
+func TestSquigglyPausedSeek(t *testing.T) {
+	a := newTestApp()
+	a.settings.setProgressEffect(progressSquiggly)
+	a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "宝船", Duration: 200000}})
+	a.pl.Seek(40 * time.Second)
+	tt := ui.NewTester(func(c *ui.Context) {
+		a.scrubber(c, &a.barScrub, radixSage(false, 5), radixGreen(false, 9), 16, ui.Color{}).Width(400)
+	}, 400, 48)
+	tt.Frame()
+	bar, ok := tt.Find("播放进度")
+	if !ok {
+		t.Fatal("no progress bar")
+	}
+	y := bar.Y + bar.H/2
+	x := bar.X + bar.W*0.75
+	tt.Press(bar.X+bar.W*0.2, y)
+	tt.Move(x, y+30)
+	tt.Frame()
+	if a.pl.Position() != 40*time.Second {
+		t.Fatal("paused seek committed before release")
+	}
+	tt.Release(x, y+30)
+	tt.Frame()
+	if a.pl.Playing() || a.pl.Position() != 150*time.Second {
+		t.Fatalf("paused release: playing %v, position %v", a.pl.Playing(), a.pl.Position())
+	}
+	tt.Key(0, ui.KeyLeft)
+	tt.Frame()
+	if a.pl.Playing() || a.pl.Position() >= 150*time.Second {
+		t.Fatalf("keyboard seek: playing %v, position %v", a.pl.Playing(), a.pl.Position())
+	}
+}
+
+// Canceling a progress drag used to seek on capture loss; discard it and allow the next drag to commit.
+func TestScrubCanceledDrag(t *testing.T) {
+	for _, effect := range progressEffects {
+		t.Run(effect.id, func(t *testing.T) {
+			a := newTestApp()
+			a.settings.setProgressEffect(effect.id)
+			a.pl.Cue([]qqmusic.Track{{ID: 7, Name: "宝船", Duration: 200000}})
+			a.pl.Seek(40 * time.Second)
+			tt := ui.NewTester(func(c *ui.Context) {
+				a.scrubber(c, &a.barScrub, radixSage(false, 5), radixGreen(false, 9), 16, ui.Color{}).Width(400)
+			}, 400, 48)
+			tt.Frame()
+			bar, ok := tt.Find("播放进度")
+			if !ok {
+				t.Fatal("no progress bar")
+			}
+			y := bar.Y + bar.H/2
+			x := bar.X + bar.W*0.75
+			tt.Press(bar.X+bar.W*0.2, y)
+			tt.Move(x, y+30)
+			tt.Frame()
+			tt.CancelPress()
+			tt.Frame()
+			tt.Frame()
+			if a.pl.Position() != 40*time.Second || a.barScrub.held || a.barScrub.active || a.barScrub.v != 40 {
+				t.Fatalf("canceled drag: position %v, scrub %+v", a.pl.Position(), a.barScrub)
+			}
+			tt.Press(bar.X+bar.W*0.2, y)
+			tt.Move(x, y+30)
+			tt.Release(x, y+30)
+			tt.Frame()
+			if a.pl.Playing() || a.pl.Position() != 150*time.Second {
+				t.Fatalf("next drag: playing %v, position %v", a.pl.Playing(), a.pl.Position())
+			}
+		})
+	}
+}
+
+// With NM_FRAMES set, saves flowing, settling and endpoint frames in both
+// themes so the played sine and straight unplayed track can be inspected.
+func TestSquigglyFrames(t *testing.T) {
+	dir := os.Getenv("NM_FRAMES")
+	if dir == "" {
+		t.Skip()
+	}
+	for _, dark := range []bool{false, true} {
+		a := newTestApp()
+		a.settings.setProgressEffect(progressSquiggly)
+		a.pl.Cue([]qqmusic.Track{{ID: 7, Duration: 200000}})
+		out := audio.NewPlayer(&silence{})
+		out.SetVolume(0)
+		defer out.Close()
+		a.pl.Attach(out)
+		a.pl.Seek(80 * time.Second)
+		label := "播放"
+		tt := ui.NewTester(func(c *ui.Context) {
+			c.Root().Background(radixSage(dark, 1)).Padding(16, 24)
+			ui.Column(c).Fill().Gap(10).Children(func() {
+				ui.Text(c, label).FontSize(12).TextColor(radixSage(dark, 11))
+				a.scrubber(c, &a.barScrub, radixSage(dark, 5), radixGreen(dark, 9), 16, ui.Color{}).Width(552)
+			})
+		}, 600, 76)
+		tt.SetScale(2)
+		tt.SetDark(dark)
+		tt.Frame()
+		const rows = 9
+		shot := tt.Image()
+		w, h := shot.Bounds().Dx(), shot.Bounds().Dy()
+		strip := image.NewRGBA(image.Rect(0, 0, w, h*rows))
+		capture := func(row int, title string, dt time.Duration) {
+			label = title
+			tt.Advance(dt)
+			tt.Frame()
+			draw.Draw(strip, image.Rect(0, row*h, w, (row+1)*h), tt.Image(), image.Point{}, draw.Src)
+		}
+		capture(0, "播放 · 0 ms", 0)
+		capture(1, "播放 · 250 ms", 250*time.Millisecond)
+		capture(2, "播放 · 500 ms", 250*time.Millisecond)
+		a.pl.TogglePlay()
+		tt.Frame()
+		capture(3, "暂停 · 100 ms", 100*time.Millisecond)
+		capture(4, "暂停 · 550 ms", 450*time.Millisecond)
+		a.pl.Hold(0)
+		a.pl.Seek(0)
+		tt.Frame()
+		capture(5, "播放 · 0%", time.Second)
+		a.pl.Seek(2 * time.Second)
+		capture(6, "播放 · 1%", 0)
+		a.pl.Seek(198 * time.Second)
+		capture(7, "播放 · 99%", 0)
+		a.pl.Seek(200 * time.Second)
+		capture(8, "播放 · 100%", 0)
+		name := fmt.Sprintf("squiggly-dark-%t.png", dark)
+		f, err := os.Create(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = png.Encode(f, strip)
+		closeErr := f.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if closeErr != nil {
+			t.Fatal(closeErr)
 		}
 	}
 }

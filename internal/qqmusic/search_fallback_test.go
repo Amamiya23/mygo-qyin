@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -374,5 +376,260 @@ func TestSearchCooldownScopeAndCancellation(t *testing.T) {
 	_, err := engine.search(ctx, SearchAuto, "Song", SearchSongs, 20, 0, Session{}, "cancelled")
 	if !errors.Is(err, context.Canceled) || len(calls) != 2 {
 		t.Fatalf("cancelled search sent a request: %v calls=%d", err, len(calls))
+	}
+}
+
+// Desktop uses ct=11 with wrapped lists for all three categories, independently of the Lite identity.
+func TestDesktopSearchCategories(t *testing.T) {
+	for _, signedIn := range []bool{false, true} {
+		for _, tc := range []struct {
+			name, key string
+			kind      SearchType
+			code      int
+			item      map[string]any
+		}{
+			{"songs", "song", SearchSongs, 0, map[string]any{"id": 8201, "mid": "desktop-song", "name": "Song", "file": map[string]any{"media_mid": "desktop-media"}}},
+			{"artists", "singer", SearchArtists, 1, map[string]any{"id": 8202, "mid": "desktop-artist", "name": "Artist"}},
+			{"albums", "album", SearchAlbums, 2, map[string]any{"id": 8203, "mid": "desktop-album", "name": "Album"}},
+		} {
+			t.Run(tc.name+map[bool]string{false: " anonymous", true: " account"}[signedIn], func(t *testing.T) {
+				withQQServer(t, func(w http.ResponseWriter, r *http.Request) {
+					var request struct {
+						Comm map[string]any
+						Req  struct {
+							Method string
+							Param  map[string]any
+						} `json:"req_0"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+						t.Error(err)
+						return
+					}
+					if request.Req.Method != "DoSearchForQQMusicDesktop" || request.Comm["ct"] != float64(11) || request.Comm["cv"] != float64(0) || request.Req.Param["search_type"] != float64(tc.code) || request.Req.Param["page_num"] != float64(2) || request.Req.Param["num_per_page"] != float64(20) {
+						t.Error("incorrect Desktop identity or paging")
+					}
+					if signedIn {
+						if request.Comm["uin"] != "123" || request.Comm["authst"] != "desktop-key" || !strings.Contains(r.Header.Get("Cookie"), "qm_keyst=desktop-key") {
+							t.Error("Desktop lost account identity")
+						}
+					} else if request.Comm["uin"] != "0" || request.Comm["authst"] != nil || r.Header.Get("Cookie") != "tmeLoginType=-1" {
+						t.Error("Desktop anonymous request inherited account state")
+					}
+					rpcReply(w, map[string]any{"code": 0, "body": map[string]any{tc.key: map[string]any{"list": []any{tc.item}}}, "meta": map[string]any{"sum": 61, "is_filter": 0}})
+				})
+				if signedIn {
+					setSession(Session{MusicID: "123", MusicKey: "desktop-key", LoginType: 2})
+				}
+				result, err := SearchPage("Jay", tc.kind, 20, 20)
+				if err != nil || result.Source != SearchDesktop || result.Len() != 1 || result.Total != 61 || result.NextOffset != 40 {
+					t.Fatalf("Desktop result: %+v %v", result, err)
+				}
+			})
+		}
+	}
+}
+
+// Lite search preserves account identifiers as strings and uses anonymity only without a valid local session.
+func TestSearchSessionSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		session       Session
+		authenticated bool
+	}{
+		{"QQ", Session{MusicID: "123", MusicKey: "fixture-key", LoginType: 2}, true},
+		{"WeChat large ID", Session{MusicID: "9007199254740993", MusicKey: "fixture-key", LoginType: 1, Device: &wechatDevice{Qimei: "fixture-device"}}, true},
+		{"expired", Session{MusicID: "123", MusicKey: "expired-key", LoginType: 2, CreatedAt: 1, ExpiresIn: 1}, false},
+		{"missing key", Session{MusicID: "123", LoginType: 2}, false},
+		{"invalid login type", Session{MusicID: "123", MusicKey: "fixture-key", LoginType: 9}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withQQServer(t, func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					Comm map[string]any
+					Req  struct{ Param map[string]any } `json:"req_0"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					return
+				}
+				if tc.authenticated {
+					if request.Comm["ct"] != float64(24) || request.Comm["uin"] != tc.session.MusicID || request.Comm["qq"] != tc.session.MusicID || request.Comm["authst"] != tc.session.MusicKey || request.Comm["tmeLoginType"] != float64(tc.session.LoginType) || request.Req.Param["search_type"] != float64(0) {
+						t.Error("account search did not preserve the PC identity")
+					}
+				} else if request.Comm["tmeAppID"] != "qqmusiclight" || request.Comm["authst"] != nil || r.Header.Get("Cookie") != "tmeLoginType=-1" || request.Req.Param["search_type"] != float64(7) {
+					t.Error("anonymous search sent an invalid or expired account")
+				}
+				rpcReply(w, map[string]any{"code": 0, "body": map[string]any{"item_song": []any{map[string]any{"id": 101, "mid": "songMid", "title": "Song"}}}, "meta": map[string]any{"sum": 1}})
+			})
+			setSession(tc.session)
+			result, err := SearchPageSource("Song", SearchSongs, 20, 0, SearchLite)
+			if err != nil || result.Len() != 1 {
+				t.Fatalf("search failed: rows=%d error=%v", result.Len(), err)
+			}
+			if sessionSnapshot() != tc.session {
+				t.Fatal("search changed the account session")
+			}
+		})
+	}
+}
+
+type groupTestResult struct {
+	value int
+	err   error
+}
+
+func waitGroupWaiters[T any](t *testing.T, group *requestGroup[T], key string, want int) {
+	t.Helper()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for {
+		group.mu.Lock()
+		call := group.calls[key]
+		joined := call != nil && call.waiters == want
+		group.mu.Unlock()
+		if joined {
+			return
+		}
+		select {
+		case <-deadline.C:
+			t.Fatalf("request did not acquire %d waiting callers", want)
+		default:
+			runtime.Gosched()
+		}
+	}
+}
+
+func receiveGroupResult(t *testing.T, results <-chan groupTestResult) groupTestResult {
+	t.Helper()
+	select {
+	case result := <-results:
+		return result
+	case <-time.After(2 * time.Second):
+		t.Fatal("request did not complete")
+		return groupTestResult{}
+	}
+}
+
+// Concurrent identical reads share one load, and a completed result is not retained by the group.
+func TestRequestGroupSharesInFlight(t *testing.T) {
+	var group requestGroup[int]
+	var loads atomic.Int32
+	started, finish := make(chan struct{}), make(chan struct{})
+	load := func(context.Context) (int, error) {
+		loads.Add(1)
+		close(started)
+		<-finish
+		return 42, nil
+	}
+	results := make(chan groupTestResult, 2)
+	go func() { v, err := group.do(context.Background(), "query", load); results <- groupTestResult{v, err} }()
+	<-started
+	go func() { v, err := group.do(context.Background(), "query", load); results <- groupTestResult{v, err} }()
+	waitGroupWaiters(t, &group, "query", 2)
+	close(finish)
+	for range 2 {
+		if got := receiveGroupResult(t, results); got.value != 42 || got.err != nil {
+			t.Fatalf("shared result: %+v", got)
+		}
+	}
+	value, err := group.do(context.Background(), "query", func(context.Context) (int, error) { loads.Add(1); return 43, nil })
+	if value != 43 || err != nil || loads.Load() != 2 {
+		t.Fatalf("next read: value=%d err=%v loads=%d", value, err, loads.Load())
+	}
+}
+
+// Canceling one caller must not abort a shared read that another caller still needs.
+func TestRequestGroupCancellationKeepsOtherWaiter(t *testing.T) {
+	var group requestGroup[int]
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan context.Context, 1)
+	finish := make(chan struct{})
+	load := func(shared context.Context) (int, error) { started <- shared; <-finish; return 42, nil }
+	first, second := make(chan groupTestResult, 1), make(chan groupTestResult, 1)
+	go func() { v, err := group.do(ctx, "query", load); first <- groupTestResult{v, err} }()
+	shared := <-started
+	go func() { v, err := group.do(context.Background(), "query", load); second <- groupTestResult{v, err} }()
+	waitGroupWaiters(t, &group, "query", 2)
+	cancel()
+	if got := receiveGroupResult(t, first); !errors.Is(got.err, context.Canceled) {
+		t.Fatalf("canceled caller: %+v", got)
+	}
+	select {
+	case <-shared.Done():
+		t.Fatal("one caller canceled the other caller's read")
+	default:
+	}
+	close(finish)
+	if got := receiveGroupResult(t, second); got.value != 42 || got.err != nil {
+		t.Fatalf("remaining caller: %+v", got)
+	}
+}
+
+// The last caller cancels its load, and that old load cannot remove a newer read for the same query.
+func TestRequestGroupLastCancelAllowsFreshRead(t *testing.T) {
+	var group requestGroup[int]
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	oldStarted, oldFinish := make(chan context.Context, 1), make(chan struct{})
+	oldResult := make(chan groupTestResult, 1)
+	go func() {
+		v, err := group.do(ctx, "query", func(shared context.Context) (int, error) {
+			oldStarted <- shared
+			<-shared.Done()
+			<-oldFinish
+			return 0, shared.Err()
+		})
+		oldResult <- groupTestResult{v, err}
+	}()
+	oldContext := <-oldStarted
+	group.mu.Lock()
+	oldCall := group.calls["query"]
+	group.mu.Unlock()
+	cancel()
+	if got := receiveGroupResult(t, oldResult); !errors.Is(got.err, context.Canceled) {
+		t.Fatalf("canceled last caller: %+v", got)
+	}
+	select {
+	case <-oldContext.Done():
+	default:
+		t.Fatal("last caller left its load running")
+	}
+	started, finish := make(chan struct{}), make(chan struct{})
+	var freshLoads atomic.Int32
+	load := func(context.Context) (int, error) { freshLoads.Add(1); close(started); <-finish; return 99, nil }
+	fresh := make(chan groupTestResult, 2)
+	go func() { v, err := group.do(context.Background(), "query", load); fresh <- groupTestResult{v, err} }()
+	<-started
+	close(oldFinish)
+	<-oldCall.done
+	go func() { v, err := group.do(context.Background(), "query", load); fresh <- groupTestResult{v, err} }()
+	waitGroupWaiters(t, &group, "query", 2)
+	close(finish)
+	for range 2 {
+		if got := receiveGroupResult(t, fresh); got.value != 99 || got.err != nil {
+			t.Fatalf("fresh result: %+v", got)
+		}
+	}
+	if freshLoads.Load() != 1 {
+		t.Fatalf("fresh read loaded %d times", freshLoads.Load())
+	}
+}
+
+// Already canceled callers do not start work, and failed reads remain retryable.
+func TestRequestGroupDoesNotKeepErrors(t *testing.T) {
+	var group requestGroup[int]
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	called := false
+	if _, err := group.do(ctx, "query", func(context.Context) (int, error) { called = true; return 0, nil }); !errors.Is(err, context.Canceled) || called {
+		t.Fatalf("already canceled read: called=%t err=%v", called, err)
+	}
+	want := errors.New("temporary")
+	if _, err := group.do(context.Background(), "query", func(context.Context) (int, error) { return 0, want }); !errors.Is(err, want) {
+		t.Fatal(err)
+	}
+	if value, err := group.do(context.Background(), "query", func(context.Context) (int, error) { return 7, nil }); value != 7 || err != nil {
+		t.Fatalf("retry: value=%d err=%v", value, err)
 	}
 }

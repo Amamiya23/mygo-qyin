@@ -191,3 +191,163 @@ func solidBitmap(col ui.Color) *ui.Bitmap {
 	}
 	return ui.NewBitmap(img)
 }
+
+// coverApp is Now Playing showing the second of three songs.
+func coverApp(t *testing.T) (*app, *ui.Tester, ui.Rect) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.pl.Cue([]qqmusic.Track{{ID: 1, Name: "一"}, {ID: 2, Name: "二"}, {ID: 3, Name: "三"}})
+	a.pl.Next()
+	a.pl.SetLyrics(nil)
+	a.nowPlaying = true
+	tt := ui.NewTester(a.view, 860, 560)
+	// Without the tilt and the swing, which the CPU draws slowly in depth:
+	// the gestures do as they would.
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	tt.Advance(500 * time.Millisecond)
+	r, ok := tt.Find("专辑封面")
+	if !ok {
+		t.Fatal("no cover")
+	}
+	return a, tt, r
+}
+
+// drag drags from the middle of r by dx, over a few frames, and lets go
+// after hold, still.
+func drag(tt *ui.Tester, r ui.Rect, dx float32, hold time.Duration) {
+	x, y := r.X+r.W/2, r.Y+r.H/2
+	tt.Press(x, y)
+	for i := 1; i <= 6; i++ {
+		tt.Advance(16 * time.Millisecond)
+		tt.Move(x+dx*float32(i)/6, y)
+	}
+	if hold > 0 {
+		tt.Advance(hold)
+	}
+	tt.Release(x+dx, y)
+	tt.Advance(time.Second)
+	tt.Frame()
+}
+
+// Flung far to the left, the cover flies off for the next song; to the
+// right, for the one before, however far this one has played.
+func TestFlingCover(t *testing.T) {
+	a, tt, r := coverApp(t)
+	if a.pl.Current().ID != 2 {
+		t.Fatalf("playing %d", a.pl.Current().ID)
+	}
+	drag(tt, r, -r.W*0.8, 0)
+	if id := a.pl.Current().ID; id != 3 {
+		t.Fatalf("flung left: playing %d", id)
+	}
+	if r2, ok := tt.Find("专辑封面"); !ok || r2.X < r.X-2 || r2.X > r.X+2 {
+		t.Errorf("the next cover rests at %v, not %v", r2, r)
+	}
+	drag(tt, r, r.W*0.8, 0)
+	if id := a.pl.Current().ID; id != 2 {
+		t.Errorf("flung right: playing %d", id)
+	}
+}
+
+// A drag too short, let go still, springs back, the song playing on.
+func TestCoverSpringsBack(t *testing.T) {
+	a, tt, r := coverApp(t)
+	drag(tt, r, -r.W*0.3, 300*time.Millisecond)
+	if id := a.pl.Current().ID; id != 2 {
+		t.Fatalf("a short drag changed the song to %d", id)
+	}
+	if r2, _ := tt.Find("专辑封面"); r2.X < r.X-2 || r2.X > r.X+2 {
+		t.Errorf("the cover rests at %v, not %v", r2, r)
+	}
+}
+
+// Two fingers swiping across the trackpad fling it too.
+func TestSwipeCover(t *testing.T) {
+	a, tt, r := coverApp(t)
+	x, y := r.X+r.W/2, r.Y+r.H/2
+	for range 10 {
+		tt.Scroll(x, y, r.W*0.06, 0)
+		tt.Advance(16 * time.Millisecond)
+	}
+	tt.Advance(time.Second)
+	tt.Frame()
+	if id := a.pl.Current().ID; id != 3 {
+		t.Errorf("swiped left: playing %d", id)
+	}
+}
+
+// Played from the menu or the keys, the next song's cover slides in from
+// the right and the one before's from the left, each coming to rest in its
+// place.
+func TestCoverSlidesWithTheSong(t *testing.T) {
+	a, tt, r := coverApp(t)
+	tt.SetPreferences(ui.Preferences{})
+	for _, step := range []struct {
+		name string
+		play func()
+		id   int64
+		dir  float32
+	}{{"next", a.pl.Next, 3, 1}, {"prev", a.pl.Prev, 2, -1}} {
+		step.play()
+		tt.Frame()
+		tt.Advance(60 * time.Millisecond)
+		tt.Frame()
+		if id := a.pl.Current().ID; id != step.id {
+			t.Fatalf("%s: playing %d", step.name, id)
+		}
+		if r2, _ := tt.Find("专辑封面"); (r2.X-r.X)*step.dir < r.W*0.1 {
+			t.Errorf("%s: the cover comes in at %v, from %v", step.name, r2.X, r.X)
+		}
+		tt.Advance(time.Second)
+		tt.Frame()
+		if r2, _ := tt.Find("专辑封面"); r2.X < r.X-2 || r2.X > r.X+2 {
+			t.Errorf("%s: the cover rests at %v, not %v", step.name, r2, r)
+		}
+	}
+}
+
+// A login picks up the last stretch of listening on one device, oldest
+// first: it ends where the device changes or the listener stopped for half
+// an hour, and leaves out songs they may not play and songs played again.
+func TestLastStretch(t *testing.T) {
+	now := time.Date(2026, 10, 26, 22, 0, 0, 0, time.Local)
+	play := func(id int64, ago time.Duration, device string, fee int) qqmusic.Play {
+		track := qqmusic.Track{ID: id}
+		if fee != 0 {
+			track.Privilege = &qqmusic.Privilege{ID: id, Pl: 0}
+		}
+		return qqmusic.Play{Track: track, At: now.Add(-ago), Device: device}
+	}
+	plays := []qqmusic.Play{
+		play(5, 3*time.Minute, "android", 0),
+		play(4, 6*time.Minute, "android", 1), // VIP only
+		play(3, 9*time.Minute, "android", 0),
+		play(5, 12*time.Minute, "android", 0), // played again since
+		play(2, 30*time.Minute, "android", 0),
+		play(1, 70*time.Minute, "android", 0), // after a break
+	}
+	songs, last, ok := lastStretch(plays, now)
+	var ids []int64
+	for _, s := range songs {
+		ids = append(ids, s.ID)
+	}
+	if !ok || len(ids) != 3 || ids[0] != 2 || ids[1] != 3 || ids[2] != 5 || last.Track.ID != 5 {
+		t.Fatalf("picked %v, last %d", ids, last.Track.ID)
+	}
+	if got := heardAt(last, now); got != "3分钟前在手机上听过" {
+		t.Errorf("heard %q", got)
+	}
+
+	plays[1] = play(4, 6*time.Minute, "osx", 0)
+	if songs, _, _ := lastStretch(plays, now); len(songs) != 1 || songs[0].ID != 5 {
+		t.Errorf("crossed devices: %v", songs)
+	}
+	plays[0] = play(5, 4, "android", 1)
+	if songs, last, _ := lastStretch(plays[:1], now); len(songs) != 0 || last.Track.ID != 0 {
+		t.Errorf("picked a song that may not play: %v", songs)
+	}
+	if _, _, ok := lastStretch([]qqmusic.Play{play(1, 8*24*time.Hour, "iphone", 0)}, now); ok {
+		t.Error("picked up a week-old song")
+	}
+}

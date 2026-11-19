@@ -8,9 +8,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+
+	"lilt/internal/qqmusic"
 )
 
 // Choosing how the main panel closes updates and saves the choice in both directions.
@@ -308,5 +311,134 @@ func TestProgressEffectSettings(t *testing.T) {
 		if restored.Smoke != (choice.effect == progressSmoke) {
 			t.Fatalf("after choosing %q, saved smoke compatibility = %t", choice.label, restored.Smoke)
 		}
+	}
+}
+
+func TestHiResSettingsPersist(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	tt := ui.NewTester(a.settingsView, 900, 2000)
+	tt.Frame()
+	for _, choice := range []struct{ label, level string }{{"Hi-Res（FLAC）", "hires"}, {"无损（FLAC）", "lossless"}, {"Hi-Res（FLAC）", "hires"}} {
+		if err := tt.Click("选择音质"); err != nil {
+			t.Fatal(err)
+		}
+		if err := tt.Click(choice.label); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		b, err := os.ReadFile(a.settings.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var saved settings
+		if err := json.Unmarshal(b, &saved); err != nil {
+			t.Fatal(err)
+		}
+		if a.settings.Quality != choice.level || saved.Quality != choice.level {
+			t.Fatalf("live=%s saved=%s want=%s", a.settings.Quality, saved.Quality, choice.level)
+		}
+	}
+	if dir := os.Getenv("NM_FRAMES"); dir != "" {
+		if err := tt.Click("选择音质"); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Create(filepath.Join(dir, "hires-settings.png"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if err := png.Encode(f, tt.Image()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestQualityBadgeUsesActualStreamLevel(t *testing.T) {
+	st := &qqmusic.Stream{}
+	tt := ui.NewTester(func(c *ui.Context) { qualityBadge(c, st) }, 200, 80)
+	for _, level := range []string{"hires", "lossless", "standard"} {
+		st.Level = level
+		tt.Frame()
+		_, hiRes := tt.Find("Hi-Res")
+		_, lossless := tt.Find("无损")
+		if hiRes != (level == "hires") || lossless != (level == "lossless") {
+			t.Fatalf("incorrect badge for %s", level)
+		}
+	}
+}
+
+// fakeUpdater swaps the update plugin's preferences for ones in memory,
+// counting the checks asked for, until the returned function puts them
+// back.
+func fakeUpdater(checks, downloads *bool, checked *int) func() {
+	check, getChecks, setChecks := checkForUpdates, updateChecks, setUpdateChecks
+	getDownloads, setDownloads, last := updateDownloads, setUpdateDownloads, lastUpdateCheck
+	checkForUpdates = func() { *checked++ }
+	updateChecks = func() bool { return *checks }
+	setUpdateChecks = func(on bool) { *checks = on }
+	updateDownloads = func() bool { return *downloads }
+	setUpdateDownloads = func(on bool) { *downloads = on }
+	lastUpdateCheck = func() time.Time { return time.Time{} }
+	return func() {
+		checkForUpdates, updateChecks, setUpdateChecks = check, getChecks, setChecks
+		updateDownloads, setUpdateDownloads, lastUpdateCheck = getDownloads, setDownloads, last
+	}
+}
+
+// Turning off checking for updates turns it off in the updater, and
+// installing updates without asking can't be turned on without it.
+func TestTurnOffUpdateChecks(t *testing.T) {
+	checks, downloads, checked := true, false, 0
+	defer fakeUpdater(&checks, &downloads, &checked)()
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.updates = true
+	tt := ui.NewTester(a.settingsView, 560, 2000)
+	tt.Frame()
+	// The row's title is labelled as its switch is: click the switch, at
+	// the row's end.
+	toggle := func(title string) {
+		t.Helper()
+		bounds, ok := tt.Find(title)
+		if !ok {
+			t.Fatalf("no row %s", title)
+		}
+		tt.ClickAt(560-28-16-12, bounds.Y+bounds.H/2)
+		tt.Frame()
+	}
+	toggle("自动检查更新")
+	if checks {
+		t.Fatal("checks for updates still")
+	}
+	toggle("自动下载并安装")
+	if downloads {
+		t.Fatal("turned on installing updates without checking for them")
+	}
+	// It does turn on while the updater checks.
+	checks = true
+	tt.Frame()
+	toggle("自动下载并安装")
+	if !downloads {
+		t.Fatal("didn't turn on installing updates")
+	}
+}
+
+// 检查更新 in the settings checks for updates as the user asked.
+func TestCheckForUpdatesFromSettings(t *testing.T) {
+	checks, downloads, checked := true, false, 0
+	defer fakeUpdater(&checks, &downloads, &checked)()
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.updates = true
+	a.profile = &qqmusic.Profile{UserID: 1}
+	tt := ui.NewTester(a.settingsView, 560, 2000)
+	tt.Frame()
+	if err := tt.Click("检查更新"); err != nil {
+		t.Fatal(err)
+	}
+	if checked != 1 {
+		t.Fatalf("checked %d times", checked)
 	}
 }
