@@ -12,9 +12,10 @@ import (
 // Expired QQ sessions used to be discarded even when their saved refresh material could renew the key.
 func TestExpiredQQSessionRestoresAndRefreshes(t *testing.T) {
 	for _, tc := range []struct {
-		name, refreshKey, refreshToken string
+		name, refreshKey, refreshToken, accessToken string
+		expiredAt                                   int64
 	}{
-		{name: "refresh key", refreshKey: "saved-refresh-key"},
+		{name: "refresh key", refreshKey: "saved-refresh-key", accessToken: "saved-access-token", expiredAt: 1760000000},
 		{name: "legacy refresh token", refreshToken: "saved-refresh-token"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -43,7 +44,10 @@ func TestExpiredQQSessionRestoresAndRefreshes(t *testing.T) {
 					t.Error("QQ renewal used the WeChat credential family")
 				}
 				p := body.Req.Param
-				if p["musicid"] != "10001" || p["str_musicid"] != "10001" || p["musickey"] != "expired-key" || p["openid"] != "saved-openid" || p["unionid"] != "saved-unionid" || p["refresh_key"] != tc.refreshKey || p["refresh_token"] != tc.refreshToken || p["loginMode"] != float64(2) {
+				if p["musicid"] != float64(10001) || p["str_musicid"] != nil || p["unionid"] != nil ||
+					p["access_token"] != tc.accessToken || p["expired_in"] != float64(tc.expiredAt) ||
+					p["musickey"] != "expired-key" || p["openid"] != "saved-openid" ||
+					p["refresh_key"] != tc.refreshKey || p["refresh_token"] != tc.refreshToken || p["loginMode"] != float64(2) {
 					t.Error("QQ renewal lost the saved credential material")
 				}
 				io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"renewed-key","loginType":2,"refresh_token":"rotated-token"}}}`)
@@ -54,6 +58,7 @@ func TestExpiredQQSessionRestoresAndRefreshes(t *testing.T) {
 			original := Session{
 				MusicID: "10001", MusicKey: "expired-key", LoginType: 2, CreatedAt: 1, ExpiresIn: 1,
 				OpenID: "saved-openid", UnionID: "saved-unionid", RefreshKey: tc.refreshKey, RefreshToken: tc.refreshToken,
+				AccessToken: tc.accessToken, ExpiredAt: tc.expiredAt,
 				Nickname: "Listener", AvatarURL: "https://example.test/avatar", EncryptUin: "saved-encrypt-uin",
 				Device: &wechatDevice{Qimei: "q16", Qimei36: "q36"},
 			}
@@ -84,6 +89,9 @@ func TestExpiredQQSessionRestoresAndRefreshes(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, got := range []Session{sessionSnapshot(), saved} {
+				if got.AccessToken != tc.accessToken || got.ExpiredAt != tc.expiredAt {
+					t.Error("QQ renewal lost OAuth metadata omitted by the response")
+				}
 				if got.MusicKey != "renewed-key" || got.RefreshToken != "rotated-token" || got.LoginType != 2 || got.MusicID != original.MusicID || got.RefreshKey != original.RefreshKey || got.OpenID != original.OpenID || got.UnionID != original.UnionID || got.Nickname != original.Nickname || got.AvatarURL != original.AvatarURL || got.EncryptUin != original.EncryptUin || got.Device == nil || *got.Device != *original.Device {
 					t.Fatal("QQ renewal did not save the new key and token while retaining omitted fields")
 				}

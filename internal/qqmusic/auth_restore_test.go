@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -108,8 +109,9 @@ func TestQQWebSessionRecoveryAcrossRestarts(t *testing.T) {
 			}
 			if body.Req.Module != "music.login.LoginServer" || body.Req.Method != "Login" ||
 				body.Comm["tmeLoginType"] != float64(2) || body.Comm["uid"] != "uid" ||
-				p["musicid"] != "10001" || p["str_musicid"] != "10001" || p["loginMode"] != float64(2) ||
-				p["openid"] != "fake-openid" || p["unionid"] != "fake-unionid" || p["refresh_token"] != wantToken {
+				p["musicid"] != float64(10001) || p["str_musicid"] != nil || p["loginMode"] != float64(2) ||
+				p["openid"] != "fake-openid" || p["unionid"] != nil || p["refresh_token"] != wantToken ||
+				p["access_token"] != "" || p["expired_in"] != float64(0) {
 				t.Error("QQ renewal changed protocol family or lost saved refresh data")
 			}
 			io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"new-key","loginType":2,"refresh_token":"rotated-token","refresh_key":"rotated-key"}}}`)
@@ -245,9 +247,105 @@ func TestConcurrentQQRefreshAndAccountReplacement(t *testing.T) {
 	}
 }
 
+type testSessionSecrets struct {
+	entry    []byte
+	writeErr error
+}
+
+func (s *testSessionSecrets) Get(string) ([]byte, error) {
+	if s.entry == nil {
+		return nil, mygo.ErrSecretNotFound
+	}
+	return bytes.Clone(s.entry), nil
+}
+
+func (s *testSessionSecrets) Set(_ string, b []byte) error {
+	if s.writeErr != nil {
+		return s.writeErr
+	}
+	if len(b) > mygo.MaxSecretSize {
+		return errors.New("test credential store limit exceeded")
+	}
+	s.entry = bytes.Clone(b)
+	return nil
+}
+
+func (s *testSessionSecrets) Delete(string) error {
+	s.entry = nil
+	return nil
+}
+
+func testSessionSecretDir(t *testing.T, dir string) {
+	t.Helper()
+	previous := sessionSecretDir
+	sessionSecretDir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { sessionSecretDir = previous })
+}
+
+func TestOversizedQQRenewalSurvivesRestart(t *testing.T) {
+	original := Session{MusicID: "10001", MusicKey: "old-key", LoginType: 2, CreatedAt: 1, ExpiresIn: 1, RefreshToken: "old-token", Device: &wechatDevice{}}
+	b, err := json.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original.RefreshToken += strings.Repeat("x", mygo.MaxSecretSize-len(b)-1)
+	b, err = json.Marshal(original)
+	if err != nil || len(b) != mygo.MaxSecretSize-1 {
+		t.Fatal("fixture must fit just below the credential store limit")
+	}
+	dir := filepath.Join(t.TempDir(), "qqmusic-session.d")
+	testSessionSecretDir(t, dir)
+	store := &testSessionSecrets{entry: b}
+	memorySessionStore(t, nil)
+	readPersistedSession = func() ([]byte, error) { return readSessionSecret(store) }
+	writePersistedSession = func(b []byte) error { return writeSessionSecret(store, b) }
+	refreshes := 0
+	rotatedToken := "new" + original.RefreshToken[3:]
+	fakeAuthServer(t, func(w http.ResponseWriter, r *http.Request) {
+		refreshes++
+		io.WriteString(w, `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"new-key","loginType":2,"refresh_token":"`+rotatedToken+`","access_token":"new-access-token","expired_at":1760000000}}}`)
+	})
+	if ok, err := RestoreSession(); !ok || err != nil {
+		t.Fatalf("legacy credential did not restore: %v", err)
+	}
+	store.writeErr = errors.New("test credential store write failed")
+	if _, err := activeSession(); !errors.Is(err, store.writeErr) {
+		t.Fatalf("publication failure was not reported: %v", err)
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil || len(files) != 0 || !bytes.Equal(store.entry, b) {
+		t.Fatal("failed save replaced the previous credential or left an encrypted file")
+	}
+	store.writeErr = nil
+	if _, err := activeSession(); err != nil || refreshes != 1 {
+		t.Fatalf("saving the rotated credential again should not contact the server: %v", err)
+	}
+	files, err = os.ReadDir(dir)
+	if err != nil || len(files) != 1 {
+		t.Fatal("renewal did not publish exactly one encrypted file")
+	}
+	ciphertext, err := os.ReadFile(filepath.Join(dir, files[0].Name()))
+	if err != nil || bytes.Contains(ciphertext, []byte("new-access-token")) || bytes.Contains(store.entry, []byte("new-access-token")) {
+		t.Fatal("renewal did not protect the new access token")
+	}
+	setSession(Session{})
+	if ok, err := RestoreSession(); !ok || err != nil {
+		t.Fatalf("oversized renewal did not restore after restart: %v", err)
+	}
+	if saved := sessionSnapshot(); saved.MusicKey != "new-key" || saved.RefreshToken != rotatedToken || saved.AccessToken != "new-access-token" || saved.ExpiredAt != 1760000000 {
+		t.Fatal("restored credential lost renewed fields")
+	}
+	if err := deleteSessionSecret(store); err != nil || store.entry != nil {
+		t.Fatalf("logout did not remove the encrypted session reference: %v", err)
+	}
+	if files, err := os.ReadDir(dir); err != nil || len(files) != 0 {
+		t.Fatal("logout did not remove the encrypted session file")
+	}
+}
+
 func TestSessionPersistenceSizeAndRedactedLogs(t *testing.T) {
 	t.Setenv("MYGO_ENV", "production")
-	b := bytes.Repeat([]byte("x"), mygo.MaxSecretSize+1)
+	b := bytes.Repeat([]byte("x"), maxSessionSize+1)
 	if err := writePersistedSession(b); !errors.Is(err, errSessionTooLarge) {
 		t.Fatalf("oversized credential was not rejected before system storage: %v", err)
 	}

@@ -205,9 +205,18 @@ func refreshSession(ctx context.Context, s Session) (Session, error) {
 			return Session{}, loginFailure("device-bootstrap", err)
 		}
 	}
-	param := map[string]any{"openid": s.OpenID, "refresh_token": s.RefreshToken, "str_musicid": s.MusicID, "musickey": s.MusicKey, "unionid": s.UnionID, "refresh_key": s.RefreshKey, "loginMode": 2}
+	param := map[string]any{"openid": s.OpenID, "refresh_token": s.RefreshToken, "musickey": s.MusicKey, "refresh_key": s.RefreshKey, "loginMode": 2}
 	if s.LoginType == 2 {
-		param["musicid"] = s.MusicID
+		id, err := strconv.ParseInt(s.MusicID, 10, 64)
+		if err != nil || id <= 0 {
+			return Session{}, &loginResponseError{Kind: "id"}
+		}
+		param["musicid"] = id
+		param["access_token"] = s.AccessToken
+		param["expired_in"] = s.ExpiredAt
+	} else {
+		param["str_musicid"] = s.MusicID
+		param["unionid"] = s.UnionID
 	}
 	refreshed, err := exchangeSession(ctx, param, &s, device)
 	if err != nil {
@@ -218,6 +227,12 @@ func refreshSession(ctx context.Context, s Session) (Session, error) {
 	}
 	if refreshed.OpenID == "" {
 		refreshed.OpenID = s.OpenID
+	}
+	if refreshed.AccessToken == "" {
+		refreshed.AccessToken = s.AccessToken
+	}
+	if refreshed.ExpiredAt == 0 && refreshed.AccessToken == s.AccessToken {
+		refreshed.ExpiredAt = s.ExpiredAt
 	}
 	if refreshed.RefreshToken == "" {
 		refreshed.RefreshToken = s.RefreshToken

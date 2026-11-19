@@ -60,7 +60,7 @@ if [[ -d $data ]]; then
 		[[ -e $f ]] || continue
 		# The login: the session, and the device it was made on.
 		if [[ $keep_login == 1 ]]; then
-			case "$(basename "$f")" in qqmusic-session) continue ;; esac
+			case "$(basename "$f")" in qqmusic-session|qqmusic-session.d) continue ;; esac
 		fi
 		rm -rf "$f"
 		echo "removed ${f/#$HOME/~}"
