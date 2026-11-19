@@ -109,6 +109,10 @@ func decodeLoginResponse(body []byte, expectedType int) (Session, error) {
 	}
 	s := Session{MusicID: id, MusicKey: key, LoginType: loginType, CreatedAt: loginOptionalInt(data["musickeyCreateTime"]), ExpiresIn: loginOptionalInt(data["keyExpiresIn"]), Nickname: text(data, "nick"), AvatarURL: text(data, "logo"), EncryptUin: text(data, "encryptUin")}
 	s.OpenID, s.RefreshToken, s.UnionID, s.RefreshKey = text(data, "openid"), text(data, "refresh_token"), text(data, "unionid"), text(data, "refresh_key")
+	if expectedType == 2 {
+		s.AccessToken = text(data, "access_token")
+		s.ExpiredAt = loginOptionalInt(data["expired_at"])
+	}
 	if !s.valid() {
 		return Session{}, &loginResponseError{Kind: "expired"}
 	}

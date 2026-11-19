@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo"
 
 	"lilt/internal/qqmusic"
+	"lilt/internal/testutil"
 )
 
 // Explicit account opt-in: download and decode a full track into a temporary
@@ -23,10 +24,18 @@ func TestLiveHiResPlayback(t *testing.T) {
 	if err != nil || id <= 0 {
 		t.Fatal("set LIVE_HIRES_SONG_ID to the numeric song ID printed by TestLiveHiRes")
 	}
-	secrets := mygo.Secrets
-	t.Setenv("MYGO_ENV", "production") // Read the installed app's credential store.
-	mygo.Secrets = mygo.Secrets.Service("dev.amamiya.qqmusic")
-	t.Cleanup(func() { mygo.Secrets = secrets })
+	secrets, dataDir, err := testutil.InstalledLilt()
+	if err != nil {
+		t.Fatal("cannot locate the installed Lilt user data directory")
+	}
+	previousSecrets := mygo.Secrets
+	t.Setenv("MYGO_ENV", "production")
+	mygo.Secrets = secrets
+	mygo.App.SetPath(mygo.PathUserData, dataDir)
+	t.Cleanup(func() {
+		mygo.App.SetPath(mygo.PathUserData, "")
+		mygo.Secrets = previousSecrets
+	})
 	if saved, err := qqmusic.RestoreSession(); err != nil || !saved {
 		t.Fatal("sign in to installed Lilt before testing playback")
 	}

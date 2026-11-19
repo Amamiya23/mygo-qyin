@@ -3,18 +3,29 @@ package qqmusic
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo"
+	"lilt/internal/testutil"
 )
+
+func readInstalledSession() ([]byte, error) {
+	secrets, dataDir, err := testutil.InstalledLilt()
+	if err != nil {
+		return nil, err
+	}
+	return readSessionSecret(secrets, func() (string, error) {
+		return filepath.Join(dataDir, sessionFileDir), nil
+	})
+}
 
 func liveSearchAccount(t *testing.T) Session {
 	t.Helper()
 	if os.Getenv("LIVE") == "" || os.Getenv("LIVE_SEARCH_ACCOUNT") != "1" {
 		t.Skip("set LIVE=1 LIVE_SEARCH_ACCOUNT=1 to read Lilt's saved session for QQ search")
 	}
-	b, err := mygo.Secrets.Service("dev.amamiya.qqmusic").Get(qqSessionSecret)
+	b, err := readInstalledSession()
 	if err != nil {
 		t.Fatal("read Lilt session:", err)
 	}
