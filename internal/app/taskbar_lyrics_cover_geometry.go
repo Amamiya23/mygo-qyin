@@ -14,7 +14,11 @@ func taskbarLyricsCoverPlacement(p taskbarLyricsPlacement) taskbarLyricsPlacemen
 	if size <= 0 || left+size > p.width {
 		return taskbarLyricsPlacement{}
 	}
-	p.x += left
+	if p.rightAligned {
+		p.x += p.width - left - size
+	} else {
+		p.x += left
+	}
 	p.y += int(math.Round(float64(p.height-size) / 2))
 	p.width, p.height = size, size
 	return p

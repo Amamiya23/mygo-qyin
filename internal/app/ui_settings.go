@@ -328,6 +328,12 @@ func (a *app) settingsContent(c *ui.Context) {
 					a.setTaskbarLyricsMaterial([]string{taskbarMaterialAcrylic, taskbarMaterialWhite}[i])
 				}
 			})
+			row("任务栏歌词封面", "显示专辑封面，点击可展开歌曲控制", func() {
+				show := s.showTaskbarLyricsCover()
+				ui.Switch(c.Key("taskbar-lyrics-cover"), &show).Label("显示任务栏歌词封面").OnClick(func() {
+					a.setTaskbarLyricsCover(show)
+				})
+			})
 		}
 		row("进度条特效", "", func() {
 			chosen := progressEffects[0].label

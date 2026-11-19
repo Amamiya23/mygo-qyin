@@ -48,6 +48,53 @@ func TestTaskbarLyricsMaterialSettings(t *testing.T) {
 	}
 }
 
+// Toggling the taskbar cover switch persists the choice, closes open controls while hidden, and restores cover controls when re-enabled.
+func TestTaskbarLyricsCoverSettings(t *testing.T) {
+	if !supportsTaskbarLyrics() {
+		t.Skip("taskbar lyrics are Windows-only")
+	}
+	a, d := taskbarControlsFixture()
+	a.settings.LyricsMode = lyricsTaskbar
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	if !a.settings.showTaskbarLyricsCover() {
+		t.Fatal("taskbar cover should be enabled by default")
+	}
+	d.controlsOpen = true
+	tt := ui.NewTester(a.settingsView, 560, 2400)
+	tt.Frame()
+	if err := tt.Click("显示任务栏歌词封面"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	restored := readDesktopLyricsEntrySettings(t, a)
+	if a.settings.showTaskbarLyricsCover() || restored.showTaskbarLyricsCover() {
+		t.Fatalf("hiding cover was not applied/saved: live=%t saved=%t", a.settings.showTaskbarLyricsCover(), restored.showTaskbarLyricsCover())
+	}
+	if d.controlsOpen {
+		t.Fatal("hiding the cover left song controls open")
+	}
+	d.toggleControls()
+	if d.controlsOpen {
+		t.Fatal("controls opened while taskbar cover is hidden")
+	}
+	if err := tt.Click("显示任务栏歌词封面"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	restored = readDesktopLyricsEntrySettings(t, a)
+	if !a.settings.showTaskbarLyricsCover() || !restored.showTaskbarLyricsCover() {
+		t.Fatalf("re-enabling cover was not applied/saved: live=%t saved=%t", a.settings.showTaskbarLyricsCover(), restored.showTaskbarLyricsCover())
+	}
+	d.toggleControls()
+	if !d.controlsOpen {
+		t.Fatal("controls did not reopen after re-enabling taskbar cover")
+	}
+	d.updatePlacement(taskbarLyricsPlacement{rightAligned: true})
+	if d.controlsOpen {
+		t.Fatal("switching taskbar alignment side did not close stale controls")
+	}
+}
+
 // Choosing a lyric position swaps the active owner, saves the mode, and stops the previous taskbar monitor.
 func TestTaskbarLyricsSettingsModeSwitch(t *testing.T) {
 	if !supportsTaskbarLyrics() {

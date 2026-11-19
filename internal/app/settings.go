@@ -29,6 +29,8 @@ type settings struct {
 	DesktopLyricsColor string `json:"desktopLyricsColor,omitempty"`
 	// TaskbarLyrics embeds a separate compact lyric view in the Windows taskbar.
 	TaskbarLyrics bool `json:"taskbarLyrics,omitempty"`
+	// TaskbarLyricsHideCover hides the album artwork beside taskbar lyrics.
+	TaskbarLyricsHideCover bool `json:"taskbarLyricsHideCover,omitempty"`
 	// TaskbarLyricsMaterial selects white or acrylic (also when empty) for the song panel.
 	TaskbarLyricsMaterial string `json:"taskbarLyricsMaterial,omitempty"`
 	// LyricsMode keeps the preferred location independently of its enabled state.

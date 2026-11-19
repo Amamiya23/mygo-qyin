@@ -15,9 +15,16 @@ type taskbarLyricsPlacement struct {
 	x, y, width, height int
 	dpi                 uint32
 	dark                bool
+	// rightAligned anchors the lyrics beside the notification area on
+	// left-aligned taskbars and mirrors the cover to the right edge.
+	rightAligned bool
 }
 
 type taskbarLyricsInterval struct{ start, end int }
+
+func (s settings) showTaskbarLyricsCover() bool {
+	return !s.TaskbarLyricsHideCover
+}
 
 // Find a real gap without moving Explorer's buttons. No occupancy means unknown.
 func taskbarLyricsFreeSpace(length, requested, minimum, gap int, occupied []taskbarLyricsInterval) (int, int) {
@@ -48,4 +55,32 @@ func taskbarLyricsFreeSpace(length, requested, minimum, gap int, occupied []task
 		return cursor, width
 	}
 	return 0, 0
+}
+
+// Right-anchored placement mirrors the taskbar so the same scan picks the
+// rightmost usable gap beside the notification area, then mirrors it back.
+func taskbarLyricsFreeSpaceRight(length, requested, minimum, gap int, occupied []taskbarLyricsInterval) (int, int) {
+	mirrored := make([]taskbarLyricsInterval, len(occupied))
+	for i, item := range occupied {
+		mirrored[i] = taskbarLyricsInterval{length - item.end, length - item.start}
+	}
+	x, width := taskbarLyricsFreeSpace(length, requested, minimum, gap, mirrored)
+	if width == 0 {
+		return 0, 0
+	}
+	return length - x - width, width
+}
+
+// Centered taskbars strictly stay on the left side and hide when it fills up;
+// left-aligned taskbars anchor beside the right notification area so opening
+// and closing apps does not bounce the lyrics across the taskbar.
+func taskbarLyricsPlacementSpace(length, requested, minimum, gap int, occupied []taskbarLyricsInterval, leftTaskbar bool) (int, int) {
+	if leftTaskbar {
+		return taskbarLyricsFreeSpaceRight(length, requested, minimum, gap, occupied)
+	}
+	x, width := taskbarLyricsFreeSpace(length, requested, minimum, gap, occupied)
+	if width == 0 || x >= length/2 {
+		return 0, 0
+	}
+	return x, width
 }
