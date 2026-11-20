@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -73,22 +72,7 @@ func (a *app) albumHeader(c *ui.Context, al *qqmusic.AlbumProfile) {
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
 			ui.Text(c, "专辑").FontSize(12).FontWeight(600).TextColor(p.accent)
 			ui.Text(c, al.Name).FontSize(30).FontWeight(800).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
-			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-				ui.RichText(c).Shrink(1).MinWidth(0).FontSize(13).TextColor(p.muted).Children(func() {
-					for i, ar := range al.Artists {
-						if i > 0 {
-							ui.Text(c, ", ")
-						}
-						a.link(c.Key(i), ar.Name, p.muted, p.text, route{page: pageArtist, id: ar.ID})
-					}
-					meta := fmt.Sprintf(" · %d 首", len(al.Songs))
-					if al.PublishTime > 0 {
-						meta = " · " + time.UnixMilli(al.PublishTime).Format("2006-01-02") + meta
-					}
-					ui.Text(c, meta)
-				})
-				a.releaseInfoButton(c, al.Company)
-			})
+			a.albumMetaRow(c, al)
 			a.collectionDescription(c, al.Description)
 			ui.Row(c).Gap(10).Margin(10, 0, 0, 0).Children(func() {
 				if pillButton(c.Key("play"), iconPlay, "播放", p.accent, p.onAccent).Clicked() {

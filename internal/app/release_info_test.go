@@ -11,7 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Hovering or clicking the metadata info icon reveals the release notice without shifting tracks, sizes compactly for short text, and resets when the album notice changes.
+// Hovering or clicking the metadata info icon reveals long or multi-line notices without shifting tracks, short single-line notices render inline, and changes reset any open popover.
 func TestAlbumReleaseInfoHover(t *testing.T) {
 	switch runtime.GOOS {
 	case "windows", "darwin", "linux":
@@ -73,12 +73,24 @@ func TestAlbumReleaseInfoHover(t *testing.T) {
 	if !open() {
 		t.Fatal("click inside the panel dismissed it")
 	}
-	// Switching to another album resets the open popover instead of carrying it across routes.
+	// Short single-line release info renders directly inline and dismisses any prior popover.
 	album.Company = "独立发行"
 	tt.Frame()
 	if open() {
 		t.Fatal("changing album release info left the previous popover open")
 	}
+	if _, ok := tt.Find("发行信息"); ok {
+		t.Fatal("short single-line release notice showed a redundant info icon")
+	}
+	if !tt.HasText("独立发行") {
+		t.Fatal("short single-line release notice did not render inline")
+	}
+	if tt.FramePending() {
+		t.Fatal("inline release notice kept requesting idle frames")
+	}
+	// Short multi-line notices still use a compact popover on demand.
+	album.Company = "独立发行\n版权所有"
+	tt.Frame()
 	if err := tt.Click("发行信息"); err != nil {
 		t.Fatal(err)
 	}
@@ -98,6 +110,48 @@ func TestAlbumReleaseInfoHover(t *testing.T) {
 	tt.ClickAt(650, 520)
 	if open() {
 		t.Fatal("outside click did not dismiss the panel")
+	}
+}
+
+// Single-line release info displays inline when it fits in the metadata row and collapses to the info icon when space is tight.
+func TestAlbumReleaseInfoAdaptive(t *testing.T) {
+	switch runtime.GOOS {
+	case "windows", "darwin", "linux":
+	default:
+		t.Skip("desktop album page")
+	}
+	const company = "Sony Music Entertainment (Japan) Inc."
+	a := descriptionApp(pageAlbum, "")
+	a.albums[8].album.PublishTime = time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	a.albums[8].album.Company = company
+
+	wide := ui.NewTester(a.view, 1200, 650)
+	wide.Frame()
+	if !wide.HasText(company) {
+		t.Fatal("fitting release notice was not displayed inline on a wide window")
+	}
+	if _, ok := wide.Find("发行信息"); ok {
+		t.Fatal("fitting release notice showed a redundant info icon on a wide window")
+	}
+	wide.Advance(time.Second)
+	if wide.FramePending() {
+		t.Fatal("wide album page kept requesting idle frames")
+	}
+
+	narrow := ui.NewTester(a.view, 760, 650)
+	narrow.Frame()
+	if narrow.HasText(company) {
+		t.Fatal("overflowing release notice stayed inline on a narrow window")
+	}
+	if err := narrow.Click("发行信息"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := narrow.Find(company); !ok {
+		t.Fatal("clicking the narrow-window info icon did not reveal the release notice")
+	}
+	narrow.Advance(time.Second)
+	if narrow.FramePending() {
+		t.Fatal("narrow album page kept requesting idle frames")
 	}
 }
 
@@ -138,7 +192,7 @@ func TestReleaseInfoKeyboard(t *testing.T) {
 	}
 }
 
-// With NM_FRAMES set, saves album release info frames for short and long notices in both light and dark appearances.
+// With NM_FRAMES set, saves album release info frames for short inline, short popover, and long notices in both light and dark appearances.
 func TestAlbumReleaseInfoFrames(t *testing.T) {
 	dir := os.Getenv("NM_FRAMES")
 	if dir == "" {
@@ -152,8 +206,9 @@ func TestAlbumReleaseInfoFrames(t *testing.T) {
 		name, company string
 		open          bool
 	}{
+		{"short-inline", "环球唱片", false},
 		{"closed", longNotice, false},
-		{"short-open", "独立发行", true},
+		{"short-open", "独立发行\n版权所有", true},
 		{"long-open", longNotice, true},
 	} {
 		for _, dark := range []bool{false, true} {

@@ -1,13 +1,88 @@
 package app
 
 import (
+	"fmt"
 	"math"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"lilt/internal/qqmusic"
 )
+
+type albumMetaFit struct {
+	text  string
+	font  ui.Font
+	width float32
+	fits  bool
+}
+
+func normalizeReleaseNotice(notice string) string {
+	return strings.TrimSpace(strings.ReplaceAll(notice, "\r\n", "\n"))
+}
+
+func (a *app) albumMetaRow(c *ui.Context, al *qqmusic.AlbumProfile) {
+	p := a.pal
+	var meta string
+	if al.PublishTime > 0 {
+		meta = time.UnixMilli(al.PublishTime).Format("2006-01-02") + " · "
+	}
+	meta += fmt.Sprintf("%d 首", len(al.Songs))
+	if len(al.Artists) > 0 {
+		meta = " · " + meta
+	}
+	notice := normalizeReleaseNotice(al.Company)
+	row := ui.Row(c.Key("meta-row")).Gap(4).AlignItems(ui.Center)
+	if notice != "" {
+		row.MinHeight(22)
+	}
+	inline, showButton := a.albumMetaNoticeMode(c, row, al.ArtistNames()+meta, notice)
+	row.Children(func() {
+		ui.RichText(c).Shrink(1).MinWidth(0).FontSize(13).TextColor(p.muted).Children(func() {
+			for i, ar := range al.Artists {
+				if i > 0 {
+					ui.Text(c, ", ")
+				}
+				a.link(c.Key(i), ar.Name, p.muted, p.text, route{page: pageArtist, id: ar.ID})
+			}
+			if inline {
+				ui.Text(c, meta+" · "+notice)
+			} else {
+				ui.Text(c, meta)
+			}
+		})
+		if showButton {
+			a.releaseInfoButton(c, notice)
+		}
+	})
+}
+
+func (a *app) albumMetaNoticeMode(c *ui.Context, row ui.Element, prefix, notice string) (inline, showButton bool) {
+	if notice == "" {
+		return false, false
+	}
+	if strings.Contains(notice, "\n") {
+		return false, true
+	}
+	width := row.LayoutBounds().W
+	if width <= 0 {
+		c.Invalidate()
+		return false, false
+	}
+	fullLine := prefix + " · " + notice
+	font := ui.Font{Family: c.Theme().Font, Size: 13, Lang: c.Locale()}
+	s := ui.Local(row, "meta-fit", func() albumMetaFit { return albumMetaFit{} })
+	if s.text != fullLine || s.font != font || s.width != width {
+		lineW, _ := ui.ShapeText(fullLine, font, 0).Size()
+		*s = albumMetaFit{text: fullLine, font: font, width: width, fits: lineW <= width-2}
+	}
+	if s.fits {
+		return true, false
+	}
+	return false, true
+}
 
 type releaseInfoHover struct {
 	notice                    string
@@ -25,7 +100,7 @@ func (a *app) releaseInfoButton(c *ui.Context, notice string) {
 	default:
 		return
 	}
-	notice = strings.TrimSpace(strings.ReplaceAll(notice, "\r\n", "\n"))
+	notice = normalizeReleaseNotice(notice)
 	if notice == "" {
 		return
 	}
