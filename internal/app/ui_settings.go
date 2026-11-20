@@ -186,9 +186,11 @@ func (a *app) settingsContent(c *ui.Context) {
 				})
 			}
 		}
+	})
 
-		// Only on macOS, the one with a notch player.
-		if a.notch != nil {
+	// Only on macOS, the one with a notch player.
+	if a.notch != nil {
+		group("刘海播放器", func() {
 			row("显示刘海播放器", "在屏幕顶部的刘海处显示迷你播放器，鼠标悬停即可展开", func() {
 				if ui.Switch(c.Key("notch"), &s.Notch).Label("显示刘海播放器").Changed() {
 					a.changed()
@@ -204,8 +206,10 @@ func (a *app) settingsContent(c *ui.Context) {
 					a.changed()
 				}
 			})
-		}
+		})
+	}
 
+	group("播放与音质", func() {
 		row("音质", "按 QQ 音乐账号权限播放，优先使用所选音质，不可用时自动降低音质；下一首生效", func() {
 			labels := make([]string, len(qualityLevels))
 			chosen := qualityLevels[1].label
@@ -251,42 +255,61 @@ func (a *app) settingsContent(c *ui.Context) {
 				a.redraw()
 			}
 		})
+		row("进度条特效", "", func() {
+			chosen := progressEffects[0].label
+			labels := make([]string, len(progressEffects))
+			for k, effect := range progressEffects {
+				labels[k] = effect.label
+				if effect.id == s.progressEffect() {
+					chosen = effect.label
+				}
+			}
+			if ui.Select(c.Key("progress-effect"), &chosen, labels).Label("选择进度条特效").Width(150).Changed() {
+				for _, effect := range progressEffects {
+					if effect.label == chosen {
+						s.setProgressEffect(effect.id)
+					}
+				}
+				s.save()
+				a.redraw()
+			}
+		})
+	})
+
+	group("歌词", func() {
+		row("歌词字体", "", func() {
+			const defaultFont = "跟随默认"
+			families := ui.FontFamilies()
+			labels := make([]string, 1, len(families)+2)
+			labels[0] = defaultFont
+			chosen := defaultFont
+			found := s.LyricsFont == ""
+			for _, family := range families {
+				labels = append(labels, family.Name)
+				if family.Name == s.LyricsFont {
+					chosen, found = family.Name, true
+				}
+			}
+			if !found {
+				chosen = s.LyricsFont + "（不可用）"
+				labels = append(labels, chosen)
+			}
+			if ui.Select(c.Key("lyrics-font"), &chosen, labels).Label("选择歌词字体").Width(180).Changed() {
+				if chosen == defaultFont {
+					s.LyricsFont = ""
+				} else {
+					s.LyricsFont = chosen
+				}
+				s.save()
+				a.redraw()
+			}
+		})
 		row("间奏时显示热评", "前奏、间奏与尾奏时，歌词处换成这首歌的热门评论", func() {
 			if ui.Switch(c.Key("hot-comments"), &s.HotComments).Label("切换热评").Changed() {
 				s.save()
 				a.redraw()
 			}
 		})
-
-		row("缓存上限", a.cacheUsage(), func() {
-			labels := make([]string, len(cacheLimits))
-			chosen := cacheLimits[2].label
-			for i, l := range cacheLimits {
-				labels[i] = l.label
-				if l.mb == s.CacheMB {
-					chosen = l.label
-				}
-			}
-			if ui.Select(c.Key("cache"), &chosen, labels).Label("选择缓存上限").Width(150).Disabled(a.cacheMoving).Changed() {
-				for _, l := range cacheLimits {
-					if l.label == chosen {
-						s.CacheMB = l.mb
-					}
-				}
-				s.save()
-				a.redraw()
-				a.applyCacheLimit()
-			}
-		})
-		a.cacheDirectoryRow(c)
-		row("清除缓存", "", func() {
-			if ui.Button(c.Key("clear-cache"), "清除").Disabled(a.cacheMoving || a.cacheUsed <= 0).Clicked() {
-				a.clearCache()
-			}
-		})
-	})
-
-	group("实验性功能", func() {
 		if supportsTaskbarLyrics() {
 			row("外部歌词", "", func() {
 				i := 0
@@ -328,56 +351,48 @@ func (a *app) settingsContent(c *ui.Context) {
 					a.setTaskbarLyricsMaterial([]string{taskbarMaterialAcrylic, taskbarMaterialWhite}[i])
 				}
 			})
+			row("任务栏歌词封面", "显示专辑封面，点击可展开歌曲控制", func() {
+				show := s.showTaskbarLyricsCover()
+				ui.Switch(c.Key("taskbar-lyrics-cover"), &show).Label("显示任务栏歌词封面").OnClick(func() {
+					a.setTaskbarLyricsCover(show)
+				})
+			})
 		}
-		row("进度条特效", "", func() {
-			chosen := progressEffects[0].label
-			labels := make([]string, len(progressEffects))
-			for k, effect := range progressEffects {
-				labels[k] = effect.label
-				if effect.id == s.progressEffect() {
-					chosen = effect.label
+	})
+
+	group("缓存", func() {
+		row("缓存上限", a.cacheUsage(), func() {
+			labels := make([]string, len(cacheLimits))
+			chosen := cacheLimits[2].label
+			for i, l := range cacheLimits {
+				labels[i] = l.label
+				if l.mb == s.CacheMB {
+					chosen = l.label
 				}
 			}
-			if ui.Select(c.Key("progress-effect"), &chosen, labels).Label("选择进度条特效").Width(150).Changed() {
-				for _, effect := range progressEffects {
-					if effect.label == chosen {
-						s.setProgressEffect(effect.id)
+			if ui.Select(c.Key("cache"), &chosen, labels).Label("选择缓存上限").Width(150).Disabled(a.cacheMoving).Changed() {
+				for _, l := range cacheLimits {
+					if l.label == chosen {
+						s.CacheMB = l.mb
 					}
 				}
 				s.save()
 				a.redraw()
+				a.applyCacheLimit()
 			}
 		})
+		a.cacheDirectoryRow(c)
+		row("清除缓存", "", func() {
+			if ui.Button(c.Key("clear-cache"), "清除").Disabled(a.cacheMoving || a.cacheUsed <= 0).Clicked() {
+				a.clearCache()
+			}
+		})
+	})
+
+	group("实验性功能", func() {
 		row("烟雾背景", "播放页的背景化作封面色调的烟雾，缓缓升起，随低音起伏；仍在打磨，会多用一些电量", func() {
 			if ui.Switch(c.Key("fog"), &s.Fog).Label("烟雾背景").Changed() {
 				a.changed()
-			}
-		})
-		row("歌词字体", "", func() {
-			const defaultFont = "跟随默认"
-			families := ui.FontFamilies()
-			labels := make([]string, 1, len(families)+2)
-			labels[0] = defaultFont
-			chosen := defaultFont
-			found := s.LyricsFont == ""
-			for _, family := range families {
-				labels = append(labels, family.Name)
-				if family.Name == s.LyricsFont {
-					chosen, found = family.Name, true
-				}
-			}
-			if !found {
-				chosen = s.LyricsFont + "（不可用）"
-				labels = append(labels, chosen)
-			}
-			if ui.Select(c.Key("lyrics-font"), &chosen, labels).Label("选择歌词字体").Width(180).Changed() {
-				if chosen == defaultFont {
-					s.LyricsFont = ""
-				} else {
-					s.LyricsFont = chosen
-				}
-				s.save()
-				a.redraw()
 			}
 		})
 	})

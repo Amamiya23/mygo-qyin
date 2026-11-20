@@ -410,12 +410,12 @@ func TestQQLoginAcceptsNumericMetadata(t *testing.T) {
 		{`"musickeyCreateTime":"0","keyExpiresIn":"259200"`, 0, 259200},
 		{`"musickeyCreateTime":"1760000000","keyExpiresIn":0`, 1760000000, 0},
 	} {
-		body := `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"private-key","loginType":2,` + test.metadata + `,"nick":null}}}`
+		body := `{"code":0,"req":{"code":0,"data":{"musicid":"10001","musickey":"private-key","loginType":2,` + test.metadata + `,"nick":null,"access_token":"fake-access-token","expired_at":"1760000300"}}}`
 		s, err := decodeQQLoginResponse([]byte(body))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if s.MusicID != "10001" || s.CreatedAt != test.created || s.ExpiresIn != test.expires {
+		if s.MusicID != "10001" || s.CreatedAt != test.created || s.ExpiresIn != test.expires || s.AccessToken != "fake-access-token" || s.ExpiredAt != 1760000300 {
 			t.Fatal("lost login metadata")
 		}
 	}

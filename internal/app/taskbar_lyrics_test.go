@@ -51,6 +51,53 @@ func TestTaskbarLyricsMaterialSettings(t *testing.T) {
 	}
 }
 
+// Toggling the taskbar cover switch persists the choice, closes open controls while hidden, and restores cover controls when re-enabled.
+func TestTaskbarLyricsCoverSettings(t *testing.T) {
+	if !supportsTaskbarLyrics() {
+		t.Skip("taskbar lyrics are Windows-only")
+	}
+	a, d := taskbarControlsFixture()
+	a.settings.LyricsMode = lyricsTaskbar
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	if !a.settings.showTaskbarLyricsCover() {
+		t.Fatal("taskbar cover should be enabled by default")
+	}
+	d.controlsOpen = true
+	tt := ui.NewTester(a.settingsView, 560, 2400)
+	tt.Frame()
+	if err := tt.Click("显示任务栏歌词封面"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	restored := readDesktopLyricsEntrySettings(t, a)
+	if a.settings.showTaskbarLyricsCover() || restored.showTaskbarLyricsCover() {
+		t.Fatalf("hiding cover was not applied/saved: live=%t saved=%t", a.settings.showTaskbarLyricsCover(), restored.showTaskbarLyricsCover())
+	}
+	if d.controlsOpen {
+		t.Fatal("hiding the cover left song controls open")
+	}
+	d.toggleControls()
+	if d.controlsOpen {
+		t.Fatal("controls opened while taskbar cover is hidden")
+	}
+	if err := tt.Click("显示任务栏歌词封面"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	restored = readDesktopLyricsEntrySettings(t, a)
+	if !a.settings.showTaskbarLyricsCover() || !restored.showTaskbarLyricsCover() {
+		t.Fatalf("re-enabling cover was not applied/saved: live=%t saved=%t", a.settings.showTaskbarLyricsCover(), restored.showTaskbarLyricsCover())
+	}
+	d.toggleControls()
+	if !d.controlsOpen {
+		t.Fatal("controls did not reopen after re-enabling taskbar cover")
+	}
+	d.updatePlacement(taskbarLyricsPlacement{rightAligned: true})
+	if d.controlsOpen {
+		t.Fatal("switching taskbar alignment side did not close stale controls")
+	}
+}
+
 // Choosing a lyric position swaps the active owner, saves the mode, and stops the previous taskbar monitor.
 func TestTaskbarLyricsSettingsModeSwitch(t *testing.T) {
 	if !supportsTaskbarLyrics() {
@@ -195,24 +242,82 @@ func TestTaskbarLyricsFreeSpace(t *testing.T) {
 	}
 }
 
+// Centered taskbars stay strictly on the left and hide when it fills; left-aligned taskbars anchor beside the right tray without bouncing as apps open.
+func TestTaskbarLyricsPlacementSpace(t *testing.T) {
+	tests := []struct {
+		name         string
+		leftTaskbar  bool
+		occupied     []taskbarLyricsInterval
+		start, width int
+	}{
+		{"centered left gap", false, []taskbarLyricsInterval{{400, 600}, {900, 1000}}, 8, 280},
+		{"centered left widgets", false, []taskbarLyricsInterval{{0, 150}, {460, 600}, {900, 1000}}, 158, 280},
+		{"centered left full hides instead of jumping right", false, []taskbarLyricsInterval{{0, 150}, {220, 620}, {900, 1000}}, 0, 0},
+		{"centered pushed to left hides", false, []taskbarLyricsInterval{{0, 600}, {880, 1000}}, 0, 0},
+		{"left taskbar anchors beside tray", true, []taskbarLyricsInterval{{0, 300}, {880, 1000}}, 592, 280},
+		{"left taskbar stays fixed when more apps open", true, []taskbarLyricsInterval{{0, 500}, {880, 1000}}, 592, 280},
+		{"left taskbar shrinks from left when crowded", true, []taskbarLyricsInterval{{0, 700}, {880, 1000}}, 708, 164},
+		{"classic Win10 ReBar anchors to right edge", true, []taskbarLyricsInterval{{0, 400}}, 712, 280},
+		{"left taskbar full hides", true, []taskbarLyricsInterval{{0, 800}, {880, 1000}}, 0, 0},
+		{"left taskbar unknown hides", true, nil, 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, width := taskbarLyricsPlacementSpace(1000, 280, 100, 8, tt.occupied, tt.leftTaskbar)
+			if start != tt.start || width != tt.width {
+				t.Fatalf("got (%d,%d), want (%d,%d)", start, width, tt.start, tt.width)
+			}
+		})
+	}
+}
+
+// Right-aligned taskbars flush short lines to the right edge while overflowing lines still scroll left-to-right with the sung word.
+func TestTaskbarLyricDrawX(t *testing.T) {
+	for _, tc := range []struct {
+		x, available, width, progress float32
+		rightAligned                  bool
+		want                          float32
+	}{
+		{10, 100, 80, 0, false, 10},
+		{10, 100, 80, 0, true, 30},
+		{10, 100, 300, 0, false, 10},
+		{10, 100, 300, 0, true, 10},
+		{10, 100, 300, 100, false, -35},
+		{10, 100, 300, 100, true, -35},
+		{10, 100, 300, 500, false, -190},
+		{10, 100, 300, 500, true, -190},
+	} {
+		if got := taskbarLyricDrawX(tc.x, tc.available, tc.width, tc.progress, tc.rightAligned); got != tc.want {
+			t.Errorf("drawX(%v,%v,%v,%v,right=%t)=%v want=%v", tc.x, tc.available, tc.width, tc.progress, tc.rightAligned, got, tc.want)
+		}
+	}
+}
+
 // The clickable child stays on the cover at every DPI, without covering lyrics.
 func TestTaskbarLyricsCoverPlacement(t *testing.T) {
 	tests := []struct {
 		name               string
 		dpi                uint32
 		height, x, y, size int
+		rightX             int
 	}{
-		{"100 percent", 96, 42, 106, 24, 34},
-		{"150 percent", 144, 63, 109, 26, 51},
-		{"200 percent", 192, 84, 112, 28, 68},
-		{"short taskbar", 96, 28, 106, 22, 24},
-		{"fractional DPI", 120, 53, 108, 25, 43},
+		{"100 percent", 96, 42, 106, 24, 34, 660},
+		{"150 percent", 144, 63, 109, 26, 51, 640},
+		{"200 percent", 192, 84, 112, 28, 68, 620},
+		{"short taskbar", 96, 28, 106, 22, 24, 670},
+		{"fractional DPI", 120, 53, 108, 25, 43, 649},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := taskbarLyricsCoverPlacement(taskbarLyricsPlacement{parent: 1, taskbar: 2, x: 100, y: 20, width: 600, height: tt.height, dpi: tt.dpi, dark: true})
+			base := taskbarLyricsPlacement{parent: 1, taskbar: 2, x: 100, y: 20, width: 600, height: tt.height, dpi: tt.dpi, dark: true}
+			p := taskbarLyricsCoverPlacement(base)
 			if p.x != tt.x || p.y != tt.y || p.width != tt.size || p.height != tt.size || p.parent != 1 || p.taskbar != 2 || p.dpi != tt.dpi || !p.dark {
-				t.Fatalf("unexpected placement: %+v", p)
+				t.Fatalf("unexpected left placement: %+v", p)
+			}
+			base.rightAligned = true
+			rp := taskbarLyricsCoverPlacement(base)
+			if rp.x != tt.rightX || rp.y != tt.y || rp.width != tt.size || rp.height != tt.size || !rp.rightAligned {
+				t.Fatalf("unexpected right placement: %+v", rp)
 			}
 		})
 	}
@@ -221,8 +326,11 @@ func TestTaskbarLyricsCoverPlacement(t *testing.T) {
 // Hidden or impossibly small taskbars never leave an interactive cover child.
 func TestTaskbarLyricsCoverPlacementUnavailable(t *testing.T) {
 	for _, p := range []taskbarLyricsPlacement{{}, {parent: 1, width: 600, height: 4, dpi: 96}, {parent: 1, width: 10, height: 42, dpi: 96}} {
-		if got := taskbarLyricsCoverPlacement(p); got != (taskbarLyricsPlacement{}) {
-			t.Fatalf("unexpected interactive area: %+v", got)
+		for _, right := range []bool{false, true} {
+			p.rightAligned = right
+			if got := taskbarLyricsCoverPlacement(p); got != (taskbarLyricsPlacement{}) {
+				t.Fatalf("unexpected interactive area (right=%t): %+v", right, got)
+			}
 		}
 	}
 }

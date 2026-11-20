@@ -10,8 +10,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/egoist/mygo"
 )
 
 // TestLiveHiRes probes explicit formats without SongURL's quality fallback.
@@ -29,7 +27,7 @@ func TestLiveHiRes(t *testing.T) {
 	if file := os.Getenv("LIVE_HIRES_SESSION_FILE"); file != "" {
 		b, err = os.ReadFile(file)
 	} else {
-		b, err = mygo.Secrets.Service("dev.amamiya.qqmusic").Get(qqSessionSecret)
+		b, err = readInstalledSession()
 	}
 	if err != nil {
 		t.Fatal("cannot read saved login; see docs/hires-probe.md")

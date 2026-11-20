@@ -71,7 +71,11 @@ func (a *app) syncTaskbarLyrics() {
 
 func (d *taskbarLyrics) updatePlacement(p taskbarLyricsPlacement) {
 	changed := d.placement != p
+	sideChanged := d.placement.rightAligned != p.rightAligned
 	d.placement, d.dark = p, p.dark
+	if sideChanged {
+		d.closeControls()
+	}
 	if p.parent == 0 || p.width <= 0 || p.height <= 0 {
 		d.hide()
 		return

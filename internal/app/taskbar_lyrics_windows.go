@@ -160,12 +160,28 @@ func readTaskbarLyricsPlacement() (taskbarLyricsPlacement, error) {
 	if err != nil {
 		return taskbarLyricsPlacement{}, err
 	}
-	x, width := taskbarLyricsFreeSpace(int(client.right), 280*int(dpi)/96, 100*int(dpi)/96, taskbarLyricsEdgeGap*int(dpi)/96, occupied)
+	rightAligned := taskbarUsesLeftAlignment(version.build)
+	x, width := taskbarLyricsPlacementSpace(int(client.right), 280*int(dpi)/96, 100*int(dpi)/96, taskbarLyricsEdgeGap*int(dpi)/96, occupied, rightAligned)
 	if width == 0 {
 		return taskbarLyricsPlacement{}, fmt.Errorf("taskbar has insufficient free space")
 	}
 	height := min(int(client.bottom), 42*int(dpi)/96)
-	return taskbarLyricsPlacement{parent: parent, taskbar: root, x: x, y: (int(client.bottom) - height) / 2, width: width, height: height, dpi: uint32(dpi), dark: taskbarUsesDarkTheme()}, nil
+	return taskbarLyricsPlacement{parent: parent, taskbar: root, x: x, y: (int(client.bottom) - height) / 2, width: width, height: height, dpi: uint32(dpi), dark: taskbarUsesDarkTheme(), rightAligned: rightAligned}, nil
+}
+
+// Windows 10 taskbars are always left-aligned; Windows 11 records left
+// alignment in Explorer\Advanced\TaskbarAl = 0 and defaults to centered.
+func taskbarUsesLeftAlignment(build uint32) bool {
+	if build < 22000 {
+		return true
+	}
+	path, _ := syscall.UTF16PtrFromString(`Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`)
+	name, _ := syscall.UTF16PtrFromString("TaskbarAl")
+	var value uint32
+	size := uint32(4)
+	key := int32(-2147483647)
+	r, _, _ := syscall.NewLazyDLL("advapi32.dll").NewProc("RegGetValueW").Call(uintptr(key), uintptr(unsafe.Pointer(path)), uintptr(unsafe.Pointer(name)), 0x10, 0, uintptr(unsafe.Pointer(&value)), uintptr(unsafe.Pointer(&size)))
+	return r == 0 && value == 0
 }
 
 func taskbarUsesDarkTheme() bool {

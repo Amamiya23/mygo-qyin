@@ -26,7 +26,7 @@ import (
 )
 
 // Session is QQ Music's own credential, stored only in this native process and
-// the operating system credential store. QQ's global login cookies are transient.
+// protected storage. QQ's global login cookies are transient.
 type Session struct {
 	MusicID      string        `json:"musicid"`
 	MusicKey     string        `json:"musickey"`
@@ -37,6 +37,8 @@ type Session struct {
 	AvatarURL    string        `json:"logo,omitempty"`
 	EncryptUin   string        `json:"encryptUin,omitempty"`
 	OpenID       string        `json:"openid,omitempty"`
+	AccessToken  string        `json:"access_token,omitempty"`
+	ExpiredAt    int64         `json:"expired_at,omitempty"`
 	RefreshToken string        `json:"refresh_token,omitempty"`
 	UnionID      string        `json:"unionid,omitempty"`
 	RefreshKey   string        `json:"refresh_key,omitempty"`
@@ -111,7 +113,7 @@ var readPersistedSession = func() ([]byte, error) {
 			b, err = os.ReadFile(path)
 		}
 	} else {
-		b, err = mygo.Secrets.Get(qqSessionSecret)
+		b, err = readSessionSecret(mygo.Secrets, sessionSecretDir)
 	}
 	return b, err
 }
@@ -171,10 +173,7 @@ func saveSessionLocked() error {
 
 var writePersistedSession = func(b []byte) error {
 	if !mygo.IsDev() {
-		if len(b) > mygo.MaxSecretSize {
-			return errSessionTooLarge
-		}
-		return mygo.Secrets.Set(qqSessionSecret, b)
+		return writeSessionSecret(mygo.Secrets, b)
 	}
 	path, err := authSessionFile()
 	if err != nil {
@@ -197,7 +196,7 @@ func ClearSession() {
 
 var deletePersistedSession = func() {
 	if !mygo.IsDev() {
-		if err := mygo.Secrets.Delete(qqSessionSecret); err != nil {
+		if err := deleteSessionSecret(mygo.Secrets); err != nil {
 			sessionFailure("delete", Session{}, err)
 		}
 		return
