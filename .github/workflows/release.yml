@@ -46,6 +46,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      # MyGo merges the release's shared SHA256SUMS before uploading it.
+      # Serialize platforms so that each upload preserves the previous one.
+      max-parallel: 1
       matrix:
         include:
           - { name: macOS, os: macos-latest, platform: "darwin/arm64,darwin/amd64" }
@@ -61,70 +64,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y nsis
       # macOS uses MyGo's default ad-hoc signature, without Developer ID
       # credentials or notarization. Update archives are signed separately.
-      - name: Build signed packages
+      - name: Build and upload
         env:
-          CGO_ENABLED: "0"
+          GH_TOKEN: ${{ github.token }}
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
-        run: |
-          test -n "$MYGO_UPDATER_PRIVATE_KEY" || { echo "Missing update signing key" >&2; exit 1; }
-          go tool mygo build -platform "${{ matrix.platform }}"
-          for target in $(echo "${{ matrix.platform }}" | tr "," " " | tr "/" "-"); do
-            test -f "build/$target/update-$target.json" || { echo "Missing signed update manifest for $target" >&2; exit 1; }
-          done
-      - name: Save build artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: release-${{ matrix.name }}
-          path: |
-            build/SHA256SUMS
-            build/*/*.dmg
-            build/*/*-setup-*.exe
-            build/*/*.deb
-            build/*/*.tar.gz
-            build/*/*.delta
-            build/*/update-*.json
-            build/*/install.sh
-            build/*/install.ps1
-          if-no-files-found: error
-          retention-days: 1
-
-  upload:
-    needs: [draft-release, build]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          path: artifacts
-      - name: Merge and verify release assets
-        run: |
-          mkdir -p dist
-          find artifacts -type f ! -name 'SHA256SUMS' -exec cp -f {} dist/ \;
-          cat artifacts/release-*/SHA256SUMS | tr -d '\r' | sort -u -k2,2 | while read -r sum name; do
-            if [ -f "dist/$name" ]; then
-              printf '%s  %s\n' "$sum" "$name"
-            fi
-          done > dist/SHA256SUMS
-          test -s dist/SHA256SUMS
-          (cd dist && sha256sum -c SHA256SUMS)
-      - name: Upload installers and update packages
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          shopt -s nullglob
-          files=()
-          for f in dist/*; do
-            base=$(basename "$f")
-            case "$base" in
-              update-*.json) ;;
-              *) files+=("$f") ;;
-            esac
-          done
-          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}"
-      - name: Upload update manifests
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          shopt -s nullglob
-          manifests=(dist/update-*.json)
-          test ${#manifests[@]} -eq 6
-          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "${manifests[@]}"
+        run: go tool mygo build -platform "${{ matrix.platform }}" -upload
