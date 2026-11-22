@@ -1,24 +1,5 @@
 # 更新日志
 
-## 0.5.1
-
-- 桌面端专辑页面新增发行信息浮层，可在元数据栏按需查看专辑发行详情
-- 新增「不透明侧边栏」外观开关，并修复 Windows 亚克力弹出浮层显示异常
-- Windows 任务栏歌词支持自动适配居左任务栏，并新增显示专辑封面开关
-- 修复 QQ 登录过期后自动续期失败的问题，并增强本地加密会话存储的可靠性
-- 重新整理设置页面分区结构，调整部分设置项布局
-
-> 感谢 [@FQDianYan](https://github.com/FQDianYan)、[@CWalkene](https://github.com/CWalkene) 对本版本的贡献（PR #48、#49、#50）。
-
-### 下载指南
-
-| 处理器架构 | Windows | macOS | Linux |
-| :--- | :--- | :--- | :--- |
-| amd64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.1/lilt-setup-0.5.1-amd64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.1/lilt-0.5.1-amd64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.1/lilt_0.5.1_amd64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.1/lilt-0.5.1-linux-amd64.tar.gz) |
-| arm64 | [安装包 .exe](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.1/lilt-setup-0.5.1-arm64.exe) | [安装包 .dmg](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.1/lilt-0.5.1-arm64.dmg) | [.deb](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.1/lilt_0.5.1_arm64.deb) · [.tar.gz](https://github.com/Amamiya23/mygo-qyin/releases/download/v0.5.1/lilt-0.5.1-linux-arm64.tar.gz) |
-
-> Linux：Ubuntu / Debian 等支持 deb 的发行版选 `.deb`，其他发行版选 `.tar.gz`。
-
 ## 0.5.0
 
 - 侧边栏「为你推荐」更名为「首页」，在「精选歌单」新增「歌单广场」入口，支持推荐、官方歌单、编辑精选与全部分类浏览
