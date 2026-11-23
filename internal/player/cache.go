@@ -142,30 +142,39 @@ func (c *Cache) lookup(id int64, level string) (*download, *qqmusic.Stream, bool
 	}
 	at := max(slices.Index(qqmusic.Levels, level), 0)
 	for _, lv := range qqmusic.Levels[at:] {
-		key := cacheKey(id, lv)
-		meta, err := os.ReadFile(filepath.Join(c.dir, key+".json"))
-		if err != nil {
-			continue
+		if dl, st, ok := c.lookupLevel(id, lv); ok {
+			return dl, st, true
 		}
-		var st qqmusic.Stream
-		if json.Unmarshal(meta, &st) != nil || !keepable(lv, st.Type) {
-			continue
-		}
-		path := filepath.Join(c.dir, key+"."+st.Type)
-		f, err := os.Open(path)
-		if err != nil {
-			continue
-		}
-		if info, err := f.Stat(); err != nil || info.Size() != st.Size {
-			f.Close()
-			continue
-		}
-		// Played now: the last to go.
-		now := time.Now()
-		os.Chtimes(path, now, now)
-		return opened(f, st.Size), &st, true
 	}
 	return nil, nil, false
+}
+
+// lookupLevel returns the cached file for the exact quality selected by QQ Music.
+func (c *Cache) lookupLevel(id int64, level string) (*download, *qqmusic.Stream, bool) {
+	if c == nil || !slices.Contains(qqmusic.Levels, level) {
+		return nil, nil, false
+	}
+	key := cacheKey(id, level)
+	meta, err := os.ReadFile(filepath.Join(c.dir, key+".json"))
+	if err != nil {
+		return nil, nil, false
+	}
+	var st qqmusic.Stream
+	if json.Unmarshal(meta, &st) != nil || !keepable(level, st.Type) {
+		return nil, nil, false
+	}
+	path := filepath.Join(c.dir, key+"."+st.Type)
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, false
+	}
+	if info, err := f.Stat(); err != nil || info.Size() != st.Size {
+		f.Close()
+		return nil, nil, false
+	}
+	now := time.Now()
+	os.Chtimes(path, now, now)
+	return opened(f, st.Size), &st, true
 }
 
 // LookupCover returns a cached cover image for url, refreshing its LRU timestamp.

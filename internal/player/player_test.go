@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,6 +40,71 @@ func TestMP3BuffersOnPlayQueue(t *testing.T) {
 	t.Run("hires fallback", func(t *testing.T) {
 		testPlayQueueBuffers(t, "testdata/seek.mp3", "hires", qqmusic.Stream{Type: "mp3", Level: "exhigh"})
 	})
+}
+
+func TestQueueReusesCachedQualityFallback(t *testing.T) {
+	data, err := os.ReadFile("testdata/seek.flac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var downloads atomic.Int32
+	downloadBody(t, func(*http.Request) io.ReadCloser {
+		downloads.Add(1)
+		return io.NopCloser(bytes.NewReader(data))
+	})
+	previousLyrics, previousURL := songLyrics, songURL
+	t.Cleanup(func() { songLyrics, songURL = previousLyrics, previousURL })
+	songLyrics = func(int64) (string, string, string, error) { return "", "", "", nil }
+	songURL = func(_ int64, level string) (*qqmusic.Stream, error) {
+		if level != "hires" {
+			return nil, errors.New("expected Hi-Res request")
+		}
+		return &qqmusic.Stream{URL: "https://audio.test/song.flac", Size: int64(len(data)), Level: "lossless", Type: "flac"}, nil
+	}
+	ch := make(chan func(), 16)
+	p := New(func(fn func()) { ch <- fn })
+	p.Cache = NewCache(t.TempDir(), 10<<20)
+	p.Quality = func() string { return "hires" }
+	defer p.stop()
+	load := func(id int64) {
+		t.Helper()
+		// Finish loading without opening a sound device.
+		p.TogglePlay()
+		deadline := time.After(2 * time.Second)
+		for !p.Ready() || !p.lyricsLoaded {
+			if p.Err() != "" {
+				t.Fatal(p.Err())
+			}
+			select {
+			case fn := <-ch:
+				fn()
+			case <-deadline:
+				t.Fatal("timed out loading track", id)
+			}
+		}
+		if p.Current().ID != id || p.Stream().Level != "lossless" {
+			t.Fatalf("loaded track %d at %s, want %d at lossless", p.Current().ID, p.Stream().Level, id)
+		}
+		dl, _ := p.stream.source()
+		dl.waitFor(int64(len(data)) + 1) // Wait for the complete file to enter the cache.
+	}
+
+	p.PlayQueue([]qqmusic.Track{{ID: 1, Duration: 5000}, {ID: 2, Duration: 5000}}, 0)
+	load(1)
+	p.ended()
+	load(2)
+	p.Prev()
+	load(1)
+	if got := downloads.Load(); got != 2 || p.buffering() {
+		t.Errorf("Prev used %d total audio downloads, buffering=%v, want 2 and false", got, p.buffering())
+	}
+	p.ended()
+	load(2)
+	p.Jump(0)
+	load(1)
+	if got := downloads.Load(); got != 2 || p.buffering() {
+		t.Errorf("Jump used %d total audio downloads, buffering=%v, want 2 and false", got, p.buffering())
+	}
 }
 
 func testPlayQueueBuffers(t *testing.T, fixture, quality string, info qqmusic.Stream) {

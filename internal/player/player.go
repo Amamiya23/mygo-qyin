@@ -974,14 +974,21 @@ func (p *Player) open(t qqmusic.Track, level string, normalize bool) (*qqmusic.S
 			result <- &v
 		}()
 	}
-	dl, info, ok := p.Cache.lookup(t.ID, level)
+	cache := p.Cache
+	dl, info, ok := cache.lookup(t.ID, level)
 	if !ok {
 		var err error
 		info, err = songURL(t.ID, level)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		dl = p.Cache.download(t.ID, info)
+		// QQ Music can return a lower quality than requested. Reuse a
+		// complete copy at the selected quality before fetching its audio.
+		if cached, metadata, ok := cache.lookupLevel(t.ID, info.Level); ok {
+			dl, info = cached, metadata
+		} else {
+			dl = cache.download(t.ID, info)
+		}
 	}
 	s, err := openStream(dl, t.Duration)
 	if err != nil {
