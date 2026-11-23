@@ -3,6 +3,9 @@ package app
 import "sort"
 
 const (
+	taskbarLyricsAlignLeft  = "left"
+	taskbarLyricsAlignRight = "right"
+
 	taskbarLyricsEdgeGap    = 8
 	taskbarLyricsCoverInset = 6
 	// Match the visible margin from the taskbar edge to the album cover.
@@ -15,9 +18,27 @@ type taskbarLyricsPlacement struct {
 	x, y, width, height int
 	dpi                 uint32
 	dark                bool
-	// rightAligned anchors the lyrics beside the notification area on
-	// left-aligned taskbars and mirrors the cover to the right edge.
+	// rightAligned aligns the text and cover to the right edge.
 	rightAligned bool
+}
+
+type taskbarLyricsPositions struct {
+	left, right taskbarLyricsPlacement
+	autoRight   bool
+}
+
+func (p taskbarLyricsPositions) forAlignment(alignment string) taskbarLyricsPlacement {
+	switch alignment {
+	case taskbarLyricsAlignLeft:
+		return p.left
+	case taskbarLyricsAlignRight:
+		return p.right
+	default:
+		if p.autoRight {
+			return p.right
+		}
+		return p.left
+	}
 }
 
 type taskbarLyricsInterval struct{ start, end int }
@@ -71,11 +92,9 @@ func taskbarLyricsFreeSpaceRight(length, requested, minimum, gap int, occupied [
 	return length - x - width, width
 }
 
-// Centered taskbars strictly stay on the left side and hide when it fills up;
-// left-aligned taskbars anchor beside the right notification area so opening
-// and closing apps does not bounce the lyrics across the taskbar.
-func taskbarLyricsPlacementSpace(length, requested, minimum, gap int, occupied []taskbarLyricsInterval, leftTaskbar bool) (int, int) {
-	if leftTaskbar {
+// Keep left-aligned lyrics from jumping past the centered taskbar buttons.
+func taskbarLyricsPlacementSpace(length, requested, minimum, gap int, occupied []taskbarLyricsInterval, rightAligned bool) (int, int) {
+	if rightAligned {
 		return taskbarLyricsFreeSpaceRight(length, requested, minimum, gap, occupied)
 	}
 	x, width := taskbarLyricsFreeSpace(length, requested, minimum, gap, occupied)

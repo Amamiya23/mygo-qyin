@@ -20,6 +20,7 @@ type taskbarLyrics struct {
 	coverReady        bool
 	scrub             scrubState
 	stop              func()
+	positions         taskbarLyricsPositions
 	placement         taskbarLyricsPlacement
 	parent            uintptr
 	revision          uint64
@@ -42,6 +43,14 @@ func (a *app) setTaskbarLyricsEnabled(enabled bool) {
 	}
 }
 
+func (a *app) setTaskbarLyricsAlignment(alignment string) {
+	a.settings.TaskbarLyricsAlignment = alignment
+	a.settings.save()
+	if d := a.taskbarLyrics; d != nil {
+		d.updatePlacement(d.positions.forAlignment(alignment))
+	}
+}
+
 func (a *app) syncTaskbarLyrics() {
 	if !supportsTaskbarLyrics() {
 		return
@@ -61,11 +70,12 @@ func (a *app) syncTaskbarLyrics() {
 	if a.win == nil || d.stop != nil {
 		return
 	}
-	d.stop = startTaskbarLyricsMonitor(func(p taskbarLyricsPlacement) {
+	d.stop = startTaskbarLyricsMonitor(func(p taskbarLyricsPositions) {
 		if a.taskbarLyrics != d || !a.settings.TaskbarLyrics || a.quitting {
 			return
 		}
-		d.updatePlacement(p)
+		d.positions = p
+		d.updatePlacement(p.forAlignment(a.settings.TaskbarLyricsAlignment))
 	})
 }
 

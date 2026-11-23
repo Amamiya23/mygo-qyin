@@ -51,6 +51,38 @@ func TestTaskbarLyricsMaterialSettings(t *testing.T) {
 	}
 }
 
+func TestTaskbarLyricsAlignmentSettings(t *testing.T) {
+	if !supportsTaskbarLyrics() {
+		t.Skip("taskbar lyrics are Windows-only")
+	}
+	a, d := taskbarControlsFixture()
+	a.settings.LyricsMode = lyricsTaskbar
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	d.positions = taskbarLyricsPositions{
+		right:     taskbarLyricsPlacement{rightAligned: true},
+		autoRight: true,
+	}
+	tt := ui.NewTester(a.settingsView, 560, 2400)
+	tt.Frame()
+	for _, choice := range []struct {
+		label, alignment string
+		right            bool
+	}{
+		{"靠右", taskbarLyricsAlignRight, true},
+		{"靠左", taskbarLyricsAlignLeft, false},
+		{"自动", "", true},
+	} {
+		if err := tt.Click(choice.label); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		saved := readDesktopLyricsEntrySettings(t, a).TaskbarLyricsAlignment
+		if saved != choice.alignment || d.placement.rightAligned != choice.right {
+			t.Fatalf("%s: saved=%q rightAligned=%t, want %q and %t", choice.label, saved, d.placement.rightAligned, choice.alignment, choice.right)
+		}
+	}
+}
+
 // Toggling the taskbar cover switch persists the choice, closes open controls while hidden, and restores cover controls when re-enabled.
 func TestTaskbarLyricsCoverSettings(t *testing.T) {
 	if !supportsTaskbarLyrics() {

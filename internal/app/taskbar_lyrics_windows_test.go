@@ -107,10 +107,11 @@ func TestTaskbarLyricsNativePlacement(t *testing.T) {
 		t.Fatalf("CoInitializeEx: 0x%X", uint32(hr))
 	}
 	defer taskbarOle32.NewProc("CoUninitialize").Call()
-	p, err := readTaskbarLyricsPlacement()
+	positions, err := readTaskbarLyricsPositions()
 	if err != nil {
 		t.Fatal(err)
 	}
+	p := positions.forAlignment("")
 	if p.parent == 0 || p.width <= 0 || p.height <= 0 {
 		t.Fatalf("empty placement: %+v", p)
 	}

@@ -53,7 +53,7 @@ type taskbarGUID struct {
 }
 
 // Explorer UIA calls run on one dedicated MTA thread, never the UI thread.
-func startTaskbarLyricsMonitor(deliver func(taskbarLyricsPlacement)) func() {
+func startTaskbarLyricsMonitor(deliver func(taskbarLyricsPositions)) func() {
 	stop := make(chan struct{})
 	var stopped atomic.Bool
 	go func() {
@@ -68,9 +68,9 @@ func startTaskbarLyricsMonitor(deliver func(taskbarLyricsPlacement)) func() {
 		defer ticker.Stop()
 		for {
 			started := time.Now()
-			p, err := readTaskbarLyricsPlacement()
+			p, err := readTaskbarLyricsPositions()
 			if err != nil || time.Since(started) > 2*time.Second {
-				p = taskbarLyricsPlacement{}
+				p = taskbarLyricsPositions{}
 			}
 			if stopped.Load() {
 				return
@@ -105,11 +105,11 @@ func taskbarRect(hwnd uintptr) (taskbarNativeRect, bool) {
 	return r, ok != 0 && r.right > r.left && r.bottom > r.top
 }
 
-func readTaskbarLyricsPlacement() (taskbarLyricsPlacement, error) {
+func readTaskbarLyricsPositions() (taskbarLyricsPositions, error) {
 	class, _ := syscall.UTF16PtrFromString("Shell_TrayWnd")
 	root, _, _ := taskbarUser32.NewProc("FindWindowW").Call(uintptr(unsafe.Pointer(class)), 0)
 	if root == 0 {
-		return taskbarLyricsPlacement{}, fmt.Errorf("Explorer taskbar unavailable")
+		return taskbarLyricsPositions{}, fmt.Errorf("Explorer taskbar unavailable")
 	}
 	visible, _, _ := taskbarUser32.NewProc("IsWindowVisible").Call(root)
 	rootRect, hasRootRect := taskbarRect(root)
@@ -122,7 +122,7 @@ func readTaskbarLyricsPlacement() (taskbarLyricsPlacement, error) {
 	info.size = uint32(unsafe.Sizeof(info))
 	hasMonitor, _, _ := taskbarUser32.NewProc("GetMonitorInfoW").Call(monitor, uintptr(unsafe.Pointer(&info)))
 	if visible == 0 || !hasRootRect || hasMonitor == 0 || max(int32(0), min(rootRect.bottom, info.monitor.bottom)-max(rootRect.top, info.monitor.top))*2 < rootRect.bottom-rootRect.top {
-		return taskbarLyricsPlacement{}, fmt.Errorf("taskbar is hidden or collapsed")
+		return taskbarLyricsPositions{}, fmt.Errorf("taskbar is hidden or collapsed")
 	}
 	var version struct {
 		size, major, minor, build, platform uint32
@@ -131,7 +131,7 @@ func readTaskbarLyricsPlacement() (taskbarLyricsPlacement, error) {
 	version.size = uint32(unsafe.Sizeof(version))
 	status, _, _ := syscall.NewLazyDLL("ntdll.dll").NewProc("RtlGetVersion").Call(uintptr(unsafe.Pointer(&version)))
 	if status != 0 {
-		return taskbarLyricsPlacement{}, fmt.Errorf("cannot identify taskbar version")
+		return taskbarLyricsPositions{}, fmt.Errorf("cannot identify taskbar version")
 	}
 	parent := root
 	if version.build < 22000 {
@@ -140,17 +140,17 @@ func readTaskbarLyricsPlacement() (taskbarLyricsPlacement, error) {
 			parent = taskbarFindChild(root, "WorkerW")
 		}
 		if parent == 0 {
-			return taskbarLyricsPlacement{}, fmt.Errorf("classic taskbar container unavailable")
+			return taskbarLyricsPositions{}, fmt.Errorf("classic taskbar container unavailable")
 		}
 	}
 	rect, ok := taskbarRect(parent)
 	if !ok || rect.right-rect.left <= rect.bottom-rect.top {
-		return taskbarLyricsPlacement{}, fmt.Errorf("horizontal taskbar unavailable")
+		return taskbarLyricsPositions{}, fmt.Errorf("horizontal taskbar unavailable")
 	}
 	var client taskbarNativeRect
 	okay, _, _ := taskbarUser32.NewProc("GetClientRect").Call(parent, uintptr(unsafe.Pointer(&client)))
 	if okay == 0 || client.right <= 0 || client.bottom <= 0 {
-		return taskbarLyricsPlacement{}, fmt.Errorf("taskbar has no client area")
+		return taskbarLyricsPositions{}, fmt.Errorf("taskbar has no client area")
 	}
 	dpi, _, _ := taskbarUser32.NewProc("GetDpiForWindow").Call(parent)
 	if dpi == 0 {
@@ -158,15 +158,21 @@ func readTaskbarLyricsPlacement() (taskbarLyricsPlacement, error) {
 	}
 	occupied, err := taskbarOccupiedBounds(root, rect)
 	if err != nil {
-		return taskbarLyricsPlacement{}, err
-	}
-	rightAligned := taskbarUsesLeftAlignment(version.build)
-	x, width := taskbarLyricsPlacementSpace(int(client.right), 280*int(dpi)/96, 100*int(dpi)/96, taskbarLyricsEdgeGap*int(dpi)/96, occupied, rightAligned)
-	if width == 0 {
-		return taskbarLyricsPlacement{}, fmt.Errorf("taskbar has insufficient free space")
+		return taskbarLyricsPositions{}, err
 	}
 	height := min(int(client.bottom), 42*int(dpi)/96)
-	return taskbarLyricsPlacement{parent: parent, taskbar: root, x: x, y: (int(client.bottom) - height) / 2, width: width, height: height, dpi: uint32(dpi), dark: taskbarUsesDarkTheme(), rightAligned: rightAligned}, nil
+	base := taskbarLyricsPlacement{parent: parent, taskbar: root, y: (int(client.bottom) - height) / 2, height: height, dpi: uint32(dpi), dark: taskbarUsesDarkTheme()}
+	placement := func(rightAligned bool) taskbarLyricsPlacement {
+		p := base
+		p.rightAligned = rightAligned
+		p.x, p.width = taskbarLyricsPlacementSpace(int(client.right), 280*int(dpi)/96, 100*int(dpi)/96, taskbarLyricsEdgeGap*int(dpi)/96, occupied, rightAligned)
+		return p
+	}
+	left, right := placement(false), placement(true)
+	if left.width == 0 && right.width == 0 {
+		return taskbarLyricsPositions{}, fmt.Errorf("taskbar has insufficient free space")
+	}
+	return taskbarLyricsPositions{left: left, right: right, autoRight: taskbarUsesLeftAlignment(version.build)}, nil
 }
 
 // Windows 10 taskbars are always left-aligned; Windows 11 records left

@@ -342,6 +342,18 @@ func (a *app) settingsContent(c *ui.Context) {
 			})
 		}
 		if supportsTaskbarLyrics() && s.lyricsMode() == lyricsTaskbar {
+			row("任务栏歌词位置", "", func() {
+				i := 0
+				switch s.TaskbarLyricsAlignment {
+				case taskbarLyricsAlignLeft:
+					i = 1
+				case taskbarLyricsAlignRight:
+					i = 2
+				}
+				if segmented(c.Key("taskbar-lyrics-alignment"), &i, "自动", "靠左", "靠右") {
+					a.setTaskbarLyricsAlignment([]string{"", taskbarLyricsAlignLeft, taskbarLyricsAlignRight}[i])
+				}
+			})
 			row("任务栏面板材质", "", func() {
 				i := 0
 				if s.TaskbarLyricsMaterial == taskbarMaterialWhite {
