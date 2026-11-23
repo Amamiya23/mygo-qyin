@@ -62,6 +62,8 @@ RS01 Hi-Res FLAC → F000 普通无损 FLAC → M800 320k MP3 → M500 128k MP3
 
 如果探测响应中能够读取到完整资源大小，则优先采用该大小（HTTP 206 读取 `Content-Range` 的总长度，HTTP 200 使用 `Content-Length`）；否则使用歌曲元数据中的 `size_hires`，避免将探测响应的局部长度误当作整首歌曲的大小。
 
+文件大小未知时，Hi-Res 仍按已解码的音频时长判断何时开始或恢复播放。相关阈值与进度条行为见 [流式播放缓冲](playback-buffering.md)。
+
 缓存按歌曲 ID 与实际音质隔离存储，例如：
 
 ```text

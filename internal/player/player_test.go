@@ -3,7 +3,9 @@ package player
 import (
 	"bytes"
 	"errors"
+	"io"
 	"math"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -20,6 +22,63 @@ func TestPlayEmptyQueue(t *testing.T) {
 	p.PlayQueue(nil, 0) // an empty playlist's play button
 	if p.Current() != nil {
 		t.Error("playing from an empty queue")
+	}
+}
+
+func TestUnknownSizeHiResBuffersOnPlayQueue(t *testing.T) {
+	testPlayQueueBuffers(t, "testdata/seek.flac", "hires", qqmusic.Stream{Type: "flac", Level: "hires"})
+}
+
+func TestMP3BuffersOnPlayQueue(t *testing.T) {
+	t.Run("standard", func(t *testing.T) {
+		testPlayQueueBuffers(t, "testdata/seek.mp3", "standard", qqmusic.Stream{Type: "mp3", Level: "standard"})
+	})
+	t.Run("exhigh", func(t *testing.T) {
+		testPlayQueueBuffers(t, "testdata/seek.mp3", "exhigh", qqmusic.Stream{Type: "mp3", Level: "exhigh"})
+	})
+	t.Run("hires fallback", func(t *testing.T) {
+		testPlayQueueBuffers(t, "testdata/seek.mp3", "hires", qqmusic.Stream{Type: "mp3", Level: "exhigh"})
+	})
+}
+
+func testPlayQueueBuffers(t *testing.T, fixture, quality string, info qqmusic.Stream) {
+	t.Helper()
+	data, err := os.ReadFile(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downloadBody(t, func(r *http.Request) io.ReadCloser {
+		return io.NopCloser(io.MultiReader(bytes.NewReader(data[:len(data)/8]), canceledDownloadReader{r.Context()}))
+	})
+	origLyrics, origURL := songLyrics, songURL
+	t.Cleanup(func() { songLyrics, songURL = origLyrics, origURL })
+	songLyrics = func(int64) (string, string, string, error) { return "", "", "", nil }
+	info.URL = "https://audio.test/song." + info.Type
+	songURL = func(int64, string) (*qqmusic.Stream, error) {
+		return &info, nil
+	}
+	ch := make(chan func(), 16)
+	p := New(func(fn func()) { ch <- fn })
+	defer func() {
+		if p.out != nil {
+			dl, _ := p.stream.source()
+			dl.cancel()
+			p.out.Close()
+		}
+	}()
+	p.Quality = func() string { return quality }
+	p.PlayQueue([]qqmusic.Track{{ID: 1, Duration: 5000}}, 0)
+	// Pause before the load result is handed to the player. This still
+	// constructs and primes the buffer without opening an audio device.
+	p.TogglePlay()
+	for (!p.Ready() || !p.lyricsLoaded) && p.Err() == "" {
+		next(t, ch)
+	}
+	if !p.Ready() || p.Stream().Level != info.Level || p.Stream().Size != info.Size || !p.buffering() || p.Position() != 0 {
+		t.Fatalf("partial %s stream did not get a startup buffer: ready=%v buffering=%v pos=%v err=%q", info.Level, p.Ready(), p.buffering(), p.Position(), p.Err())
+	}
+	if p.Playing() || p.Loading() || p.out.Playing() {
+		t.Fatal("buffering started playback after a pause")
 	}
 }
 

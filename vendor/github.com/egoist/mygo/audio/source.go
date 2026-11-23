@@ -2,7 +2,9 @@ package audio
 
 import (
 	"io"
+	"math"
 	"sync"
+	"time"
 )
 
 // A memSource reads a sound's samples.
@@ -64,6 +66,9 @@ type stream struct {
 	rate     int // immutable Decoder.SampleRate metadata; safe while decode calls Read
 	channels int // of d
 	keep     int // channels kept: 1 or 2
+	initial  int // source frames required at start or after seeking
+	resume   int // source frames required after running out
+	changed  func()
 
 	mu     sync.Mutex
 	cond   sync.Cond
@@ -75,24 +80,50 @@ type stream struct {
 	pos    int64 // the frame d decodes next
 	wrap   bool  // d decoded to the loop's end: it goes on from its start
 	atEOF  bool  // d reached its end
+	err    error // terminal failure, if any
+	wait   int   // source frames required before the next read, if buffering
 	seekTo int64 // where to seek d next, or -1
 	gen    int   // counts seeks, to drop what was decoded before one
 	closed bool
 	full   bool // the decoder sleeps until a quarter of the ring is free
 }
 
-func newStream(d Decoder) *stream {
+func newStream(d Decoder, buffer StreamBuffer) *stream {
 	ch := max(d.Channels(), 1)
 	s := &stream{d: d, rate: d.SampleRate(), channels: ch, keep: min(ch, 2), seekTo: -1}
 	s.cond.L = &s.mu
-	// About a second ahead, and a quarter holds what the decoder decodes.
-	frames := max(s.rate, 4*decodeFrames)
+	toFrames := func(d time.Duration) int {
+		return int(math.Ceil(max(d.Seconds(), 0) * float64(s.rate)))
+	}
+	s.initial, s.resume, s.changed = toFrames(buffer.Start), toFrames(buffer.Resume), buffer.Changed
+	s.wait = s.initial
+	// The default is about one second. Leave room for a whole decoder read
+	// even if a watermark is near the end of the ring.
+	frames := max(s.rate, 4*decodeFrames, toFrames(buffer.Capacity), max(s.initial, s.resume)+decodeFrames-1)
 	s.ring = make([]float32, frames*s.keep)
 	go s.decode()
 	return s
 }
 
 func (s *stream) sampleRate() int { return s.rate }
+
+func (s *stream) buffering() bool {
+	if s.initial == 0 && s.resume == 0 {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.wait > 0
+}
+
+// setWait changes the read watermark with s.mu held.
+func (s *stream) setWait(frames int) {
+	changed := (s.wait > 0) != (frames > 0)
+	s.wait = frames
+	if changed && s.changed != nil {
+		go s.changed()
+	}
+}
 
 func (s *stream) decode() {
 	buf := make([]float32, decodeFrames*s.channels)
@@ -126,6 +157,7 @@ func (s *stream) decode() {
 			if gen == s.gen {
 				// Where it cannot go, the stream ends.
 				s.atEOF = err != nil
+				s.err = err
 				s.loop = s.loop && err == nil
 				s.pos = to
 			}
@@ -171,6 +203,10 @@ func (s *stream) decode() {
 			if err != io.EOF && err != nil || n == 0 && err == nil {
 				// A decoder that fails or makes no progress loops no more.
 				s.loop = false
+				s.err = err
+				if err == nil {
+					s.err = io.ErrNoProgress
+				}
 			}
 		}
 	}
@@ -179,6 +215,19 @@ func (s *stream) decode() {
 func (s *stream) read(dst []float32) (int, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.wait > 0 {
+		if !s.atEOF && s.n/s.keep < s.wait {
+			return 0, false
+		}
+		s.setWait(0)
+		if s.err != nil {
+			// A failed buffer fill never starts playing its partial audio.
+			return 0, true
+		}
+	}
+	if s.n == 0 && !s.atEOF && len(dst) >= s.keep {
+		s.setWait(s.resume)
+	}
 	want := min(len(dst), s.n)
 	want -= want % s.keep
 	got := 0
@@ -201,6 +250,8 @@ func (s *stream) seek(frame int64) {
 	defer s.mu.Unlock()
 	s.seekTo = frame
 	s.atEOF, s.wrap = false, false
+	s.err = nil
+	s.setWait(s.initial)
 	s.r, s.n = 0, 0
 	s.gen++
 	s.full = false

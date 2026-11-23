@@ -89,7 +89,7 @@ index 0000000..3233d84
 +	}
 +}
 diff --git a/audio/audio.go b/audio/audio.go
-index 7e69c21..2bc9c1d 100644
+index 7e69c21..4afd1cb 100644
 --- a/audio/audio.go
 +++ b/audio/audio.go
 @@ -30,11 +30,16 @@ import (
@@ -123,19 +123,56 @@ index 7e69c21..2bc9c1d 100644
  	return newPlayer(src, s.rate, s.channels, int64(len(s.samples)/s.channels))
  }
  
-@@ -242,9 +247,9 @@ type closingDecoder struct {
+@@ -242,9 +247,24 @@ type closingDecoder struct {
  // ahead. d is used by one goroutine at a time. Closing the player closes d
  // if d is an io.Closer.
  func NewPlayer(d Decoder) *Player {
 -	ch := min(d.Channels(), 2)
-+	ch, length := min(d.Channels(), 2), d.Len()
- 	s := newStream(d)
+-	s := newStream(d)
 -	p := newPlayer(s, d.SampleRate(), ch, d.Len())
++	return NewBufferedPlayer(d, StreamBuffer{})
++}
++
++// StreamBuffer configures how much decoded audio a streaming player holds
++// and requires before starting or recovering from an underrun. Durations
++// are measured in source audio time. Zero thresholds allow immediate reads.
++type StreamBuffer struct {
++	Capacity, Start, Resume time.Duration
++	// Changed runs asynchronously when the player enters or leaves buffering.
++	// Read Buffering to get the current state.
++	Changed func()
++}
++
++// NewBufferedPlayer is NewPlayer with an optional playback buffer policy.
++func NewBufferedPlayer(d Decoder, buffer StreamBuffer) *Player {
++	ch, length := min(d.Channels(), 2), d.Len()
++	s := newStream(d, buffer)
 +	p := newPlayer(s, s.sampleRate(), ch, length)
  	// A player dropped while paused would leave its decoder waiting; one
  	// dropped while playing plays to its end, as a sound's do.
  	runtime.AddCleanup(p, func(v *voice) {
-@@ -289,13 +294,25 @@ func (p *Player) Play() {
+@@ -259,6 +279,20 @@ func NewPlayer(d Decoder) *Player {
+ 	return p
+ }
+ 
++// Buffering reports whether the stream is waiting for decoded audio.
++func (p *Player) Buffering() bool { return p.v.buffering() }
++
++// StreamError reports the current stream's terminal decode or seek error.
++// A successful end of stream has no error.
++func (p *Player) StreamError() error {
++	if s, ok := p.v.src.(*stream); ok {
++		s.mu.Lock()
++		defer s.mu.Unlock()
++		return s.err
++	}
++	return nil
++}
++
+ // readerOf buffers r when it reads small amounts at a time, as a file.
+ func readerOf(r io.Reader) io.Reader {
+ 	if _, ok := r.(*bytes.Reader); ok {
+@@ -289,13 +323,25 @@ func (p *Player) Play() {
  	mu.Lock()
  	defer mu.Unlock()
  	v := p.v
@@ -162,7 +199,7 @@ index 7e69c21..2bc9c1d 100644
  	v.playing = true
  	if !v.active {
  		// A sound starting at its start starts at once; one resuming in
-@@ -309,6 +326,31 @@ func (p *Player) Play() {
+@@ -309,6 +355,31 @@ func (p *Player) Play() {
  	}
  }
  
@@ -194,7 +231,7 @@ index 7e69c21..2bc9c1d 100644
  // Pause pauses the player where it is.
  func (p *Player) Pause() {
  	mu.Lock()
-@@ -334,7 +376,7 @@ func (p *Player) Stop() {
+@@ -334,7 +405,7 @@ func (p *Player) Stop() {
  func (p *Player) Playing() bool {
  	mu.Lock()
  	defer mu.Unlock()
@@ -203,7 +240,7 @@ index 7e69c21..2bc9c1d 100644
  }
  
  // endListener is a function OnEnd registered.
-@@ -345,7 +387,9 @@ type endListener struct {
+@@ -345,7 +416,9 @@ type endListener struct {
  
  // OnEnd calls fn on a goroutine of its own each time the player plays to
  // its end, which a looping player never does, as a playlist plays the
@@ -214,7 +251,7 @@ index 7e69c21..2bc9c1d 100644
  func (p *Player) OnEnd(fn func()) (off func()) {
  	mu.Lock()
  	defer mu.Unlock()
-@@ -386,6 +430,8 @@ func (p *Player) Position() time.Duration {
+@@ -386,6 +459,8 @@ func (p *Player) Position() time.Duration {
  }
  
  // Duration returns how long the player's audio is, or 0 if unknown.
@@ -223,6 +260,139 @@ index 7e69c21..2bc9c1d 100644
  func (p *Player) Duration() time.Duration {
  	if p.v.length < 0 {
  		return 0
+diff --git a/audio/buffer_test.go b/audio/buffer_test.go
+new file mode 100644
+index 0000000..954c0bd
+--- /dev/null
++++ b/audio/buffer_test.go
+@@ -0,0 +1,127 @@
++package audio
++
++import (
++	"io"
++	"testing"
++	"testing/synctest"
++	"time"
++)
++
++const bufferTestRate = 4 * decodeFrames
++
++type bufferTestDecoder struct {
++	blocks chan error
++	seeked chan int64
++}
++
++func (d *bufferTestDecoder) SampleRate() int { return bufferTestRate }
++func (d *bufferTestDecoder) Channels() int   { return 2 }
++func (d *bufferTestDecoder) Len() int64      { return -1 }
++func (d *bufferTestDecoder) SetPosition(at int64) error {
++	d.seeked <- at
++	return nil
++}
++
++func (d *bufferTestDecoder) Read(dst []float32) (int, error) {
++	err, open := <-d.blocks
++	if !open {
++		return 0, io.EOF
++	}
++	if err != nil {
++		return 0, err
++	}
++	for i := range dst {
++		dst[i] = 0.5
++	}
++	return len(dst), nil
++}
++
++func (d *bufferTestDecoder) feed(seconds int) {
++	for range 4 * seconds {
++		d.blocks <- nil
++	}
++	synctest.Wait()
++}
++
++func TestStreamBufferWatermarks(t *testing.T) {
++	synctest.Test(t, func(t *testing.T) {
++		d := &bufferTestDecoder{make(chan error, 32), make(chan int64, 1)}
++		p := NewBufferedPlayer(d, StreamBuffer{Capacity: 8 * time.Second, Start: 5 * time.Second, Resume: 6 * time.Second})
++		defer close(d.blocks)
++		defer p.Close()
++		p.v.playing = true
++		out := make([]float32, 6*bufferTestRate*2)
++		mix := func(wantFrames bool, seconds int) {
++			t.Helper()
++			n, active := p.v.play(out[:seconds*bufferTestRate*2], 1, bufferTestRate)
++			if (n > 0) != wantFrames || !active {
++				t.Fatalf("mixed %d frames, active=%v, want frames=%v", n, active, wantFrames)
++			}
++		}
++		d.feed(1)
++		mix(false, 1)
++		d.feed(3)
++		mix(false, 1)
++		d.feed(1)
++		mix(true, 1)
++		if p.Buffering() {
++			t.Fatal("still buffering after five seconds")
++		}
++		mix(true, 6)
++		if !p.Buffering() {
++			t.Fatal("did not buffer after running dry")
++		}
++		d.feed(1)
++		mix(false, 1)
++		d.feed(4)
++		mix(false, 1)
++		p.Pause()
++		d.feed(1)
++		if n, active := p.v.play(out, 1, bufferTestRate); n != 0 || active {
++			t.Fatalf("pause during buffering mixed %d frames, active=%v", n, active)
++		}
++		p.v.playing = true
++		mix(true, 1)
++		if p.Buffering() {
++			t.Fatal("still buffering after six seconds")
++		}
++
++		p.Seek(10 * time.Second)
++		d.feed(0)
++		// Release the decoder read from before the seek before adding new data.
++		d.blocks <- nil
++		if at := <-d.seeked; at != 10*bufferTestRate {
++			t.Fatalf("seeked to frame %d", at)
++		}
++		d.feed(4)
++		mix(false, 1)
++		d.feed(1)
++		mix(true, 1)
++	})
++}
++
++func TestStreamBufferEndsBelowWatermark(t *testing.T) {
++	for _, err := range []error{io.EOF, io.ErrUnexpectedEOF} {
++		t.Run(err.Error(), func(t *testing.T) {
++			synctest.Test(t, func(t *testing.T) {
++				d := &bufferTestDecoder{blocks: make(chan error, 8)}
++				p := NewBufferedPlayer(d, StreamBuffer{Start: 5 * time.Second})
++				defer p.Close()
++				p.v.playing = true
++				d.feed(1)
++				d.blocks <- err
++				synctest.Wait()
++				out := make([]float32, 2*bufferTestRate*2)
++				n, active := p.v.play(out, 1, bufferTestRate)
++				var wantErr error
++				wantFrames := bufferTestRate
++				if err != io.EOF {
++					wantErr, wantFrames = err, 0
++				}
++				if n != wantFrames || active || p.Buffering() || p.StreamError() != wantErr {
++					t.Fatalf("mixed %d frames, active=%v, buffering=%v, error=%v", n, active, p.Buffering(), p.StreamError())
++				}
++			})
++		})
++	}
++}
 diff --git a/audio/device_integration_linux_test.go b/audio/device_integration_linux_test.go
 new file mode 100644
 index 0000000..91cd15f
@@ -271,7 +441,7 @@ index 0000000..91cd15f
 +	}
 +}
 diff --git a/audio/mixer.go b/audio/mixer.go
-index 0852b18..c34b898 100644
+index 0852b18..a0a1128 100644
 --- a/audio/mixer.go
 +++ b/audio/mixer.go
 @@ -31,11 +31,16 @@ func setHeld(n int64) {
@@ -322,7 +492,19 @@ index 0852b18..c34b898 100644
  	// Silence before f.
  	clear(v.ring)
  	v.idx, v.phase, v.head = f, 0, f
-@@ -297,6 +309,9 @@ func (v *voice) gains(master float64) [4]float32 {
+@@ -130,6 +142,11 @@ func (v *voice) reset(f int64) {
+ // ended reports whether the voice played to the end of its source.
+ func (v *voice) ended() bool { return v.end >= 0 && v.idx >= v.end }
+ 
++func (v *voice) buffering() bool {
++	s, ok := v.src.(*stream)
++	return ok && s.buffering()
++}
++
+ // at returns the source frame the voice mixes next, counted on past its
+ // loop's end.
+ func (v *voice) at() float64 {
+@@ -297,6 +314,9 @@ func (v *voice) gains(master float64) [4]float32 {
  		x := (v.pan + 1) / 2 * math.Pi / 2
  		return [4]float32{float32(g * math.Sqrt2 * math.Cos(x)), 0, 0, float32(g * math.Sqrt2 * math.Sin(x))}
  	}
@@ -332,7 +514,7 @@ index 0852b18..c34b898 100644
  	// Web Audio's StereoPannerNode for stereo input.
  	if v.pan <= 0 {
  		x := (v.pan + 1) * math.Pi / 2
-@@ -307,7 +322,7 @@ func (v *voice) gains(master float64) [4]float32 {
+@@ -307,7 +327,7 @@ func (v *voice) gains(master float64) [4]float32 {
  }
  
  // retarget ramps the gains to t from now.
@@ -341,7 +523,7 @@ index 0852b18..c34b898 100644
  	switch {
  	case v.snap:
  		v.snap, v.fadeIn = false, false
-@@ -320,30 +335,52 @@ func (v *voice) retarget(t [4]float32) {
+@@ -320,30 +340,55 @@ func (v *voice) retarget(t [4]float32) {
  		return
  	}
  	v.target = t
@@ -392,6 +574,9 @@ index 0852b18..c34b898 100644
 -	v.retarget(v.gains(master))
 -	step := v.rate / sampleRate * v.speed
 +func (v *voice) play(out []float32, master float64, rate int) (int, bool) {
++	if !v.playing && v.buffering() {
++		return 0, false
++	}
 +	v.retarget(v.gains(master), rate)
 +	step := v.rate / float64(rate) * v.speed
  	if v.st != nil && v.st.on {
@@ -401,7 +586,20 @@ index 0852b18..c34b898 100644
  	}
  	// The spline reaches 2 frames ahead, the sinc further the faster.
  	reach := 2
-@@ -394,6 +431,10 @@ func (v *voice) play(out []float32, master float64) (int, bool) {
+@@ -356,6 +401,12 @@ func (v *voice) play(out []float32, master float64) (int, bool) {
+ 		for v.head <= v.idx+n+int64(reach) {
+ 			if !v.next() {
+ 				// The stream is late: silence until it catches up.
++				if v.buffering() {
++					if !v.playing {
++						return i / 2, false
++					}
++					v.fadeIn = !v.snap
++				}
+ 				return i / 2, true
+ 			}
+ 		}
+@@ -394,6 +445,10 @@ func (v *voice) play(out []float32, master float64) (int, bool) {
  // sample interpolates between frames idx and idx+1 with a Catmull-Rom
  // spline through the frames either side.
  func (v *voice) sample() (l, r float32) {
@@ -412,7 +610,7 @@ index 0852b18..c34b898 100644
  	t := float32(v.phase)
  	o := (v.idx - 1) & (ringFrames - 1)
  	h := v.ring[o : o+4]
-@@ -415,9 +456,21 @@ func mix(out []float32) bool {
+@@ -415,9 +470,21 @@ func mix(out []float32) bool {
  func mixLocked(out []float32) bool {
  	clear(out)
  	at, h := mixed, heard()
@@ -2907,10 +3105,18 @@ index 0000000..72d4de2
 +	}
 +}
 diff --git a/audio/source.go b/audio/source.go
-index 82bf2d8..dcd0228 100644
+index 82bf2d8..671de9d 100644
 --- a/audio/source.go
 +++ b/audio/source.go
-@@ -8,12 +8,15 @@ import (
+@@ -2,18 +2,23 @@ package audio
+ 
+ import (
+ 	"io"
++	"math"
+ 	"sync"
++	"time"
+ )
+ 
  // A memSource reads a sound's samples.
  type memSource struct {
  	samples    []float32
@@ -2926,24 +3132,47 @@ index 82bf2d8..dcd0228 100644
  func (s *memSource) read(dst []float32) (int, bool) {
  	n := 0
  	for n < len(dst) {
-@@ -58,6 +61,7 @@ const decodeFrames = 2048
+@@ -58,8 +63,12 @@ const decodeFrames = 2048
  // until a quarter of it is free, waking a few times a second.
  type stream struct {
  	d        Decoder
 +	rate     int // immutable Decoder.SampleRate metadata; safe while decode calls Read
  	channels int // of d
  	keep     int // channels kept: 1 or 2
++	initial  int // source frames required at start or after seeking
++	resume   int // source frames required after running out
++	changed  func()
  
-@@ -79,15 +83,17 @@ type stream struct {
+ 	mu     sync.Mutex
+ 	cond   sync.Cond
+@@ -71,23 +80,51 @@ type stream struct {
+ 	pos    int64 // the frame d decodes next
+ 	wrap   bool  // d decoded to the loop's end: it goes on from its start
+ 	atEOF  bool  // d reached its end
++	err    error // terminal failure, if any
++	wait   int   // source frames required before the next read, if buffering
+ 	seekTo int64 // where to seek d next, or -1
+ 	gen    int   // counts seeks, to drop what was decoded before one
+ 	closed bool
+ 	full   bool // the decoder sleeps until a quarter of the ring is free
+ }
  
- func newStream(d Decoder) *stream {
+-func newStream(d Decoder) *stream {
++func newStream(d Decoder, buffer StreamBuffer) *stream {
  	ch := max(d.Channels(), 1)
 -	s := &stream{d: d, channels: ch, keep: min(ch, 2), seekTo: -1}
 +	s := &stream{d: d, rate: d.SampleRate(), channels: ch, keep: min(ch, 2), seekTo: -1}
  	s.cond.L = &s.mu
- 	// About a second ahead, and a quarter holds what the decoder decodes.
+-	// About a second ahead, and a quarter holds what the decoder decodes.
 -	frames := max(d.SampleRate(), 4*decodeFrames)
-+	frames := max(s.rate, 4*decodeFrames)
++	toFrames := func(d time.Duration) int {
++		return int(math.Ceil(max(d.Seconds(), 0) * float64(s.rate)))
++	}
++	s.initial, s.resume, s.changed = toFrames(buffer.Start), toFrames(buffer.Resume), buffer.Changed
++	s.wait = s.initial
++	// The default is about one second. Leave room for a whole decoder read
++	// even if a watermark is near the end of the ring.
++	frames := max(s.rate, 4*decodeFrames, toFrames(buffer.Capacity), max(s.initial, s.resume)+decodeFrames-1)
  	s.ring = make([]float32, frames*s.keep)
  	go s.decode()
  	return s
@@ -2951,6 +3180,72 @@ index 82bf2d8..dcd0228 100644
  
 +func (s *stream) sampleRate() int { return s.rate }
 +
++func (s *stream) buffering() bool {
++	if s.initial == 0 && s.resume == 0 {
++		return false
++	}
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	return s.wait > 0
++}
++
++// setWait changes the read watermark with s.mu held.
++func (s *stream) setWait(frames int) {
++	changed := (s.wait > 0) != (frames > 0)
++	s.wait = frames
++	if changed && s.changed != nil {
++		go s.changed()
++	}
++}
++
  func (s *stream) decode() {
  	buf := make([]float32, decodeFrames*s.channels)
  	var kept []float32
+@@ -120,6 +157,7 @@ func (s *stream) decode() {
+ 			if gen == s.gen {
+ 				// Where it cannot go, the stream ends.
+ 				s.atEOF = err != nil
++				s.err = err
+ 				s.loop = s.loop && err == nil
+ 				s.pos = to
+ 			}
+@@ -165,6 +203,10 @@ func (s *stream) decode() {
+ 			if err != io.EOF && err != nil || n == 0 && err == nil {
+ 				// A decoder that fails or makes no progress loops no more.
+ 				s.loop = false
++				s.err = err
++				if err == nil {
++					s.err = io.ErrNoProgress
++				}
+ 			}
+ 		}
+ 	}
+@@ -173,6 +215,19 @@ func (s *stream) decode() {
+ func (s *stream) read(dst []float32) (int, bool) {
+ 	s.mu.Lock()
+ 	defer s.mu.Unlock()
++	if s.wait > 0 {
++		if !s.atEOF && s.n/s.keep < s.wait {
++			return 0, false
++		}
++		s.setWait(0)
++		if s.err != nil {
++			// A failed buffer fill never starts playing its partial audio.
++			return 0, true
++		}
++	}
++	if s.n == 0 && !s.atEOF && len(dst) >= s.keep {
++		s.setWait(s.resume)
++	}
+ 	want := min(len(dst), s.n)
+ 	want -= want % s.keep
+ 	got := 0
+@@ -195,6 +250,8 @@ func (s *stream) seek(frame int64) {
+ 	defer s.mu.Unlock()
+ 	s.seekTo = frame
+ 	s.atEOF, s.wrap = false, false
++	s.err = nil
++	s.setWait(s.initial)
+ 	s.r, s.n = 0, 0
+ 	s.gen++
+ 	s.full = false

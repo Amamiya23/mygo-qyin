@@ -247,8 +247,23 @@ type closingDecoder struct {
 // ahead. d is used by one goroutine at a time. Closing the player closes d
 // if d is an io.Closer.
 func NewPlayer(d Decoder) *Player {
+	return NewBufferedPlayer(d, StreamBuffer{})
+}
+
+// StreamBuffer configures how much decoded audio a streaming player holds
+// and requires before starting or recovering from an underrun. Durations
+// are measured in source audio time. Zero thresholds allow immediate reads.
+type StreamBuffer struct {
+	Capacity, Start, Resume time.Duration
+	// Changed runs asynchronously when the player enters or leaves buffering.
+	// Read Buffering to get the current state.
+	Changed func()
+}
+
+// NewBufferedPlayer is NewPlayer with an optional playback buffer policy.
+func NewBufferedPlayer(d Decoder, buffer StreamBuffer) *Player {
 	ch, length := min(d.Channels(), 2), d.Len()
-	s := newStream(d)
+	s := newStream(d, buffer)
 	p := newPlayer(s, s.sampleRate(), ch, length)
 	// A player dropped while paused would leave its decoder waiting; one
 	// dropped while playing plays to its end, as a sound's do.
@@ -262,6 +277,20 @@ func NewPlayer(d Decoder) *Player {
 		}
 	}, p.v)
 	return p
+}
+
+// Buffering reports whether the stream is waiting for decoded audio.
+func (p *Player) Buffering() bool { return p.v.buffering() }
+
+// StreamError reports the current stream's terminal decode or seek error.
+// A successful end of stream has no error.
+func (p *Player) StreamError() error {
+	if s, ok := p.v.src.(*stream); ok {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.err
+	}
+	return nil
 }
 
 // readerOf buffers r when it reads small amounts at a time, as a file.

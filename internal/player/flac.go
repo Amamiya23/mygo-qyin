@@ -112,10 +112,16 @@ func (s *flacStream) Read(dst []float32) (int, error) {
 		if s.info.NSamples > 0 && s.pos >= int64(s.info.NSamples) {
 			return 0, io.EOF
 		}
+		if _, err := s.r.Peek(1); err != nil {
+			if err == io.EOF && s.info.NSamples > 0 {
+				err = io.ErrUnexpectedEOF
+			}
+			return 0, err
+		}
 		f, err := s.parse(s.r)
 		if err != nil {
-			if err == io.ErrUnexpectedEOF {
-				err = io.EOF
+			if err == io.EOF {
+				err = io.ErrUnexpectedEOF
 			}
 			return 0, err
 		}
@@ -155,12 +161,23 @@ func (s *flacStream) decode(f *frame.Frame) {
 // SetPosition goes to frame: to the frame of FLAC holding it, then drops
 // what comes before it there. It finds that frame by the secant method,
 // guessing where in the bytes it is from the frames found on either side,
-// until one is found less than a second before it.
+// until one is found less than a second before it. Without the file size,
+// it decodes forward as bytes arrive.
 func (s *flacStream) SetPosition(target int64) error {
 	total := int64(s.info.NSamples)
 	size := s.dl.size
 	if size <= 0 {
-		size = s.dl.waitFor(math.MaxInt64)
+		if n, complete := s.dl.completedSize(); complete {
+			size = n
+		} else if target >= s.pos && s.skip == 0 {
+			// With no total byte count, reuse the current decoder for
+			// forward seeks and discard only the frames before the target.
+			drop := min(target-s.pos, int64(len(s.pend)/2))
+			s.pend = s.pend[drop*2:]
+			s.skip, s.pos = target-s.pos-drop, target
+			s.spec.seek()
+			return nil
+		}
 	}
 	// Probe before the estimated frame: scanning forwards from inside the
 	// target frame can find its successor, then miss every header before
@@ -171,7 +188,7 @@ func (s *flacStream) SetPosition(target int64) error {
 	}
 	loOff, lo := s.start, int64(0)
 	hiOff, hi := size, total
-	for tries := 0; tries < 8 && target-lo > int64(s.info.SampleRate) && hi > lo; tries++ {
+	for tries := 0; tries < 8 && target-lo > int64(s.info.SampleRate) && hi > lo && hiOff > loOff; tries++ {
 		guess := loOff + int64(float64(hiOff-loOff)*float64(target-lo)/float64(hi-lo)) - frameBytes
 		off, at, ok := s.frameAfter(max(guess, loOff+1), hiOff)
 		if !ok {

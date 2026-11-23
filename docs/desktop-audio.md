@@ -9,6 +9,8 @@
 | 动态跟随音源采样率输出 | 支持 | 不适用 | 不适用 |
 | 200ms 硬件切频与唤醒静音预热 | 显式开启后支持 | 禁用 | 禁用 |
 
+QQ 音乐各档音质的起播与续播门槛、进度条行为及验证结果见 [流式播放缓冲](playback-buffering.md)。
+
 ### 平台构建约束
 
 代码通过 `policy_desktop.go` 与 `policy_other.go` 中互补的 Go 构建标签（Build Constraints）区分平台策略：
@@ -24,12 +26,12 @@
 
 ## 播放器 API 与默认行为
 
-通过 `NewPlayer`、`OpenStream`、`Sound.NewPlayer` 和 `Sound.Play` 创建的播放器，**默认关闭 200ms 静音预热**。因此，界面点击等普通音效在冷启动、重播或暂停恢复时均不会引入额外延迟（桌面端的动态采样率输出正常生效）。
+通过 `NewPlayer`、`NewBufferedPlayer`、`OpenStream`、`Sound.NewPlayer` 和 `Sound.Play` 创建的播放器，**默认关闭 200ms 静音预热**。因此，界面点击等普通音效在冷启动、重播或暂停恢复时均不会引入额外延迟（桌面端的动态采样率输出正常生效）。
 
 Lilt 在 `internal/player/player.go` 中初始化主音乐流时，通过链式调用显式开启上述特性：
 
 ```go
-out := audio.NewPlayer(decoder).
+out := audio.NewBufferedPlayer(decoder, buffer).
     SetPrimary(true).
     SetPreRoll(true)
 out.Play()

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"testing/synctest"
 	"time"
 
@@ -99,6 +100,41 @@ func TestMP3SeekIsClean(t *testing.T) {
 	}
 }
 
+func TestMP3DistinguishesDownloadFailureFromEOF(t *testing.T) {
+	data, err := os.ReadFile("testdata/seek.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		tail io.Reader
+		want error
+	}{
+		{"complete", bytes.NewReader(data[len(data)/2:]), io.EOF},
+		{"truncated", iotest.ErrReader(io.ErrUnexpectedEOF), io.ErrUnexpectedEOF},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			downloadBody(t, func(*http.Request) io.ReadCloser {
+				return io.NopCloser(io.MultiReader(bytes.NewReader(data[:len(data)/2]), tc.tail))
+			})
+			dl := startDownload("https://audio.test/song.mp3", int64(len(data)), nil, nil, nil)
+			defer dl.Close()
+			s, err := openStream(dl, 5000)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			buf := make([]float32, 4096)
+			for err == nil {
+				_, err = s.Read(buf)
+			}
+			if err != tc.want {
+				t.Fatalf("MP3 ended with %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
 // A FLAC plays as its samples are, and a seek lands on the very sample.
 func TestFLACSeek(t *testing.T) {
 	b, err := os.ReadFile("testdata/seek.flac")
@@ -154,6 +190,61 @@ func TestFLACSeek(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestFLACUnknownSizeSeekBeforeDownloadEnds(t *testing.T) {
+	data, err := os.ReadFile("testdata/seek.flac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := decodeAll(t, data)
+	synctest.Test(t, func(t *testing.T) {
+		downloadBody(t, func(r *http.Request) io.ReadCloser {
+			return io.NopCloser(io.MultiReader(bytes.NewReader(data[:len(data)*3/4]), canceledDownloadReader{r.Context()}))
+		})
+		dl := startDownload("https://audio.test/song.flac", 0, nil, nil, nil)
+		defer dl.Close()
+		s, err := openStream(dl, 5000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		if _, complete := dl.completedSize(); complete {
+			t.Fatal("test download finished before seeking")
+		}
+		buf := make([]float32, 4096)
+		for _, target := range []int64{50000, 100000, 25000} {
+			if err := s.SetPosition(target); err != nil {
+				t.Fatal(err)
+			}
+			n, err := s.Read(buf)
+			if err != nil || n == 0 || maxDiff(buf[:n], ref[target*2:]) != 0 {
+				t.Fatalf("seek to %d did not return original audio: %d samples, %v", target, n, err)
+			}
+		}
+	})
+}
+
+func TestFLACTruncatedBeforeDeclaredEnd(t *testing.T) {
+	data, err := os.ReadFile("testdata/seek.flac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := openStream(downloaded(data[:len(data)/2]), 5000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	buf := make([]float32, 4096)
+	for {
+		_, err := s.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				t.Fatal("truncated FLAC reported a clean end")
+			}
+			break
+		}
 	}
 }
 

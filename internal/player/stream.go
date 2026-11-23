@@ -249,6 +249,12 @@ func (d *download) Progress() float64 {
 	return float64(d.n) / float64(d.size)
 }
 
+func (d *download) completedSize() (int64, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.n, d.done && d.err == nil
+}
+
 // waitFor waits until n bytes are in, or the download ended, and returns
 // how many there are.
 func (d *download) waitFor(n int64) int64 {
@@ -447,8 +453,12 @@ func (s *mp3Stream) Read(dst []float32) (int, error) {
 	if samples > 0 {
 		return samples, nil
 	}
-	if err == io.ErrUnexpectedEOF || err == nil {
-		err = io.EOF
+	if err == io.ErrUnexpectedEOF || err == io.EOF || err == nil {
+		// A short final decode block is normal. Keep a transport failure
+		// distinct from it, including an HTTP body truncated mid-download.
+		s.dl.mu.Lock()
+		err = cmp.Or(s.dl.err, io.EOF)
+		s.dl.mu.Unlock()
 	}
 	return 0, err
 }
@@ -554,7 +564,7 @@ const (
 	Bands   = 24
 	// MyGo decodes a second ahead and holds another 250 ms in the output.
 	// Two seconds plus four chunks cover both, independently of song length.
-	// The cap covers even the largest 20-bit FLAC sample rate's predecode
+	// The default cap covers even the largest 20-bit FLAC sample rate's predecode
 	// and output delay, while keeping the slots below 8.3 MiB at any rate.
 	maxSpectrumChunks = 2048
 )
@@ -584,12 +594,9 @@ type spectrum struct {
 }
 
 func newSpectrum(rate int) *spectrum {
-	n := min(maxSpectrumChunks, max(8, rate*2/fftSize+4))
-	s := &spectrum{chunks: make([]spectrumChunk, n), accAt: -1, requested: -1,
+	s := &spectrum{accAt: -1, requested: -1,
 		lastAt: -1, maxLag: max(4, int64(rate)/fftSize/10+1)}
-	for i := range s.chunks {
-		s.chunks[i].at = -1
-	}
+	s.reserve(rate, 2)
 	for i := range s.window {
 		s.window[i] = float32(0.5 - 0.5*math.Cos(2*math.Pi*float64(i)/float64(fftSize-1)))
 	}
@@ -603,6 +610,17 @@ func newSpectrum(rate int) *spectrum {
 		s.edges[i] = max(s.edges[i], s.edges[i-1]+1)
 	}
 	return s
+}
+
+// reserve keeps enough PCM to reach the audible position from the decoder's
+// read-ahead. It is called before decoding starts.
+func (s *spectrum) reserve(rate, seconds int) {
+	limit := maxSpectrumChunks * seconds / 2
+	n := min(limit, max(8, rate*seconds/fftSize+4))
+	s.chunks = make([]spectrumChunk, n)
+	for i := range s.chunks {
+		s.chunks[i].at = -1
+	}
 }
 
 // feed takes stereo samples decoded from frame at, unless the stream

@@ -142,6 +142,11 @@ func (v *voice) reset(f int64) {
 // ended reports whether the voice played to the end of its source.
 func (v *voice) ended() bool { return v.end >= 0 && v.idx >= v.end }
 
+func (v *voice) buffering() bool {
+	s, ok := v.src.(*stream)
+	return ok && s.buffering()
+}
+
 // at returns the source frame the voice mixes next, counted on past its
 // loop's end.
 func (v *voice) at() float64 {
@@ -376,6 +381,9 @@ func (v *voice) mix(out []float32, master float64, at, heard int64) bool {
 // play adds the voice's next frames to out and returns how many it moved
 // through its source for, and whether it is still active.
 func (v *voice) play(out []float32, master float64, rate int) (int, bool) {
+	if !v.playing && v.buffering() {
+		return 0, false
+	}
 	v.retarget(v.gains(master), rate)
 	step := v.rate / float64(rate) * v.speed
 	if v.st != nil && v.st.on {
@@ -393,6 +401,12 @@ func (v *voice) play(out []float32, master float64, rate int) (int, bool) {
 		for v.head <= v.idx+n+int64(reach) {
 			if !v.next() {
 				// The stream is late: silence until it catches up.
+				if v.buffering() {
+					if !v.playing {
+						return i / 2, false
+					}
+					v.fadeIn = !v.snap
+				}
 				return i / 2, true
 			}
 		}

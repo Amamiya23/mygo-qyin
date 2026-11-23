@@ -404,8 +404,10 @@ func (p *Player) Queue() []qqmusic.Track { return p.queue }
 // Playing reports what the listener wants: false while paused.
 func (p *Player) Playing() bool { return p.playing }
 
-// Loading reports whether the current track is still loading.
-func (p *Player) Loading() bool { return p.loading || p.awaiting }
+// Loading reports whether playback is waiting for a track or for its audio.
+func (p *Player) Loading() bool { return p.loading || p.awaiting || p.playing && p.buffering() }
+
+func (p *Player) buffering() bool { return p.out != nil && p.out.Buffering() }
 
 // Ready reports whether the current track has loaded, to play.
 func (p *Player) Ready() bool { return p.out != nil }
@@ -527,6 +529,12 @@ func (p *Player) TogglePlay() {
 		return
 	}
 	out := p.out
+	if p.playing && out.Buffering() {
+		p.playing = false
+		out.Pause()
+		p.sync()
+		return
+	}
 	if p.PlaybackFade != nil && !p.PlaybackFade() {
 		p.fade.attach(out, 1)
 		if p.playing {
@@ -534,12 +542,7 @@ func (p *Player) TogglePlay() {
 			out.Pause()
 		} else {
 			p.playing = true
-			if !p.seeking && !out.Playing() {
-				if out.Position() >= out.Duration()-time.Second {
-					out.Seek(0)
-				}
-				out.Play()
-			}
+			p.resume(out)
 		}
 		p.sync()
 		return
@@ -558,14 +561,19 @@ func (p *Player) TogglePlay() {
 		return
 	}
 	p.playing = true
-	if !p.seeking && !out.Playing() {
-		if out.Position() >= out.Duration()-time.Second {
-			out.Seek(0)
-		}
-		out.Play()
-	}
+	p.resume(out)
 	p.fade.fade(1, fadeIn, nil)
 	p.sync()
+}
+
+func (p *Player) resume(out *audio.Player) {
+	if p.seeking || out.Playing() {
+		return
+	}
+	if duration := out.Duration(); duration > 0 && !out.Buffering() && out.Position() >= duration-time.Second {
+		out.Seek(0)
+	}
+	out.Play()
 }
 
 // seekGap is how long a seek waits for what plays to fade out, which the
@@ -600,7 +608,7 @@ func (p *Player) Seek(t time.Duration) {
 			}
 			p.seeking = false
 			out.Seek(t)
-			if p.playing || !p.fade.silent() {
+			if p.playing || !out.Buffering() && !p.fade.silent() {
 				out.Play()
 			}
 			p.sync()
@@ -724,6 +732,11 @@ func (p *Player) stop() {
 		out.Pause()
 		time.AfterFunc(100*time.Millisecond, out.Close)
 	}
+	if p.stream != nil {
+		// Wake a decoder blocked waiting for bytes before closing the output.
+		dl, _ := p.stream.source()
+		dl.cancel()
+	}
 	p.out, p.stream, p.info = nil, nil, nil
 	p.seeking = false
 	p.fade.attach(nil, 1)
@@ -806,6 +819,18 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 	normalize := p.Normalize != nil && p.Normalize() != NormalizeOff
 	go func() {
 		info, s, loudness, err := p.open(t, level, normalize)
+		var policy audio.StreamBuffer
+		var dl *download
+		if err == nil {
+			policy = playbackBuffer(s, info.Level)
+			if policy.Start > 0 {
+				var spec *spectrum
+				dl, spec = s.source()
+				if _, complete := dl.completedSize(); !complete {
+					spec.reserve(s.SampleRate(), int(policy.Capacity/time.Second)+1)
+				}
+			}
+		}
 		p.post(func() {
 			if gen != p.gen {
 				if s != nil {
@@ -838,7 +863,24 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 				return
 			}
 			p.stream, p.info = s, info
-			p.out = audio.NewPlayer(s).SetPrimary(true).SetPreRoll(true)
+			buffer := audio.StreamBuffer{}
+			if dl != nil {
+				if _, complete := dl.completedSize(); !complete {
+					buffer = policy
+					buffer.Changed = func() {
+						p.post(func() {
+							if gen == p.gen && p.out != nil {
+								if !p.playing && p.buffering() {
+									p.out.Pause()
+								}
+								p.sync()
+							}
+						})
+					}
+				}
+			}
+			out := audio.NewBufferedPlayer(s, buffer).SetPrimary(true).SetPreRoll(true)
+			p.out = out
 			// From its middle, as a session picked up again, it fades in.
 			level := 1.0
 			if p.pending > 0 && (p.PlaybackFade == nil || p.PlaybackFade()) {
@@ -850,11 +892,19 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 			} else {
 				p.RefreshGain()
 			}
-			p.out.OnEnd(func() {
+			out.OnEnd(func() {
 				p.post(func() {
-					if gen == p.gen {
-						p.ended()
+					if gen != p.gen || p.out != out {
+						return
 					}
+					if dl != nil && out.StreamError() != nil {
+						p.pending = out.Position()
+						p.stop()
+						p.playing, p.err = false, "音频流读取失败"
+						p.sync()
+						return
+					}
+					p.ended()
 				})
 			})
 			if p.pending > 0 {
@@ -876,6 +926,34 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 }
 
 const loudnessWait = 50 * time.Millisecond
+
+var (
+	losslessStreamBuffer = audio.StreamBuffer{
+		Capacity: 8 * time.Second,
+		Start:    5 * time.Second,
+		Resume:   6 * time.Second,
+	}
+	mp3StreamBuffer = audio.StreamBuffer{
+		Capacity: 3 * time.Second,
+		Start:    time.Second,
+		Resume:   time.Second,
+	}
+)
+
+// playbackBuffer uses the stream actually delivered, including quality fallback.
+func playbackBuffer(s stream, level string) audio.StreamBuffer {
+	switch s.(type) {
+	case *flacStream:
+		if qqmusic.Lossless(level) {
+			return losslessStreamBuffer
+		}
+	case *mp3Stream:
+		if level == "standard" || level == "exhigh" {
+			return mp3StreamBuffer
+		}
+	}
+	return audio.StreamBuffer{}
+}
 
 // open opens track t's audio at level: kept in the cache, or else
 // streamed into it, and kept once it has all come in.
