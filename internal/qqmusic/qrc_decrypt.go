@@ -40,9 +40,13 @@ func decodeQRC(s string) (string, error) {
 		return "", fmt.Errorf("qqmusic: open QRC compression: %w", err)
 	}
 	defer r.Close()
-	text, err := io.ReadAll(r)
+	const maxQRCSize = 4 << 20
+	text, err := io.ReadAll(io.LimitReader(r, maxQRCSize+1))
 	if err != nil {
 		return "", fmt.Errorf("qqmusic: decompress QRC: %w", err)
+	}
+	if len(text) > maxQRCSize {
+		return "", fmt.Errorf("qqmusic: QRC payload too large")
 	}
 	if !utf8.Valid(text) {
 		return "", fmt.Errorf("qqmusic: invalid QRC text encoding")
