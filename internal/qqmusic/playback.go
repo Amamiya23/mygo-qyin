@@ -118,41 +118,56 @@ func SongURLContext(ctx context.Context, id int64, level string) (*Stream, error
 			if entry.MID != "" && entry.MID != t.MID || entry.PURL == "" {
 				continue
 			}
-			domain := ""
-			for _, sip := range data.SIP {
-				if validStreamDomain(sip) && !strings.HasPrefix(sip, "http://ws") {
-					domain = sip
-					break
-				}
-			}
-			if domain == "" {
-				for _, sip := range data.SIP {
-					if validStreamDomain(sip) {
-						domain = sip
-						break
-					}
-				}
-			}
-			if domain == "" {
-				domain = selectStreamDomain(ctx, guid, entry.PURL)
-				if err := ctx.Err(); err != nil {
-					return nil, err
-				}
-			}
-			u, err := url.Parse(domain)
-			if err != nil {
-				return nil, err
-			}
 			p, err := url.Parse(entry.PURL)
 			if err != nil {
 				return nil, err
 			}
-			streamURL := u.ResolveReference(p).String()
-			size := q.size
 			if q.level == "hires" {
 				if p.IsAbs() || p.Host != "" || !strings.HasPrefix(path.Base(p.Path), "RS01") {
 					continue
 				}
+			} else if p.IsAbs() || p.Host != "" {
+				if !p.IsAbs() || !validStreamDomain(entry.PURL) {
+					continue
+				}
+			}
+			var streamURL string
+			if p.IsAbs() {
+				streamURL = p.String()
+			} else {
+				domain := ""
+				for _, sip := range data.SIP {
+					if validStreamDomain(sip) && !strings.HasPrefix(strings.ToLower(sip), "http://ws") {
+						domain = sip
+						break
+					}
+				}
+				if domain == "" {
+					for _, sip := range data.SIP {
+						if validStreamDomain(sip) {
+							domain = sip
+							break
+						}
+					}
+				}
+				if domain == "" {
+					domain = selectStreamDomain(ctx, guid, entry.PURL)
+					if err := ctx.Err(); err != nil {
+						return nil, err
+					}
+				}
+				u, err := url.Parse(domain)
+				if err != nil {
+					return nil, err
+				}
+				resolved := u.ResolveReference(p)
+				if !validStreamDomain(resolved.String()) {
+					continue
+				}
+				streamURL = resolved.String()
+			}
+			size := q.size
+			if q.level == "hires" {
 				info, actualSize, err := inspectFLACStream(ctx, streamURL)
 				if errors.Is(err, ErrUnavailable) {
 					continue
@@ -179,7 +194,11 @@ func SongURLContext(ctx context.Context, id int64, level string) (*Stream, error
 
 func validStreamDomain(raw string) bool {
 	u, err := url.Parse(raw)
-	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && (u.Hostname() == "qqmusic.qq.com" || strings.HasSuffix(u.Hostname(), ".qqmusic.qq.com") || strings.HasSuffix(u.Hostname(), ".qq.com"))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "qqmusic.qq.com" || strings.HasSuffix(host, ".qqmusic.qq.com") || strings.HasSuffix(host, ".qq.com")
 }
 func streamResponds(ctx context.Context, domain, purl string) bool {
 	u, err := url.Parse(domain)
@@ -187,10 +206,14 @@ func streamResponds(ctx context.Context, domain, purl string) bool {
 		return false
 	}
 	p, err := url.Parse(purl)
-	if err != nil {
+	if err != nil || p.IsAbs() || p.Host != "" {
 		return false
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.ResolveReference(p).String(), nil)
+	target := u.ResolveReference(p).String()
+	if !validStreamDomain(target) {
+		return false
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return false
 	}

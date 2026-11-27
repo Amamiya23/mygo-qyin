@@ -149,26 +149,56 @@ func RestoreSession() (bool, error) {
 	return true, nil
 }
 
+var authPersistGate = make(chan struct{}, 1)
+
 func SaveSession() error {
-	authState.Lock()
-	defer authState.Unlock()
-	return saveSessionLocked()
+	_, err := persistSessionContext(context.Background(), false)
+	return err
 }
 
-func saveSessionLocked() error {
-	s := authState.session
+// persistSessionContext serializes credential storage I/O outside authState.Lock
+// so blocking keyring or filesystem operations cannot stall session readers.
+func persistSessionContext(ctx context.Context, onlyIfPending bool) (Session, error) {
+	select {
+	case authPersistGate <- struct{}{}:
+		defer func() { <-authPersistGate }()
+	case <-ctx.Done():
+		return sessionSnapshot(), ctx.Err()
+	}
+	authState.RLock()
+	s, pending, version := authState.session, authState.pending, authState.version
+	authState.RUnlock()
+	if onlyIfPending && !pending {
+		return s, nil
+	}
 	if !s.valid() && !s.canRefresh() {
-		return sessionFailure("unusable", s, nil)
+		return s, sessionFailure("unusable", s, nil)
 	}
 	b, err := json.Marshal(s)
 	if err != nil {
-		return sessionFailure("save", s, err)
+		return s, sessionFailure("save", s, err)
 	}
 	if err = writePersistedSession(b); err != nil {
-		return sessionFailure("save", s, err)
+		return s, sessionFailure("save", s, err)
 	}
-	authState.pending = false
-	return nil
+	authState.Lock()
+	if authState.version == version && authState.session == s {
+		authState.pending = false
+	}
+	current := authState.session
+	authState.Unlock()
+	return current, nil
+}
+
+func deletePersistedSessionForVersion(version uint64) {
+	authPersistGate <- struct{}{}
+	defer func() { <-authPersistGate }()
+	authState.RLock()
+	same := authState.version == version
+	authState.RUnlock()
+	if same {
+		deletePersistedSession()
+	}
 }
 
 var writePersistedSession = func(b []byte) error {
@@ -187,11 +217,12 @@ var writePersistedSession = func(b []byte) error {
 
 func ClearSession() {
 	authState.Lock()
-	defer authState.Unlock()
 	authState.session, authState.pending = Session{}, false
 	authState.refreshFailed, authState.refreshErr = false, nil
 	authState.version++
-	deletePersistedSession()
+	version := authState.version
+	authState.Unlock()
+	deletePersistedSessionForVersion(version)
 }
 
 var deletePersistedSession = func() {
@@ -241,14 +272,16 @@ func Account() (*Profile, error) {
 	if err != nil {
 		if !s.canRefresh() && isCredentialRejection(err) {
 			authState.Lock()
-			defer authState.Unlock()
 			if authState.session != s {
+				authState.Unlock()
 				return nil, nil
 			}
 			authState.session, authState.pending = Session{}, false
 			authState.refreshFailed, authState.refreshErr = false, nil
 			authState.version++
-			deletePersistedSession()
+			version := authState.version
+			authState.Unlock()
+			deletePersistedSessionForVersion(version)
 			return nil, sessionFailure("unusable", s, err)
 		}
 		return nil, err
@@ -401,6 +434,9 @@ func QRImage(key string) ([]byte, error) {
 
 // CancelQR releases a closed or replaced login so its result cannot sign in later.
 func CancelQR(key string) {
+	if key == "" {
+		return
+	}
 	authState.Lock()
 	defer authState.Unlock()
 	if qr, ok := authState.qr[key]; ok && qr.wechat != nil {

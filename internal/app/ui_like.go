@@ -304,11 +304,20 @@ func (a *app) toggleLike(tr *qqmusic.Track) {
 	if a.liked == nil {
 		a.liked = map[int64]bool{}
 	}
+	if a.likeGen == nil {
+		a.likeGen = map[int64]int{}
+	}
+	uid := a.profile.UserID
 	id, like := tr.ID, !a.liked[tr.ID]
+	gen := a.likeGen[id] + 1
+	a.likeGen[id] = gen
 	a.setLiked(id, like)
 	go func() {
 		err := likeSong(id, like)
 		a.post(func() {
+			if a.profile == nil || a.profile.UserID != uid || a.likeGen[id] != gen {
+				return
+			}
 			if err != nil {
 				a.setLiked(id, !like)
 				a.toast = "操作失败，请稍后再试"
@@ -328,11 +337,20 @@ func (a *app) toggleLike(tr *qqmusic.Track) {
 }
 
 func (a *app) toggleProgramLike(id int64) {
+	if a.programLikeGen == nil {
+		a.programLikeGen = map[int64]int{}
+	}
+	uid := a.profile.UserID
 	like := !a.likedPrograms[id]
+	gen := a.programLikeGen[id] + 1
+	a.programLikeGen[id] = gen
 	a.setProgramLiked(id, like)
 	go func() {
 		err := likeProgram(id, like)
 		a.post(func() {
+			if a.profile == nil || a.profile.UserID != uid || a.programLikeGen[id] != gen {
+				return
+			}
 			if err != nil {
 				a.setProgramLiked(id, !like)
 				a.toast = "操作失败，请稍后再试"
@@ -371,6 +389,9 @@ func (a *app) likeCurrent() {
 
 func (a *app) setLiked(id int64, like bool) {
 	if like {
+		if a.liked == nil {
+			a.liked = map[int64]bool{}
+		}
 		a.liked[id] = true
 	} else {
 		delete(a.liked, id)

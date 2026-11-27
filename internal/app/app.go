@@ -90,6 +90,7 @@ type app struct {
 	naming         nameDialog     // the name of a playlist asked for
 	deleting       deleteDialog   // whether to delete a playlist, asked
 	liked          map[int64]bool // the songs the listener likes
+	likeGen        map[int64]int
 	likedAlbums    *likedAlbumData
 	likedScroll    likedScrollState
 	toast          string   // a message to show once
@@ -98,6 +99,7 @@ type app struct {
 	// The episodes the listener likes, and doesn't, as far as NetEase has
 	// answered, and those asked about: see ui_like.go.
 	likedPrograms, askedPrograms map[int64]bool
+	programLikeGen               map[int64]int
 
 	daily       []qqmusic.Track
 	dailySpin   spinState // the record on the daily card

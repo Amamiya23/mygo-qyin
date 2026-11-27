@@ -115,11 +115,14 @@ func RecommendedSongShelves() ([]SongShelf, error) {
 
 func songFeedShelves(comm map[string]any) ([]songFeedShelf, error) {
 	// Home shows up to three song groups. Keep every group in a received batch,
-	// but stop requesting more once the display is full.
-	const shelfLimit = 3
+	// but stop requesting more once the display is full or the page cap is hit.
+	const (
+		shelfLimit   = 3
+		maxFeedPages = 20
+	)
 	var shelves []songFeedShelf
 	groups := 0
-	for page := 1; ; page++ {
+	for page := 1; page <= maxFeedPages; page++ {
 		batch, err := readSongFeedBatch(comm, page, len(shelves))
 		if err != nil {
 			if groups == 0 {

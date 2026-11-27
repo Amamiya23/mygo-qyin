@@ -316,9 +316,6 @@ func detachTaskbarLyricsWindow(w *mygo.Window) {
 type taskbarCOMObject struct{ vtable *[64]uintptr }
 type taskbarCOMReferences []*taskbarCOMObject
 
-func taskbarCOMCall(object *taskbarCOMObject, slot int, args ...uintptr) (uintptr, uintptr, syscall.Errno) {
-	return syscall.SyscallN(object.vtable[slot], append([]uintptr{uintptr(unsafe.Pointer(object))}, args...)...)
-}
 func (refs *taskbarCOMReferences) own(object *taskbarCOMObject, hr uintptr) (*taskbarCOMObject, error) {
 	if int32(hr) < 0 || object == nil {
 		return nil, fmt.Errorf("taskbar UI Automation HRESULT 0x%X", uint32(hr))
@@ -328,7 +325,8 @@ func (refs *taskbarCOMReferences) own(object *taskbarCOMObject, hr uintptr) (*ta
 }
 func (refs *taskbarCOMReferences) release() {
 	for i := len(*refs) - 1; i >= 0; i-- {
-		taskbarCOMCall((*refs)[i], 2)
+		object := (*refs)[i]
+		syscall.SyscallN(object.vtable[2], uintptr(unsafe.Pointer(object)))
 	}
 }
 
@@ -341,7 +339,7 @@ type taskbarVariant struct {
 
 func taskbarProperty(object *taskbarCOMObject, id int) (taskbarVariant, error) {
 	var value taskbarVariant
-	hr, _, _ := taskbarCOMCall(object, 10, uintptr(id), uintptr(unsafe.Pointer(&value)))
+	hr, _, _ := syscall.SyscallN(object.vtable[10], uintptr(unsafe.Pointer(object)), uintptr(id), uintptr(unsafe.Pointer(&value)))
 	if int32(hr) < 0 {
 		return value, fmt.Errorf("read taskbar automation property %d: 0x%X", id, uint32(hr))
 	}
@@ -353,29 +351,29 @@ func taskbarClearVariant(v *taskbarVariant) {
 func taskbarCondition(refs *taskbarCOMReferences, automation *taskbarCOMObject, id int, kind uint16, value uint64) (*taskbarCOMObject, error) {
 	v := taskbarVariant{kind: kind, value: [2]uint64{value}}
 	var result *taskbarCOMObject
-	hr, _, _ := taskbarCOMCall(automation, 23, uintptr(id), uintptr(unsafe.Pointer(&v)), uintptr(unsafe.Pointer(&result)))
+	hr, _, _ := syscall.SyscallN(automation.vtable[23], uintptr(unsafe.Pointer(automation)), uintptr(id), uintptr(unsafe.Pointer(&v)), uintptr(unsafe.Pointer(&result)))
 	return refs.own(result, hr)
 }
 func taskbarJoinCondition(refs *taskbarCOMReferences, automation *taskbarCOMObject, slot int, a, b *taskbarCOMObject) (*taskbarCOMObject, error) {
 	var result *taskbarCOMObject
-	hr, _, _ := taskbarCOMCall(automation, slot, uintptr(unsafe.Pointer(a)), uintptr(unsafe.Pointer(b)), uintptr(unsafe.Pointer(&result)))
+	hr, _, _ := syscall.SyscallN(automation.vtable[slot], uintptr(unsafe.Pointer(automation)), uintptr(unsafe.Pointer(a)), uintptr(unsafe.Pointer(b)), uintptr(unsafe.Pointer(&result)))
 	return refs.own(result, hr)
 }
 func taskbarFindAll(refs *taskbarCOMReferences, element *taskbarCOMObject, scope int, condition *taskbarCOMObject) ([]*taskbarCOMObject, error) {
 	var array *taskbarCOMObject
-	hr, _, _ := taskbarCOMCall(element, 6, uintptr(scope), uintptr(unsafe.Pointer(condition)), uintptr(unsafe.Pointer(&array)))
+	hr, _, _ := syscall.SyscallN(element.vtable[6], uintptr(unsafe.Pointer(element)), uintptr(scope), uintptr(unsafe.Pointer(condition)), uintptr(unsafe.Pointer(&array)))
 	if _, err := refs.own(array, hr); err != nil {
 		return nil, err
 	}
 	var length int32
-	hr, _, _ = taskbarCOMCall(array, 3, uintptr(unsafe.Pointer(&length)))
+	hr, _, _ = syscall.SyscallN(array.vtable[3], uintptr(unsafe.Pointer(array)), uintptr(unsafe.Pointer(&length)))
 	if int32(hr) < 0 || length < 0 {
 		return nil, fmt.Errorf("invalid taskbar automation array")
 	}
 	result := make([]*taskbarCOMObject, 0, int(length))
 	for i := int32(0); i < length; i++ {
 		var item *taskbarCOMObject
-		hr, _, _ = taskbarCOMCall(array, 4, uintptr(i), uintptr(unsafe.Pointer(&item)))
+		hr, _, _ = syscall.SyscallN(array.vtable[4], uintptr(unsafe.Pointer(array)), uintptr(i), uintptr(unsafe.Pointer(&item)))
 		if _, err := refs.own(item, hr); err != nil {
 			return nil, err
 		}
@@ -395,7 +393,7 @@ func taskbarOccupiedBounds(taskbar uintptr, bounds taskbarNativeRect) ([]taskbar
 		return nil, err
 	}
 	var root *taskbarCOMObject
-	hr, _, _ = taskbarCOMCall(automation, 6, taskbar, uintptr(unsafe.Pointer(&root)))
+	hr, _, _ = syscall.SyscallN(automation.vtable[6], uintptr(unsafe.Pointer(automation)), taskbar, uintptr(unsafe.Pointer(&root)))
 	if _, err := refs.own(root, hr); err != nil {
 		return nil, err
 	}

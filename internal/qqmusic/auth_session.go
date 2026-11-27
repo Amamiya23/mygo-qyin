@@ -26,18 +26,16 @@ func activeSessionContextMode(ctx context.Context, force bool) (Session, error) 
 	if err := ctx.Err(); err != nil {
 		return Session{}, err
 	}
-	authState.Lock()
-	if authState.pending {
-		err := saveSessionLocked()
-		s := authState.session
-		authState.Unlock()
+	authState.RLock()
+	s, pending := authState.session, authState.pending
+	authState.RUnlock()
+	if pending {
+		var err error
+		s, err = persistSessionContext(ctx, true)
 		if err != nil {
 			return s, err
 		}
-	} else {
-		authState.Unlock()
 	}
-	s := sessionSnapshot()
 	if !s.valid() && s.canRefresh() {
 		return renewSessionContextMode(ctx, s, force)
 	}
@@ -72,14 +70,13 @@ func renewSessionContextMode(ctx context.Context, prior Session, force bool) (Se
 		return prior, ctx.Err()
 	}
 	authState.Lock()
-	current, changed := authState.session, authState.version != version
+	current, changed, pending := authState.session, authState.version != version, authState.pending
 	if current != prior || changed {
-		var err error
-		if authState.pending {
-			err = saveSessionLocked()
-		}
 		authState.Unlock()
-		return current, err
+		if pending {
+			return persistSessionContext(ctx, true)
+		}
+		return current, nil
 	}
 	if !force && authState.refreshFailed {
 		err := authState.refreshErr
@@ -107,17 +104,19 @@ func renewSessionContextMode(ctx context.Context, prior Session, force bool) (Se
 		return prior, failed
 	}
 	authState.Lock()
-	defer authState.Unlock()
 	// A completed refresh must not sign back in after logout or an account change.
 	if authState.session != prior || authState.version != version {
-		return authState.session, nil
+		current = authState.session
+		authState.Unlock()
+		return current, nil
 	}
 	// A rotated token may already have invalidated the old one. Keep it in
 	// memory even if persistence fails, and retry saving before another request.
 	authState.session, authState.pending = s, true
 	authState.refreshFailed, authState.refreshErr = false, nil
 	authState.version++
-	return s, saveSessionLocked()
+	authState.Unlock()
+	return persistSessionContext(ctx, true)
 }
 
 var ErrLoginRequired = errors.New("登录续期失败，请重新登录")
