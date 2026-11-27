@@ -1,6 +1,7 @@
 package qqmusic
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,7 +111,7 @@ func TestLiveHiRes(t *testing.T) {
 							continue
 						}
 						u, _ := url.Parse(domain)
-						info, _, err := inspectFLACStream(u.ResolveReference(p).String())
+						info, _, err := inspectFLACStream(context.Background(), u.ResolveReference(p).String())
 						if err != nil {
 							t.Logf("%s: %s", label, hiResProbeError(err))
 							continue

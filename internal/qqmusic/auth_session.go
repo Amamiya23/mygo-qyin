@@ -89,6 +89,10 @@ func renewSessionContextMode(ctx context.Context, prior Session, force bool) (Se
 	authState.Unlock()
 	s, err := refreshSession(ctx, prior)
 	if err != nil {
+		// A caller giving up does not mean the credentials failed to renew.
+		if cause := ctx.Err(); cause != nil {
+			return prior, cause
+		}
 		if errors.Is(err, context.Canceled) {
 			return prior, err
 		}

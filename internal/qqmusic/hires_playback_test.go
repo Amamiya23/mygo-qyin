@@ -2,6 +2,7 @@ package qqmusic
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -10,10 +11,12 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 )
 
 func TestHiResPlaybackAndFallback(t *testing.T) {
-	for _, mode := range []string{"hires", "permission", "empty", "403", "404", "HTML", "low resolution", "320k", "128k", "connection", "old queue"} {
+	for _, mode := range []string{"hires", "permission", "empty", "403", "404", "HTML", "low resolution", "320k", "128k", "connection", "old queue", "cached lossless", "cached 320k"} {
 		t.Run(mode, func(t *testing.T) {
 			previous, prior := httpClient, sessionSnapshot()
 			t.Cleanup(func() { httpClient = previous; setSession(prior) })
@@ -90,12 +93,31 @@ func TestHiResPlaybackAndFallback(t *testing.T) {
 					t.Fatal("changed ordinary-quality endpoint")
 				}
 				purl := filename + "?vkey=fixture"
-				if prefix == "RS01" && (mode == "empty" || mode == "320k" || mode == "128k") || prefix == "F000" && (mode == "320k" || mode == "128k") || prefix == "M800" && mode == "128k" {
+				switch {
+				case prefix == "RS01" && (mode == "empty" || mode == "320k" || mode == "128k" || strings.HasPrefix(mode, "cached ")),
+					prefix == "F000" && (mode == "320k" || mode == "128k"),
+					prefix == "M800" && mode == "128k":
 					purl = ""
 				}
 				return response(map[string]any{"sip": []string{"https://dl.stream.qqmusic.qq.com/"}, "midurlinfo": []any{map[string]any{"songmid": track.MID, "purl": purl}}}, 0)
 			})}
-			stream, err := SongURL(track.ID, "hires")
+			var stream *Stream
+			var err error
+			switch mode {
+			case "cached lossless":
+				stream, err = SongURLAbove(context.Background(), track.ID, "hires", "lossless")
+				if stream != nil || !errors.Is(err, ErrUnavailable) || strings.Join(requested, ",") != "RS01" {
+					t.Fatalf("lookup did not stop at the complete cache: requested=%v, err=%v", requested, err)
+				}
+				return
+			case "cached 320k":
+				stream, err = SongURLAbove(context.Background(), track.ID, "hires", "exhigh")
+				if strings.Join(requested, ",") != "RS01,F000" {
+					t.Fatalf("lookup did not try every quality above the cached 320k: %v", requested)
+				}
+			default:
+				stream, err = SongURL(track.ID, "hires")
+			}
 			if mode == "connection" {
 				if err == nil || strings.Join(requested, ",") != "RS01" {
 					t.Fatal("connection failure caused quality fallback")
@@ -122,6 +144,56 @@ func TestHiResPlaybackAndFallback(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHiResLookupCancelsInFlightRequests(t *testing.T) {
+	for _, stage := range []string{"details", "playback address", "FLAC probe"} {
+		t.Run(stage, func(t *testing.T) {
+			previous, prior := httpClient, sessionSnapshot()
+			t.Cleanup(func() { httpClient = previous; setSession(prior) })
+			setSession(Session{MusicID: "123", MusicKey: "fixture-key", LoginType: 1})
+			track := Track{ID: 8893, MID: "cancelFixture", SizeHiRes: 1000, NeedsDetails: stage == "details"}
+			RememberTracks([]Track{track})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			httpClient = &http.Client{Transport: authRoundTripper(func(r *http.Request) (*http.Response, error) {
+				if stage == "FLAC probe" && r.Method == http.MethodPost {
+					return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"code":0,"req_0":{"code":0,"data":{"sip":["https://dl.stream.qqmusic.qq.com/"],"midurlinfo":[{"purl":"RS01fixture.flac"}]}}}`))}, nil
+				}
+				cancel()
+				if !errors.Is(r.Context().Err(), context.Canceled) {
+					t.Fatal("request did not inherit the playback context")
+				}
+				return nil, r.Context().Err()
+			})}
+			if _, err := SongURLAbove(ctx, track.ID, "hires", "lossless"); !errors.Is(err, context.Canceled) {
+				t.Fatalf("lookup error = %v, want cancellation", err)
+			}
+		})
+	}
+}
+
+func TestHiResLookupDeadlineKeepsRecoverableSession(t *testing.T) {
+	previous, prior := authHTTP, sessionSnapshot()
+	t.Cleanup(func() { authHTTP = previous; setSession(prior) })
+	expired := Session{MusicID: "10001", MusicKey: "expired-key", LoginType: 2, CreatedAt: 1, ExpiresIn: 1, OpenID: "open", RefreshToken: "token", Device: &wechatDevice{}}
+	setSession(expired)
+	track := Track{ID: 8894, MID: "deadlineFixture", SizeHiRes: 1000}
+	RememberTracks([]Track{track})
+	authHTTP = &http.Client{Transport: authRoundTripper(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})}
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if _, err := SongURLAbove(ctx, track.ID, "hires", "lossless"); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("lookup error = %v, want deadline exceeded", err)
+		}
+		if sessionSnapshot() != expired || sessionRefreshError() != nil {
+			t.Fatal("playback deadline left the account unable to renew later")
+		}
+	})
 }
 
 func TestHiResTrackMetadataSurvivesQueueAndSparseSearch(t *testing.T) {
@@ -164,7 +236,7 @@ func TestHiResProbeHeader(t *testing.T) {
 				}
 				return &http.Response{StatusCode: tc.status, Body: io.NopCloser(bytes.NewReader(tc.body))}, nil
 			})}
-			info, _, err := inspectFLACStream("https://dl.stream.qqmusic.qq.com/RS01test.flac?vkey=private")
+			info, _, err := inspectFLACStream(context.Background(), "https://dl.stream.qqmusic.qq.com/RS01test.flac?vkey=private")
 			if !tc.ok {
 				if err == nil {
 					t.Fatal("accepted unavailable or invalid audio")

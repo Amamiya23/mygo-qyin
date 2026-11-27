@@ -1,6 +1,7 @@
 package player
 
 import (
+	"context"
 	"errors"
 	"math"
 	"math/rand/v2"
@@ -73,6 +74,7 @@ type Player struct {
 	selectedSkipped bool // the listener explicitly selected a skipped track
 	err             string
 	gen             int // counts loads, to drop the results of stale ones
+	cancelLoad      context.CancelFunc
 
 	lyrics       []lyrics.Line
 	lyricsLoaded bool
@@ -782,16 +784,16 @@ func (p *Player) Levels() ([Bands]float32, bool) {
 }
 
 func (p *Player) stop() {
+	if p.cancelLoad != nil {
+		// Also wakes a decoder still waiting for the first bytes of a download.
+		p.cancelLoad()
+		p.cancelLoad = nil
+	}
 	if out := p.out; out != nil {
 		// Paused first, it fades out over a few milliseconds, rather than
 		// stopping with a click.
 		out.Pause()
 		time.AfterFunc(100*time.Millisecond, out.Close)
-	}
-	if p.stream != nil {
-		// Wake a decoder blocked waiting for bytes before closing the output.
-		dl, _ := p.stream.source()
-		dl.cancel()
 	}
 	p.out, p.stream, p.info = nil, nil, nil
 	p.seeking = false
@@ -878,8 +880,14 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration, se
 		level = p.Quality()
 	}
 	normalize := p.Normalize != nil && p.Normalize() != NormalizeOff
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancelLoad = cancel
+	resolve := songURL
 	go func() {
-		info, s, loudness, err := p.open(t, level, normalize)
+		info, s, loudness, err := openTrack(ctx, cache, t, level, normalize, resolve)
+		if err != nil {
+			cancel()
+		}
 		var policy audio.StreamBuffer
 		var dl *download
 		if err == nil {
@@ -980,8 +988,12 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration, se
 			p.sync()
 		})
 		if loudness != nil {
-			if v := <-loudness; v != nil {
-				p.post(func() { p.applyLateLoudness(gen, *v) })
+			select {
+			case v := <-loudness:
+				if v != nil {
+					p.post(func() { p.applyLateLoudness(gen, *v) })
+				}
+			case <-ctx.Done():
 			}
 		}
 	}()
@@ -1017,9 +1029,51 @@ func playbackBuffer(s stream, level string) audio.StreamBuffer {
 	return audio.StreamBuffer{}
 }
 
-// open opens track t's audio at level: kept in the cache, or else
+type songResolver func(ctx context.Context, id int64, level, cachedLevel string) (*qqmusic.Stream, error)
+
+const cacheUpgradeWait = 2 * time.Second
+
+func openAudioSource(ctx context.Context, cache *Cache, id int64, level string, resolve songResolver) (*download, *qqmusic.Stream, error) {
+	if dl, info, ok := cache.lookup(id, level); ok {
+		return dl, info, nil
+	}
+
+	// Hold the lower-quality copy open so it is still usable when a slow
+	// request ends. Only look online for qualities that would improve on it.
+	fallback, local := cache.lookupLower(id, level)
+	requestCtx, cancel := ctx, func() {}
+	var cachedLevel string
+	if fallback != nil {
+		cachedLevel = local.Level
+		requestCtx, cancel = context.WithTimeout(ctx, cacheUpgradeWait)
+	}
+	info, err := resolve(requestCtx, id, level, cachedLevel)
+	if cause := requestCtx.Err(); cause != nil {
+		err = cause
+	}
+	cancel()
+	if cause := ctx.Err(); cause != nil {
+		err = cause
+	} else if fallback != nil && err != nil && !errors.Is(err, qqmusic.ErrLoginRequired) {
+		return fallback, local, nil
+	}
+	if fallback != nil {
+		fallback.Close()
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	// The returned quality may now be cached, for example if a concurrent
+	// download finished during resolution.
+	if dl, metadata, ok := cache.lookupLevel(id, info.Level); ok {
+		return dl, metadata, nil
+	}
+	return cache.download(ctx, id, info), info, nil
+}
+
+// openTrack opens track t's audio at level: kept in the cache, or else
 // streamed into it, and kept once it has all come in.
-func (p *Player) open(t qqmusic.Track, level string, normalize bool) (*qqmusic.Stream, stream, <-chan *qqmusic.Loudness, error) {
+func openTrack(ctx context.Context, cache *Cache, t qqmusic.Track, level string, normalize bool, resolve songResolver) (*qqmusic.Stream, stream, <-chan *qqmusic.Loudness, error) {
 	// Resolve loudness while the audio opens, including for songs already on
 	// disk. A failed metadata request leaves the stream's gain unchanged.
 	var loudness <-chan *qqmusic.Loudness
@@ -1036,21 +1090,9 @@ func (p *Player) open(t qqmusic.Track, level string, normalize bool) (*qqmusic.S
 			result <- &v
 		}()
 	}
-	cache := p.Cache
-	dl, info, ok := cache.lookup(t.ID, level)
-	if !ok {
-		var err error
-		info, err = songURL(t.ID, level)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		// QQ Music can return a lower quality than requested. Reuse a
-		// complete copy at the selected quality before fetching its audio.
-		if cached, metadata, ok := cache.lookupLevel(t.ID, info.Level); ok {
-			dl, info = cached, metadata
-		} else {
-			dl = cache.download(t.ID, info)
-		}
+	dl, info, err := openAudioSource(ctx, cache, t.ID, level, resolve)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	s, err := openStream(dl, t.Duration)
 	if err != nil {
@@ -1076,7 +1118,7 @@ var (
 	fetchCover   = qqmusic.Fetch
 	songLyrics   = qqmusic.Lyrics
 	songLoudness = qqmusic.SongLoudness
-	songURL      = qqmusic.SongURL
+	songURL      = qqmusic.SongURLAbove
 )
 
 func withLoudness(info *qqmusic.Stream, v qqmusic.Loudness) *qqmusic.Stream {

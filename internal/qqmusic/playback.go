@@ -1,6 +1,7 @@
 package qqmusic
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -15,11 +17,11 @@ import (
 	"lilt/internal/lyrics"
 )
 
-func trackForPlayback(id int64) (Track, error) {
+func trackForPlayback(ctx context.Context, id int64) (Track, error) {
 	if t, ok := knownTrack(id); ok && t.MID != "" && !t.NeedsDetails {
 		return t, nil
 	}
-	tracks, err := SongDetails([]int64{id})
+	tracks, err := songDetails(ctx, []int64{id})
 	if err != nil {
 		return Track{}, err
 	}
@@ -31,11 +33,23 @@ func trackForPlayback(id int64) (Track, error) {
 
 // SongURL asks QQ for a full stream at the requested quality, falling back to MP3.
 func SongURL(id int64, level string) (*Stream, error) {
+	return SongURLAbove(context.Background(), id, level, "")
+}
+
+// SongURLAbove tries the requested quality and its fallbacks in order, stopping
+// before cachedLevel. An empty cachedLevel retains the full fallback chain.
+func SongURLAbove(ctx context.Context, id int64, level, cachedLevel string) (*Stream, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := sessionRefreshError(); err != nil {
 		return nil, err
 	}
-	t, err := trackForPlayback(id)
+	t, err := trackForPlayback(ctx, id)
 	if err != nil {
+		if cause := ctx.Err(); cause != nil {
+			return nil, cause
+		}
 		if prompt := sessionRefreshError(); prompt != nil {
 			return nil, prompt
 		}
@@ -43,8 +57,11 @@ func SongURL(id int64, level string) (*Stream, error) {
 	}
 	// Queues saved before Hi-Res support may have all other playback fields.
 	if level == "hires" && sessionSnapshot().MusicKey != "" && t.SizeHiRes == 0 {
-		tracks, err := SongDetails([]int64{id})
+		tracks, err := songDetails(ctx, []int64{id})
 		if err != nil {
+			if cause := ctx.Err(); cause != nil {
+				return nil, cause
+			}
 			if prompt := sessionRefreshError(); prompt != nil {
 				return nil, prompt
 			}
@@ -74,7 +91,14 @@ func SongURL(id int64, level string) (*Stream, error) {
 		media = t.MID
 	}
 	guid := searchID()
+	minQuality := slices.Index(Levels, cachedLevel)
 	for _, q := range qualities {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if slices.Index(Levels, q.level) <= minQuality {
+			break
+		}
 		var data struct {
 			SIP     []string `json:"sip"`
 			Entries []struct {
@@ -95,7 +119,10 @@ func SongURL(id int64, level string) (*Stream, error) {
 		} else {
 			param["ctx"] = 0
 		}
-		if err := rpc(module, method, param, &data); err != nil {
+		if err := rpcWithCommContext(ctx, module, method, param, &data, nil, nil); err != nil {
+			if cause := ctx.Err(); cause != nil {
+				return nil, cause
+			}
 			if prompt := sessionRefreshError(); prompt != nil {
 				return nil, prompt
 			}
@@ -125,7 +152,10 @@ func SongURL(id int64, level string) (*Stream, error) {
 				}
 			}
 			if domain == "" {
-				domain = selectStreamDomain(guid, entry.PURL)
+				domain = selectStreamDomain(ctx, guid, entry.PURL)
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
 			}
 			u, err := url.Parse(domain)
 			if err != nil {
@@ -141,7 +171,7 @@ func SongURL(id int64, level string) (*Stream, error) {
 				if p.IsAbs() || p.Host != "" || !strings.HasPrefix(path.Base(p.Path), "RS01") {
 					continue
 				}
-				info, actualSize, err := inspectFLACStream(streamURL)
+				info, actualSize, err := inspectFLACStream(ctx, streamURL)
 				if errors.Is(err, ErrUnavailable) {
 					continue
 				}
@@ -169,7 +199,7 @@ func validStreamDomain(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && (u.Hostname() == "qqmusic.qq.com" || strings.HasSuffix(u.Hostname(), ".qqmusic.qq.com") || strings.HasSuffix(u.Hostname(), ".qq.com"))
 }
-func streamResponds(domain, purl string) bool {
+func streamResponds(ctx context.Context, domain, purl string) bool {
 	u, err := url.Parse(domain)
 	if err != nil {
 		return false
@@ -178,7 +208,7 @@ func streamResponds(domain, purl string) bool {
 	if err != nil {
 		return false
 	}
-	req, err := http.NewRequest(http.MethodGet, u.ResolveReference(p).String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.ResolveReference(p).String(), nil)
 	if err != nil {
 		return false
 	}
@@ -191,17 +221,17 @@ func streamResponds(domain, purl string) bool {
 	res.Body.Close()
 	return res.StatusCode == http.StatusOK || res.StatusCode == http.StatusPartialContent
 }
-func selectStreamDomain(guid, purl string) string {
+func selectStreamDomain(ctx context.Context, guid, purl string) string {
 	const preferred = "http://sjy6.stream.qqmusic.qq.com/"
-	if streamResponds(preferred, purl) {
+	if streamResponds(ctx, preferred, purl) {
 		return preferred
 	}
 	var data struct {
 		SIP []string `json:"sip"`
 	}
-	if rpc("music.audioCdnDispatch.cdnDispatch", "GetCdnDispatch", map[string]any{"guid": guid, "uid": "0", "use_new_domain": 1, "use_ipv6": 1}, &data) == nil {
+	if rpcWithCommContext(ctx, "music.audioCdnDispatch.cdnDispatch", "GetCdnDispatch", map[string]any{"guid": guid, "uid": "0", "use_new_domain": 1, "use_ipv6": 1}, &data, nil, nil) == nil {
 		for _, sip := range data.SIP {
-			if validStreamDomain(sip) && streamResponds(sip, purl) {
+			if validStreamDomain(sip) && streamResponds(ctx, sip, purl) {
 				return sip
 			}
 		}
@@ -211,7 +241,7 @@ func selectStreamDomain(guid, purl string) string {
 
 // Lyrics prefers QQ's real word timings, with the old LRC service as a fallback.
 func Lyrics(id int64) (lrc, translation, timed string, err error) {
-	t, err := trackForPlayback(id)
+	t, err := trackForPlayback(context.Background(), id)
 	if err != nil {
 		return "", "", "", err
 	}

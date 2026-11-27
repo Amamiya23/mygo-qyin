@@ -2,6 +2,7 @@ package player
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"math"
@@ -55,9 +56,12 @@ func TestQueueReusesCachedQualityFallback(t *testing.T) {
 	previousLyrics, previousURL := songLyrics, songURL
 	t.Cleanup(func() { songLyrics, songURL = previousLyrics, previousURL })
 	songLyrics = func(int64) (string, string, string, error) { return "", "", "", nil }
-	songURL = func(_ int64, level string) (*qqmusic.Stream, error) {
+	songURL = func(_ context.Context, _ int64, level, cachedLevel string) (*qqmusic.Stream, error) {
 		if level != "hires" {
 			return nil, errors.New("expected Hi-Res request")
+		}
+		if cachedLevel == "lossless" {
+			return nil, qqmusic.ErrUnavailable
 		}
 		return &qqmusic.Stream{URL: "https://audio.test/song.flac", Size: int64(len(data)), Level: "lossless", Type: "flac"}, nil
 	}
@@ -120,7 +124,7 @@ func testPlayQueueBuffers(t *testing.T, fixture, quality string, info qqmusic.St
 	t.Cleanup(func() { songLyrics, songURL = origLyrics, origURL })
 	songLyrics = func(int64) (string, string, string, error) { return "", "", "", nil }
 	info.URL = "https://audio.test/song." + info.Type
-	songURL = func(int64, string) (*qqmusic.Stream, error) {
+	songURL = func(context.Context, int64, string, string) (*qqmusic.Stream, error) {
 		return &info, nil
 	}
 	ch := make(chan func(), 16)
@@ -296,7 +300,9 @@ func TestNextWithoutWrapPlaysTheFollowingTrackOrWaitsForRadio(t *testing.T) {
 	oldLyrics, oldURL := songLyrics, songURL
 	t.Cleanup(func() { songLyrics, songURL = oldLyrics, oldURL })
 	songLyrics = func(int64) (string, string, string, error) { return "", "", "", nil }
-	songURL = func(int64, string) (*qqmusic.Stream, error) { return nil, errors.New("no audio in this test") }
+	songURL = func(context.Context, int64, string, string) (*qqmusic.Stream, error) {
+		return nil, errors.New("no audio in this test")
+	}
 	for _, radio := range []bool{false, true} {
 		posted := make(chan func(), 2)
 		p := &Player{post: func(fn func()) { posted <- fn }, SkipAutomatic: func(tr *qqmusic.Track) bool { return tr.ID == 3 }}
@@ -332,7 +338,9 @@ func TestSkippedTracksPlayOnlyWhenSelected(t *testing.T) {
 	oldLyrics, oldURL := songLyrics, songURL
 	t.Cleanup(func() { songLyrics, songURL = oldLyrics, oldURL })
 	songLyrics = func(int64) (string, string, string, error) { return "", "", "", nil }
-	songURL = func(int64, string) (*qqmusic.Stream, error) { return nil, errors.New("no audio in this test") }
+	songURL = func(context.Context, int64, string, string) (*qqmusic.Stream, error) {
+		return nil, errors.New("no audio in this test")
+	}
 	posted := make(chan func(), 2)
 	p := &Player{post: func(fn func()) { posted <- fn }, SkipAutomatic: func(tr *qqmusic.Track) bool { return tr.ID%2 == 0 }}
 	p.Cue([]qqmusic.Track{{ID: 1}, {ID: 2}, {ID: 3}, {ID: 4}})
@@ -838,7 +846,7 @@ func TestLoadSkippingPausedAndErrorClassification(t *testing.T) {
 	t.Run("paused Restore never skips even on ErrUnavailable or ErrLoginRequired", func(t *testing.T) {
 		for _, urlErr := range []error{qqmusic.ErrUnavailable, qqmusic.ErrLoginRequired} {
 			calls := 0
-			songURL = func(id int64, level string) (*qqmusic.Stream, error) {
+			songURL = func(_ context.Context, id int64, level, _ string) (*qqmusic.Stream, error) {
 				calls++
 				return nil, urlErr
 			}
@@ -865,7 +873,7 @@ func TestLoadSkippingPausedAndErrorClassification(t *testing.T) {
 
 	t.Run("active PlayQueue stops on ErrLoginRequired without traversing queue", func(t *testing.T) {
 		calls := 0
-		songURL = func(id int64, level string) (*qqmusic.Stream, error) {
+		songURL = func(_ context.Context, id int64, level, _ string) (*qqmusic.Stream, error) {
 			calls++
 			return nil, qqmusic.ErrLoginRequired
 		}
@@ -891,7 +899,7 @@ func TestLoadSkippingPausedAndErrorClassification(t *testing.T) {
 
 	t.Run("active PlayQueue still skips per-track ErrUnavailable to next playable track", func(t *testing.T) {
 		calls := 0
-		songURL = func(id int64, level string) (*qqmusic.Stream, error) {
+		songURL = func(_ context.Context, id int64, level, _ string) (*qqmusic.Stream, error) {
 			calls++
 			return nil, qqmusic.ErrUnavailable
 		}
