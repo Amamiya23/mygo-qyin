@@ -157,6 +157,9 @@ func (s *flacStream) decode(f *frame.Frame) {
 // guessing where in the bytes it is from the frames found on either side,
 // until one is found less than a second before it.
 func (s *flacStream) SetPosition(target int64) error {
+	if target < 0 {
+		target = 0
+	}
 	total := int64(s.info.NSamples)
 	size := s.dl.size
 	if size <= 0 {
@@ -221,6 +224,11 @@ func (s *flacStream) frameAt(off int64) (at int64, ok bool) {
 	f, err := s.parse(bufio.NewReaderSize(&downloadReader{d: s.dl, pos: off}, 16<<10))
 	if err != nil || f.Channels.Count() != int(s.info.NChannels) {
 		return 0, false
+	}
+	// Fixed-blocksize FLAC codes the frame index; the final frame may be shorter
+	// than BlockSizeMin, so mewkiz/flac's Frame.SampleNumber underestimates it.
+	if f.HasFixedBlockSize && s.info.BlockSizeMin > 0 {
+		return int64(f.Num * uint64(s.info.BlockSizeMin)), true
 	}
 	return int64(f.SampleNumber()), true
 }

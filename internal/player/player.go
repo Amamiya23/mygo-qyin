@@ -142,9 +142,17 @@ func (p *Player) announce(t *qqmusic.Track, artwork []byte) {
 }
 
 func (p *Player) ended() {
+	if !p.playing {
+		if p.out != nil {
+			p.out.Pause()
+		}
+		p.sync()
+		return
+	}
 	if p.repeat == RepeatOne {
 		p.out.Seek(0)
 		p.out.Play()
+		p.sync()
 		return
 	}
 	if p.at+1 >= len(p.order) && p.feed != nil {
@@ -600,7 +608,7 @@ func (p *Player) Seek(t time.Duration) {
 			}
 			p.seeking = false
 			out.Seek(t)
-			if p.playing || !p.fade.silent() {
+			if p.playing || p.fade.fadingOut() {
 				out.Play()
 			}
 			p.sync()
@@ -718,6 +726,11 @@ func (p *Player) Levels() ([Bands]float32, bool) {
 }
 
 func (p *Player) stop() {
+	if st := p.stream; st != nil {
+		if dl, _ := st.source(); dl != nil {
+			dl.abort()
+		}
+	}
 	if out := p.out; out != nil {
 		// Paused first, it fades out over a few milliseconds, rather than
 		// stopping with a click.

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -156,7 +157,7 @@ func (c *Cache) lookup(id int64, level string) (*download, *qqmusic.Stream, bool
 		if err != nil {
 			continue
 		}
-		if info, err := f.Stat(); err != nil || info.Size() != st.Size {
+		if info, err := f.Stat(); err != nil || st.Size <= 0 || info.Size() != st.Size {
 			f.Close()
 			continue
 		}
@@ -489,8 +490,8 @@ func (c *Cache) download(id int64, st *qqmusic.Stream) *download {
 		part, _ = temporaryDownloadFile()
 		return startDownload(st.URL, st.Size, part, nil, nil)
 	}
-	return startDownload(st.URL, st.Size, part, func(path string, n int64) (string, bool) {
-		return c.keep(id, st, path, n)
+	return startDownloadWith(st.URL, st.Size, part, nil, func(path string, n int64) (*os.File, string, bool, error) {
+		return c.keepOpen(id, st, path, n)
 	}, c.prune)
 }
 
@@ -520,8 +521,24 @@ func (c *Cache) part(st *qqmusic.Stream) *os.File {
 // is closed. It returns where the song is: kept, or still at part.
 // Pruning waits until the download has reopened it and released its lock.
 func (c *Cache) keep(id int64, st *qqmusic.Stream, part string, n int64) (string, bool) {
+	c.pruneMu.Lock()
+	defer c.pruneMu.Unlock()
+	return c.keepLocked(id, st, part, n)
+}
+
+// keepOpen renames and reopens the kept file under pruneMu so concurrent prune
+// or Clear calls cannot delete it before the active download reopens it.
+func (c *Cache) keepOpen(id int64, st *qqmusic.Stream, part string, n int64) (*os.File, string, bool, error) {
+	c.pruneMu.Lock()
+	defer c.pruneMu.Unlock()
+	path, ok := c.keepLocked(id, st, part, n)
+	f, err := os.Open(path)
+	return f, path, ok, err
+}
+
+func (c *Cache) keepLocked(id int64, st *qqmusic.Stream, part string, n int64) (string, bool) {
 	limit := c.currentLimit()
-	if n > limit/4 {
+	if n <= 0 || n > limit/4 {
 		return part, false
 	}
 	kept := *st
@@ -533,13 +550,42 @@ func (c *Cache) keep(id int64, st *qqmusic.Stream, part string, n int64) (string
 		return part, false
 	}
 	key := cacheKey(id, kept.Level)
-	meta, _ := json.Marshal(kept)
+	meta, err := json.Marshal(kept)
+	if err != nil {
+		return part, false
+	}
 	path := filepath.Join(c.dir, key+"."+kept.Type)
 	if os.Rename(part, path) != nil {
 		return part, false
 	}
-	os.WriteFile(filepath.Join(c.dir, key+".json"), meta, 0o600)
+	writeAtomicFile(filepath.Join(c.dir, key+".json"), meta)
 	return path, true
+}
+
+func writeAtomicFile(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "*.part")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			tmp.Close()
+			os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 // Size returns how many bytes the cached songs, covers and lyrics take.
@@ -611,11 +657,14 @@ func appendDirItems(out []cachedItem, dir, wantExt string) []cachedItem {
 	return out
 }
 
-func (c *Cache) remove(item cachedItem) {
-	os.Remove(item.path)
+func (c *Cache) remove(item cachedItem) bool {
+	if err := os.Remove(item.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false
+	}
 	if item.isSong {
 		os.Remove(strings.TrimSuffix(item.path, filepath.Ext(item.path)) + ".json")
 	}
+	return true
 }
 
 // prune drops the entries used longest ago until the rest fit the limit,
@@ -638,8 +687,7 @@ func (c *Cache) prune(keep string) {
 		if total <= limit {
 			return
 		}
-		if f.path != keep {
-			c.remove(f)
+		if f.path != keep && c.remove(f) {
 			total -= f.size
 		}
 	}
