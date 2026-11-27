@@ -30,6 +30,7 @@ const (
 type quietState struct {
 	track  int64
 	lines  int // how many lines they were found among
+	loaded bool
 	quiets []lyrics.Quiet
 	cm     *qqmusic.Comment
 }
@@ -41,8 +42,8 @@ func (a *app) quietComment(tr *qqmusic.Track, lines []lyrics.Line, loaded bool, 
 		return nil, 0
 	}
 	qs := &a.quiet
-	if qs.track != tr.ID || qs.lines != len(lines) || qs.quiets == nil {
-		qs.track, qs.lines = tr.ID, len(lines)
+	if qs.track != tr.ID || qs.lines != len(lines) || qs.loaded != loaded || qs.quiets == nil {
+		qs.track, qs.lines, qs.loaded = tr.ID, len(lines), loaded
 		qs.quiets = lyrics.Quiets(lines, tr.Length(), quietLeast)
 		if len(lines) == 0 && loaded && tr.Length() >= quietLeast {
 			qs.quiets = []lyrics.Quiet{{From: 0, To: tr.Length()}}
