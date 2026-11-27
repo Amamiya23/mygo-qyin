@@ -1,6 +1,7 @@
 package qqmusic
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"hash/fnv"
@@ -13,14 +14,15 @@ func PersonalFM(mode string) ([]Track, error) {
 	if mode != FMDefault {
 		return nil, ErrUnsupported
 	}
-	if sessionSnapshot().MusicKey == "" {
-		return nil, errors.New("请先登录 QQ 音乐")
-	}
-	var data object
-	if err := rpc("music.radioProxy.MbTrackRadioSvr", "get_radio_track", map[string]any{"id": 99, "firstplay": 1, "num": 15}, &data); err != nil {
+	s, err := signedSession()
+	if err != nil {
 		return nil, err
 	}
-	return convertTracks(objects(data, "tracks")), nil
+	var data object
+	if err := rpcForSession(context.Background(), s, "music.radioProxy.MbTrackRadioSvr", "get_radio_track", map[string]any{"id": 99, "firstplay": 1, "num": 15}, &data); err != nil {
+		return nil, err
+	}
+	return recommendationTracks(s, objects(data, "tracks")), nil
 }
 
 type commentCursor struct {

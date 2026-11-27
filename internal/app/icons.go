@@ -40,9 +40,14 @@ var (
 	iconPurchased = strokeIcon(`<rect x="4" y="7" width="16" height="14" rx="2"/><path d="M8 7V6a4 4 0 0 1 8 0v1"/><path d="m9 14 2 2 4-4"/>`)
 	iconHeart     = strokeIcon(`<path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7z"/>`)
 	iconHeartFill = fillIcon(`<path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7z"/>`)
-	iconUser      = strokeIcon(`<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>`)
-	iconPodcast   = strokeIcon(`<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v4"/>`)
-	iconHeadset   = strokeIcon(`<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>`)
+	iconHeartOff  = strokeIcon(`<path d="M17.8 3.2a5.6 5.6 0 0 0-5.8 1.8c-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l1.5 1.5m3 3L12 21l7-7c1.5-1.5 3-3.2 3-5.5a5.5 5.5 0 0 0-.2-1.3M3 21 21 3"/>`)
+
+	// Leave a transparent gap on both sides of the slash so it reads over any cover.
+	iconHeartOffFill = fillIcon(`<path d="M6 15l-1-1C3.5 12.5 2 10.8 2 8.5A5.5 5.5 0 0 1 7.5 3C9.3 3 10.5 3.5 12 5A5.6 5.6 0 0 1 17.8 3.2ZM9 18l3 3 7-7c1.5-1.5 3-3.2 3-5.5a5.5 5.5 0 0 0-.7-2.8Z"/><path d="M3 21 21 3" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>`)
+
+	iconUser    = strokeIcon(`<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>`)
+	iconPodcast = strokeIcon(`<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v4"/>`)
+	iconHeadset = strokeIcon(`<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>`)
 )
 
 var (

@@ -399,7 +399,8 @@ func (a *app) trackRowsWithKey(c *ui.Context, key any, state *listScrollState, t
 			i--
 			tr := &tracks[i]
 			playing := cur != nil && cur.ID == tr.ID
-			row := ui.ButtonBase(c.Key(tr.ID)).Height(trackRowHeight).PaddingX(12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
+			skipped := a.skipRecommendation(tr)
+			row := ui.ButtonBase(c.Key(tr.ID)).Height(trackRowHeight).PaddingX(12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(recommendationRowLabel(tr.Name, skipped)).
 				ContextMenu(a.songItems(tr, pid))
 			if r := row.Bounds(); current >= 0 && !measured && r.H > 0 {
 				currentTop, measured = r.Y+float32(current-i)*trackRowHeight, true
@@ -436,7 +437,9 @@ func (a *app) trackRowsWithKey(c *ui.Context, key any, state *listScrollState, t
 				}
 				ui.Column(c).Grow(3).Basis(0).MinWidth(0).Gap(3).Children(func() {
 					name := p.text
-					if playing {
+					if skipped {
+						name = p.muted
+					} else if playing {
 						name = p.accent
 					}
 					spans := []ui.Span{{Text: tr.Name, Weight: 500, Color: name}}
@@ -449,7 +452,9 @@ func (a *app) trackRowsWithKey(c *ui.Context, key any, state *listScrollState, t
 							ui.Text(c, "VIP").FontSize(9).FontWeight(800).TextColor(p.accent).Padding(0, 4).Radius(3).Border(1, p.accent.Alpha(0.6))
 						}
 						a.artistLinks(c, tr, p.muted, p.text).FontSize(12.5).SingleLine().Shrink(1).MinWidth(0)
-						if tr.Reason != "" {
+						if skipped {
+							dislikedBadge(c, p.muted)
+						} else if tr.Reason != "" {
 							ui.Text(c, tr.Reason).FontSize(10.5).FontWeight(600).TextColor(p.accent).Padding(1, 6).Radius(999).Background(p.accent.Alpha(0.1)).SingleLine()
 						}
 					})
@@ -473,7 +478,7 @@ func (a *app) trackRowsWithKey(c *ui.Context, key any, state *listScrollState, t
 				ui.Text(c, clock(tr.Length())).FontSize(12.5).FontFeatures("tnum").TextColor(p.faint).Width(44).TextAlign(ui.End)
 			})
 			if row.Clicked() && tr.Playable() {
-				if playing {
+				if playing && (!skipped || a.pl.Playing()) {
 					a.pl.TogglePlay()
 				} else {
 					a.pl.PlayQueue(tracks, i)

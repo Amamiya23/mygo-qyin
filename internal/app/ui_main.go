@@ -152,6 +152,8 @@ func (a *app) load(r route) {
 	switch r.page {
 	case pageHome:
 		a.freshenHome()
+	case pageDaily:
+		a.loadDailyDislikes()
 	case pagePlaylist:
 		a.loadPlaylist(r.id, false)
 		if r.tab == 1 && a.isLikedPlaylist(r.id) {
@@ -494,6 +496,7 @@ func (a *app) loadHome() {
 	h := &homeLoad{gen: a.homeGen, at: time.Now(), pending: 3, cataloguePending: 2}
 	if signedIn {
 		h.pending++
+		a.loadDailyDislikes()
 	}
 	featured, charts, daily, recommended := homeFeatured, homeCharts, homeDaily, homeRecommended
 	go func() {

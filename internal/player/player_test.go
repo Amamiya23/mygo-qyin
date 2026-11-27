@@ -292,6 +292,98 @@ func TestRadioRefills(t *testing.T) {
 	}
 }
 
+func TestNextWithoutWrapPlaysTheFollowingTrackOrWaitsForRadio(t *testing.T) {
+	oldLyrics, oldURL := songLyrics, songURL
+	t.Cleanup(func() { songLyrics, songURL = oldLyrics, oldURL })
+	songLyrics = func(int64) (string, string, string, error) { return "", "", "", nil }
+	songURL = func(int64, string) (*qqmusic.Stream, error) { return nil, errors.New("no audio in this test") }
+	for _, radio := range []bool{false, true} {
+		posted := make(chan func(), 2)
+		p := &Player{post: func(fn func()) { posted <- fn }, SkipAutomatic: func(tr *qqmusic.Track) bool { return tr.ID == 3 }}
+		tracks := []qqmusic.Track{{ID: 1}, {ID: 3}, {ID: 2}}
+		if radio {
+			p.Cue(tracks[:1])
+			var batch func([]qqmusic.Track)
+			p.AttachRadio("fm:DEFAULT", func(got func([]qqmusic.Track)) { batch = got })
+			p.NextWithoutWrap()
+			if !p.Loading() || p.Current().ID != 1 || batch == nil {
+				t.Fatal("the last radio track did not wait for a new batch")
+			}
+			batch(tracks[1:])
+		} else {
+			p.Cue(tracks)
+			p.NextWithoutWrap()
+		}
+		if p.Current().ID != 2 || !p.Playing() || len(p.Queue()) != 3 || p.Queue()[1].ID != 3 {
+			t.Fatalf("radio=%t: next allowed track did not start with the skipped row retained", radio)
+		}
+		if !radio {
+			p.NextWithoutWrap()
+			if p.Current().ID != 2 || p.Playing() {
+				t.Fatal("the end of the daily queue should pause instead of replaying the first track")
+			}
+		}
+		next(t, posted)
+		next(t, posted)
+	}
+}
+
+func TestSkippedTracksPlayOnlyWhenSelected(t *testing.T) {
+	oldLyrics, oldURL := songLyrics, songURL
+	t.Cleanup(func() { songLyrics, songURL = oldLyrics, oldURL })
+	songLyrics = func(int64) (string, string, string, error) { return "", "", "", nil }
+	songURL = func(int64, string) (*qqmusic.Stream, error) { return nil, errors.New("no audio in this test") }
+	posted := make(chan func(), 2)
+	p := &Player{post: func(fn func()) { posted <- fn }, SkipAutomatic: func(tr *qqmusic.Track) bool { return tr.ID%2 == 0 }}
+	p.Cue([]qqmusic.Track{{ID: 1}, {ID: 2}, {ID: 3}, {ID: 4}})
+	started := func(id int64) {
+		t.Helper()
+		if p.Current().ID != id || !p.Playing() {
+			t.Fatalf("playing=%t id=%d, want to start %d", p.Playing(), p.Current().ID, id)
+		}
+		for range 2 {
+			select {
+			case <-posted: // Wait for both fixture loads without running the audio callbacks.
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for the fixture player")
+			}
+		}
+	}
+	p.ended()
+	started(3)
+	p.Prev()
+	started(1)
+	p.ToggleShuffle()
+	p.Next()
+	started(3)
+	p.Next()
+	started(1)
+	p.ToggleShuffle()
+
+	p.Jump(1)
+	started(2)
+	p.repeat = RepeatOne
+	p.ended()
+	started(3)
+	p.Jump(3)
+	started(4)
+	p.ended()
+	if p.Playing() || p.Current().ID != 4 || len(p.Queue()) != 4 {
+		t.Fatal("a one-time replay at the end must stop without removing any rows")
+	}
+
+	p.SkipAutomatic = func(*qqmusic.Track) bool { return true }
+	p.NextWithoutWrap()
+	p.TogglePlay()
+	p.Next()
+	p.Prev()
+	if p.Playing() || p.Current().ID != 4 {
+		t.Fatal("automatic controls must stop when every track is skipped")
+	}
+	p.Jump(3)
+	started(4)
+}
+
 // Each balance mode adds its preamp to QQ's gain before peak protection, leaving unmeasured songs unchanged.
 func TestNormGain(t *testing.T) {
 	for _, mode := range []string{NormalizeQuiet, NormalizeStandard, NormalizeHigh} {

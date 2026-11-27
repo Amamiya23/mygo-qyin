@@ -21,6 +21,7 @@ func (p *Player) Cue(tracks []qqmusic.Track) {
 	}
 	p.at = 0
 	p.track = &p.queue[0]
+	p.selectedSkipped = false
 }
 
 // SetLyrics gives the current track lines, as loaded.
@@ -53,4 +54,3 @@ func (p *Player) SetStream(st *qqmusic.Stream) { p.info = st }
 
 // SetErr sets a pending playback error message for app-level tests.
 func (p *Player) SetErr(err string) { p.err = err }
-

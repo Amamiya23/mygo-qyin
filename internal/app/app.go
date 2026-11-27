@@ -179,6 +179,8 @@ type app struct {
 
 	fmMode        int    // the FM mode chosen, in fmModes
 	radioStarting string // the radio asked for its first songs, or ""
+	dislikes      *songDislikes
+	dailyDislikes *dailyDislikes
 
 	scrub      float64
 	scrubbing  bool
@@ -342,6 +344,7 @@ func Run() error {
 		// made, and the view asks the player what plays.
 		a.art = newArtCache(a.post)
 		a.pl = player.New(a.post)
+		a.pl.SkipAutomatic = a.skipRecommendation
 		a.pl.Quality = func() string { return a.settings.Quality }
 		a.pl.Normalize = func() string { return a.settings.volumeBalance() }
 		a.pl.PlaybackFade = func() bool { return a.settings.PlaybackFade }

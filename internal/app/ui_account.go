@@ -109,6 +109,8 @@ func (a *app) setAccountRestoreError(err error) {
 func (a *app) signedIn(prof *qqmusic.Profile) {
 	a.accountRestore = accountRestoreState{gen: a.accountRestore.gen + 1}
 	a.profile = prof
+	a.dislikes = nil
+	a.dailyDislikes = nil
 	// Playback picks up where it was left, once the session that lets
 	// the listener play their songs is back.
 	a.restoreSession()

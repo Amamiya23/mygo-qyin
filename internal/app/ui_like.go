@@ -288,9 +288,8 @@ func (a *app) loadLiked(uid int64) {
 	}()
 }
 
-// toggleLike likes a song or an episode, or unlikes it, at once in the app
-// and then with NetEase, which may refuse: the heart goes back then. Signed
-// out, it asks the listener to sign in.
+// toggleLike likes or unlikes a song or episode, updating the heart at
+// once and rolling back if the server refuses.
 func (a *app) toggleLike(tr *qqmusic.Track) {
 	if a.profile == nil {
 		a.showMain()
@@ -299,6 +298,9 @@ func (a *app) toggleLike(tr *qqmusic.Track) {
 	}
 	if tr.ProgramID != 0 {
 		a.toggleProgramLike(tr.ProgramID)
+		return
+	}
+	if a.blocksNewLike(tr) {
 		return
 	}
 	if a.liked == nil {
@@ -349,11 +351,21 @@ func (a *app) isLiked(tr *qqmusic.Track) bool {
 	return a.liked[tr.ID]
 }
 
+func (a *app) blocksNewLike(tr *qqmusic.Track) bool {
+	return !a.isLiked(tr) && a.dislikeState(tr) != 0
+}
+
 // likeCurrent likes the song or episode playing, or unlikes it, from the
 // keyboard (⌘D), which shows no heart: a toast says which it did.
 func (a *app) likeCurrent() {
 	tr := a.pl.Current()
 	if tr == nil {
+		return
+	}
+	if a.blocksNewLike(tr) {
+		if a.dislikeState(tr) == dislikeConfirmed {
+			a.toast = "请先在 QQ 音乐黑名单中解除屏蔽"
+		}
 		return
 	}
 	a.toggleLike(tr)
@@ -445,11 +457,12 @@ func (a *app) likeButton(c *ui.Context, tr *qqmusic.Track, size float32, color u
 	// The burst goes on a wrapper, which the heart's pop does not scale.
 	wrap := ui.Box(c).Center()
 	var b ui.Element
-	wrap.Children(func() { b = iconButton(c, icon, size, color, label, surface...) })
+	blocked := a.blocksNewLike(tr)
+	wrap.Children(func() { b = iconButton(c, icon, size, color, label, surface...).Disabled(blocked) })
 	scale := b.AnimateTo("pop", 1, ui.Animation{Spring: ui.SpringOptions{Duration: 550 * time.Millisecond, Bounce: 0.55}})
 	b.Scale(scale, scale)
 	burst := ui.Local(wrap, "burst", func() time.Time { return time.Time{} })
-	if b.Clicked() {
+	if b.Clicked() && !blocked {
 		switch {
 		case a.profile == nil:
 		case liked:

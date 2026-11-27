@@ -80,7 +80,6 @@ const (
 )
 
 // QQ does not expose these NetEase contracts. The QQ UI omits their entries.
-func FMTrash(int64) error                                      { return ErrUnsupported }
 func HeartMode(int64, int64, int64) ([]Track, error)           { return nil, ErrUnsupported }
 func LikeComment(string, int64, bool) error                    { return ErrUnsupported }
 func RecentPlays(int) ([]Play, error)                          { return nil, ErrUnsupported }

@@ -58,6 +58,10 @@ func RememberTracks(tracks []Track) {
 	defer mediaRegistry.Unlock()
 	for _, t := range tracks {
 		if t.ID > 0 && t.MID != "" {
+			// A saved queue can contain recommendation provenance. The
+			// shared catalog only remembers the song's playback metadata.
+			t.RecommendationAccount = 0
+			t.FromDailyRecommendations = false
 			mediaRegistry.tracks[t.ID] = t
 		}
 		if t.Album.ID > 0 && t.Album.MID != "" {
@@ -134,6 +138,15 @@ func rpcWithCommContext(ctx context.Context, module, method string, param any, o
 			comm = authenticatedComm(s)
 		}
 	}
+	return rpcRequest(ctx, s, module, method, param, out, comm, headers)
+}
+
+// rpcForSession keeps the credentials fixed across related account requests.
+func rpcForSession(ctx context.Context, s Session, module, method string, param any, out any) error {
+	return rpcRequest(ctx, s, module, method, param, out, authenticatedComm(s), nil)
+}
+
+func rpcRequest(ctx context.Context, s Session, module, method string, param any, out any, comm map[string]any, headers map[string]string) error {
 	b, err := json.Marshal(map[string]any{"comm": comm, "req_0": map[string]any{"module": module, "method": method, "param": param}})
 	if err != nil {
 		return err

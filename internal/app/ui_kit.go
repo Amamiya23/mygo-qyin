@@ -143,7 +143,7 @@ func playerFeedback(c *ui.Context, b ui.Element, color ui.Color, surface buttonS
 
 // roundButton is the button of iconButton, without its icon.
 func roundButton(c *ui.Context, size float32, color ui.Color, label string, surface ...buttonSurface) ui.Element {
-	b := ui.ButtonBase(c).Size(size+16, size+16).Center().Radius(999).Label(label).TextColor(color)
+	b := roundButtonBase(c, size, color, label)
 	if len(surface) > 0 {
 		switch surface[0] {
 		case mediaSurface:
@@ -164,6 +164,10 @@ func roundButton(c *ui.Context, size float32, color ui.Color, label string, surf
 	}
 	b.AnimatePose(pose, ui.Snappy)
 	return b
+}
+
+func roundButtonBase(c *ui.Context, size float32, color ui.Color, label string) ui.Element {
+	return ui.ButtonBase(c).Size(size+16, size+16).Center().Radius(999).Label(label).TextColor(color)
 }
 
 // pillButton is a rounded button with an icon and a label.

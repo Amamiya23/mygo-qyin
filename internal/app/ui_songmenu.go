@@ -45,7 +45,7 @@ func (a *app) songItems(tr *qqmusic.Track, pid int64) func(m *ui.Menu) {
 			a.programItems(m, tr)
 			return
 		}
-		if m.Item("下一首播放").Disabled(!tr.Playable()).Chosen() {
+		if m.Item("下一首播放").Disabled(!tr.Playable() || a.skipRecommendation(tr)).Chosen() {
 			a.pl.PlayNext(*tr)
 			a.toast = "已设为下一首播放"
 		}

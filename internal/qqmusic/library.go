@@ -1,6 +1,7 @@
 package qqmusic
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -98,17 +99,22 @@ func UserPlaylists(uid int64) (made, saved []Playlist, err error) {
 
 func libraryMore(o object) bool { return number(o, "hasmore") == 1 || string(o["hasmore"]) == "true" }
 func DailySongs() ([]Track, error) {
-	if _, err := signedSession(); err != nil {
+	s, err := signedSession()
+	if err != nil {
 		return nil, err
 	}
 	var data object
-	if err := rpc("music.srfDissInfo.aiDissInfo", "uniform_get_Dissinfo", map[string]any{"dirid": 202, "optype": 3, "tag": 1, "userinfo": 0, "pic_dpi": 300}, &data); err != nil {
+	if err := rpcForSession(context.Background(), s, "music.srfDissInfo.aiDissInfo", "uniform_get_Dissinfo", map[string]any{"dirid": 202, "optype": 3, "tag": 1, "userinfo": 0, "pic_dpi": 300}, &data); err != nil {
 		return nil, err
 	}
 	if code, ok := data["code"]; ok && string(code) != "0" {
 		return nil, fmt.Errorf("qqmusic: daily songs code %s", code)
 	}
-	return convertTracks(objects(data, "songlist")), nil
+	tracks := recommendationTracks(s, objects(data, "songlist"))
+	for i := range tracks {
+		tracks[i].FromDailyRecommendations = true
+	}
+	return tracks, nil
 }
 
 func LikedIDs(uid int64) ([]int64, error) {

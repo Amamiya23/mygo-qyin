@@ -44,6 +44,9 @@ type Player struct {
 	// Changed, if set, hears that what plays, where it is or whether it
 	// plays changed.
 	Changed func()
+	// SkipAutomatic, if set, excludes tracks from automatic selection while
+	// leaving them in the queue for direct selection. It runs on the main thread.
+	SkipAutomatic func(*qqmusic.Track) bool
 
 	queue   []qqmusic.Track
 	order   []int // the queue's indices in play order: shuffled or not
@@ -60,15 +63,16 @@ type Player struct {
 	feeding  bool // the feed is asked
 	awaiting bool // at the queue's end, for what the feed gives
 
-	track   *qqmusic.Track
-	out     *audio.Player
-	stream  stream
-	info    *qqmusic.Stream // what the current track streams
-	fade    fader
-	loading bool
-	playing bool // what the listener wants: false while paused
-	err     string
-	gen     int // counts loads, to drop the results of stale ones
+	track           *qqmusic.Track
+	out             *audio.Player
+	stream          stream
+	info            *qqmusic.Stream // what the current track streams
+	fade            fader
+	loading         bool
+	playing         bool // what the listener wants: false while paused
+	selectedSkipped bool // the listener explicitly selected a skipped track
+	err             string
+	gen             int // counts loads, to drop the results of stale ones
 
 	lyrics       []lyrics.Line
 	lyricsLoaded bool
@@ -142,21 +146,21 @@ func (p *Player) announce(t *qqmusic.Track, artwork []byte) {
 }
 
 func (p *Player) ended() {
-	if p.repeat == RepeatOne {
+	if p.repeat == RepeatOne && !p.skips(p.track) {
 		p.out.Seek(0)
 		p.out.Play()
 		return
 	}
-	if p.at+1 >= len(p.order) && p.feed != nil {
+	at := p.automaticAt(p.at, 1, p.repeat == RepeatAll && p.feed == nil)
+	switch {
+	case at >= 0:
+		p.load(at)
+	case p.feed != nil:
 		p.awaitFeed()
-		return
-	}
-	if p.at+1 >= len(p.order) && p.repeat == RepeatOff {
+	default:
 		p.playing = false
 		p.sync()
-		return
 	}
-	p.Next()
 }
 
 // PlayQueue replaces the queue with tracks and plays the one at start.
@@ -173,10 +177,10 @@ func (p *Player) PlayQueue(tracks []qqmusic.Track, start int) {
 	}
 	if p.shuffle {
 		p.shuffleOrder(start)
-		p.load(0)
+		p.loadSelected(0)
 		return
 	}
-	p.load(start)
+	p.loadSelected(start)
 }
 
 // PlayNext inserts t after the current track in play order without changing
@@ -243,11 +247,11 @@ func (p *Player) Remove(i int) {
 		p.sync()
 	default:
 		wasPlaying := p.playing
-		nextAt := pos
-		if nextAt >= len(p.order) {
-			nextAt = 0
+		nextAt := p.automaticAt(pos-1, 1, true)
+		if nextAt < 0 {
+			nextAt, wasPlaying = pos%len(p.order), false
 		}
-		p.loadSkipping(nextAt, 0, wasPlaying, 0)
+		p.loadSkipping(nextAt, 0, wasPlaying, 0, false)
 	}
 }
 
@@ -255,12 +259,13 @@ func (p *Player) Remove(i int) {
 // gives as the queue nears its end, until something else is played. The
 // radio's name says which it is. feed calls got on the main thread.
 func (p *Player) PlayRadio(name string, tracks []qqmusic.Track, feed func(got func([]qqmusic.Track))) {
-	if len(tracks) == 0 {
+	first := slices.IndexFunc(tracks, func(t qqmusic.Track) bool { return !p.skips(&t) })
+	if first < 0 {
 		return
 	}
 	shuffle := p.shuffle
 	p.shuffle = false
-	p.PlayQueue(tracks, 0)
+	p.PlayQueue(tracks, first)
 	p.shuffle = shuffle
 	p.AttachRadio(name, feed)
 }
@@ -320,7 +325,11 @@ func (p *Player) Radio() string { return p.radio }
 
 // refill asks the radio for more once the queue is near its end.
 func (p *Player) refill() {
-	if p.feed == nil || p.feeding || p.at < len(p.order)-2 {
+	if p.feed == nil || p.feeding {
+		return
+	}
+	// Retained, skipped songs do not count as buffered playback.
+	if next := p.automaticAt(p.at, 1, false); next >= 0 && p.automaticAt(next, 1, false) >= 0 {
 		return
 	}
 	p.feeding = true
@@ -331,11 +340,12 @@ func (p *Player) refill() {
 		}
 		p.feeding = false
 		p.appendTracks(more)
+		next := p.automaticAt(p.at, 1, false)
 		switch {
 		case !p.awaiting:
-		case p.at+1 < len(p.order):
+		case next >= 0:
 			p.awaiting = false
-			p.load(p.at + 1)
+			p.load(next)
 		default:
 			// The radio has nothing more: it stops at its end.
 			p.awaiting, p.playing = false, false
@@ -475,41 +485,83 @@ func (p *Player) OpenAudio() (Audio, error) {
 // current track is among them, -1 for none.
 func (p *Player) PlayOrder() ([]int, int) { return p.order, p.at }
 
-func (p *Player) Next() {
+func (p *Player) skips(tr *qqmusic.Track) bool {
+	return tr != nil && p.SkipAutomatic != nil && p.SkipAutomatic(tr)
+}
+
+// automaticAt searches the existing play order without changing the visible queue.
+func (p *Player) automaticAt(at, step int, wrap bool) int {
+	for range p.order {
+		at += step
+		if at < 0 || at >= len(p.order) {
+			if !wrap {
+				break
+			}
+			at = (at + len(p.order)) % len(p.order)
+		}
+		if !p.skips(&p.queue[p.order[at]]) {
+			return at
+		}
+	}
+	return -1
+}
+
+// Upcoming returns the next automatically playable track without wrapping.
+func (p *Player) Upcoming() *qqmusic.Track {
+	if at := p.automaticAt(p.at, 1, false); at >= 0 {
+		return &p.queue[p.order[at]]
+	}
+	return nil
+}
+
+func (p *Player) Next() { p.next(true) }
+
+// NextWithoutWrap advances within the current queue, waiting for more on
+// a radio. At the end of a finite queue, it pauses the current track.
+func (p *Player) NextWithoutWrap() {
+	p.selectedSkipped = false
+	p.next(false)
+}
+
+func (p *Player) next(wrap bool) {
 	if len(p.order) == 0 {
 		return
 	}
-	at := p.at + 1
-	if at >= len(p.order) {
-		if p.feed != nil {
-			p.stop()
-			p.awaitFeed()
-			return
+	at := p.automaticAt(p.at, 1, wrap && p.feed == nil)
+	switch {
+	case at >= 0:
+		p.load(at)
+	case p.feed != nil:
+		p.stop()
+		if p.loading {
+			p.gen++ // A reply for the rejected track must not start it again.
+			p.loading = false
 		}
-		at = 0
+		p.awaitFeed()
+	case p.playing:
+		if p.out != nil {
+			p.TogglePlay()
+		} else {
+			p.playing = false
+			p.sync()
+		}
 	}
-	p.load(at)
 }
 
 // Prev plays the track before this one, however far this one has played:
 // once a few seconds in, going back to its start only kept the listener
 // pressing twice.
 func (p *Player) Prev() {
-	if len(p.order) == 0 {
-		return
+	if at := p.automaticAt(max(p.at, 0), -1, true); at >= 0 {
+		p.load(at)
 	}
-	at := p.at - 1
-	if at < 0 {
-		at = len(p.order) - 1
-	}
-	p.load(at)
 }
 
 // Jump plays the queue's track i.
 func (p *Player) Jump(i int) {
 	for k, v := range p.order {
 		if v == i {
-			p.load(k)
+			p.loadSelected(k)
 			return
 		}
 	}
@@ -517,6 +569,10 @@ func (p *Player) Jump(i int) {
 
 // TogglePlay pauses, fading out, or plays, fading in.
 func (p *Player) TogglePlay() {
+	if !p.playing && !p.selectedSkipped && p.skips(p.track) {
+		p.next(false)
+		return
+	}
 	if p.out == nil {
 		switch {
 		case p.loading:
@@ -524,7 +580,7 @@ func (p *Player) TogglePlay() {
 			p.playing = !p.playing
 			p.sync()
 		case len(p.order) > 0:
-			p.loadSkipping(max(p.at, 0), 0, true, p.pending)
+			p.loadSkipping(max(p.at, 0), 0, true, p.pending, p.selectedSkipped)
 		}
 		return
 	}
@@ -744,18 +800,23 @@ func (p *Player) stop() {
 
 // load plays the track at order[at], skipping those that cannot play.
 func (p *Player) load(at int) {
-	p.loadSkipping(at, 0, true, 0)
+	p.loadSkipping(at, 0, true, 0, false)
+}
+
+func (p *Player) loadSelected(at int) {
+	p.loadSkipping(at, 0, true, 0, p.skips(&p.queue[p.order[at]]))
 }
 
 // loadSkipping loads the track at order[at], to play or not, from from,
 // skipping those that cannot play: skipped of them so far.
-func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
+func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration, selectedSkipped bool) {
 	p.stop()
 	p.gen++
 	gen := p.gen
 	p.at = at
 	t := p.queue[p.order[at]]
 	p.track = &t
+	p.selectedSkipped = selectedSkipped
 	p.loading, p.playing, p.err = true, play, ""
 	p.awaiting = false
 	p.lyrics, p.lyricsLoaded = nil, false
@@ -850,16 +911,17 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 					}
 				}
 				// Skip only per-track unplayable errors while actively trying to play.
-				if p.playing && unavailable && skipped+1 < len(p.order) {
-					next := at + 1
-					if next >= len(p.order) {
-						next = 0
+				if p.playing && unavailable {
+					if next := p.automaticAt(p.at, 1, true); next >= 0 {
+						distance := (next - p.at + len(p.order)) % len(p.order)
+						if distance > 0 && skipped+distance < len(p.order) {
+							p.loadSkipping(next, skipped+distance, true, 0, false)
+							return
+						}
 					}
-					p.loadSkipping(next, skipped+1, p.playing, 0)
-				} else {
-					p.playing = false
-					p.sync()
 				}
+				p.playing = false
+				p.sync()
 				return
 			}
 			p.stream, p.info = s, info
@@ -1083,5 +1145,5 @@ func (p *Player) Restore(s Session) {
 	}
 	p.queue, p.order = s.Queue, s.Order
 	p.shuffle, p.repeat = s.Shuffle, s.Repeat%3
-	p.loadSkipping(s.At, 0, false, time.Duration(s.Position)*time.Millisecond)
+	p.loadSkipping(s.At, 0, false, time.Duration(s.Position)*time.Millisecond, false)
 }

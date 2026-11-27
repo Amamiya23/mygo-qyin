@@ -168,6 +168,15 @@ func (a *app) dailyPlaying() (ours, playing bool) {
 	return true, a.pl.Playing()
 }
 
+func (a *app) firstDailyPlayable(songs []qqmusic.Track) int {
+	for i := range songs {
+		if songs[i].Playable() && !a.skipRecommendation(&songs[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
 // dailyColors returns the card's colors for the day's first cover: a deep
 // and a rich shade of its hue, a little turned, and a bright one to glow,
 // at depths that white reads over whatever the cover. A gray cover, or one
@@ -291,9 +300,17 @@ func dailyArtists(songs []qqmusic.Track) string {
 // dailyPlayButton plays the day's songs; while they play it says so, its
 // bars dancing, and pauses them; paused, it goes on.
 func (a *app) dailyPlayButton(c *ui.Context, songs []qqmusic.Track, ours, playing bool) {
+	start := a.firstDailyPlayable(songs)
+	if ours && !playing && a.skipRecommendation(a.pl.Current()) {
+		// A bulk start must not resume the rejected song at the queue's end.
+		ours = false
+	}
 	ink := radixSage(false, 12)
 	b := ui.ButtonBase(c).Height(38).PaddingX(20).Gap(8).Radius(999).AlignItems(ui.Center).TextColor(ink).
 		Shadow(0, 6, 16, -6, radixInk.Alpha(0.35))
+	if !ours && start < 0 {
+		b.Disabled(true).Opacity(0.5)
+	}
 	fill := white
 	if b.Hovered() {
 		fill = radixSage(false, 3)
@@ -339,8 +356,8 @@ func (a *app) dailyPlayButton(c *ui.Context, songs []qqmusic.Track, ours, playin
 	if b.Clicked() {
 		if ours {
 			a.pl.TogglePlay()
-		} else {
-			a.pl.PlayQueue(songs, firstPlayable(songs))
+		} else if start >= 0 {
+			a.pl.PlayQueue(songs, start)
 		}
 	}
 }
@@ -352,7 +369,8 @@ func (a *app) dailyPicks(c *ui.Context, songs []qqmusic.Track) {
 	ui.Column(c.Key("picks")).Width(236).Shrink(0).Gap(2).Children(func() {
 		for i := range min(3, len(songs)) {
 			tr := &songs[i]
-			row := ui.ButtonBase(c.Key(tr.ID)).Row().Gap(12).Padding(7, 12).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
+			skipped := a.skipRecommendation(tr)
+			row := ui.ButtonBase(c.Key(tr.ID)).Row().Gap(12).Padding(7, 12).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(recommendationRowLabel(tr.Name, skipped)).
 				ContextMenu(a.songItems(tr, 0))
 			bg := white.Alpha(0)
 			if row.Hovered() {
@@ -369,12 +387,21 @@ func (a *app) dailyPicks(c *ui.Context, songs []qqmusic.Track) {
 					}
 				})
 				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(1).Children(func() {
-					ui.Text(c, tr.Name).FontSize(13).FontWeight(600).MaxLines(1)
-					a.artistLinks(c, tr, white.Alpha(0.6), white).FontSize(11.5).MaxLines(1)
+					color := white
+					if skipped {
+						color = white.Alpha(0.6)
+					}
+					ui.Text(c, tr.Name).FontSize(13).FontWeight(600).TextColor(color).MaxLines(1)
+					ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+						a.artistLinks(c, tr, white.Alpha(0.6), white).FontSize(11.5).SingleLine().Shrink(1).MinWidth(0)
+						if skipped {
+							dislikedBadge(c, white.Alpha(0.6))
+						}
+					})
 				})
 			})
 			if row.Clicked() {
-				if current {
+				if current && (!skipped || a.pl.Playing()) {
 					a.pl.TogglePlay()
 				} else {
 					a.pl.PlayQueue(songs, i)
@@ -512,17 +539,25 @@ func (a *app) dailyPage(c *ui.Context) {
 				}
 				ui.Text(c, fmt.Sprintf("%d 首 · %s", len(songs), a.dailyBlurb())).FontSize(13).TextColor(p.muted)
 				ui.Row(c).Gap(10).Margin(8, 0, 0, 0).Children(func() {
-					if pillButton(c.Key("play"), iconPlay, "播放全部", p.accent, p.onAccent).Clicked() {
+					start := a.firstDailyPlayable(songs)
+					play := pillButton(c.Key("play"), iconPlay, "播放全部", p.accent, p.onAccent)
+					shuffle := pillButton(c.Key("shuffle"), iconShuffle, "随机播放", p.hover.Over(p.bg), p.text)
+					if start < 0 {
+						play.Disabled(true).Opacity(0.5)
+						shuffle.Disabled(true).Opacity(0.5)
+						return
+					}
+					if play.Clicked() {
 						if a.pl.Shuffle() {
 							a.pl.ToggleShuffle()
 						}
-						a.pl.PlayQueue(songs, firstPlayable(songs))
+						a.pl.PlayQueue(songs, start)
 					}
-					if pillButton(c.Key("shuffle"), iconShuffle, "随机播放", p.hover.Over(p.bg), p.text).Clicked() {
+					if shuffle.Clicked() {
 						if !a.pl.Shuffle() {
 							a.pl.ToggleShuffle()
 						}
-						a.pl.PlayQueue(songs, firstPlayable(songs))
+						a.pl.PlayQueue(songs, start)
 					}
 				})
 			})

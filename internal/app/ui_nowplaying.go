@@ -247,6 +247,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *qqmusic.Track, art *artwork, acc
 						a.artistLinks(c, tr, white.Alpha(0.6), white, true).FontSize(15).SingleLine()
 					})
 					a.likeButton(c.Key("like"), tr, 22, white.Alpha(0.7), mediaSurface)
+					a.dislikeButton(c.Key("dislike"), tr, 22, white.Alpha(0.7))
 					a.songMenu(c.Key("more"), tr, 22, white.Alpha(0.7), mediaSurface).Margin(0, -8, 0, 0)
 				})
 				a.npRise(a.scrubber(c.Key("np-scrub"), &a.npScrub, white.Alpha(0.18), white.Alpha(0.9), 16, accent.Mix(white, 0.35)), 2)
@@ -478,6 +479,7 @@ func (a *app) stageBar(c *ui.Context, tr *qqmusic.Track, art *artwork, accent ui
 						a.artistLinks(c, tr, white.Alpha(0.55), white).FontSize(12).SingleLine()
 					})
 					a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6), mediaSurface)
+					a.dislikeButton(c.Key("dislike"), tr, 17, white.Alpha(0.6))
 					a.songMenu(c.Key("more"), tr, 17, white.Alpha(0.6), mediaSurface).Margin(0, 0, 0, -10)
 				})
 			})
@@ -900,7 +902,8 @@ func (a *app) queueTracks(c *ui.Context, list *ui.ListState, lastAt *int, p pale
 		i := order[r]
 		tr := &queue[i]
 		playing := r == at
-		row := ui.ButtonBase(c.Key(i)).Height(58).PaddingX(10).Gap(14).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
+		skipped := a.skipRecommendation(tr)
+		row := ui.ButtonBase(c.Key(i)).Height(58).PaddingX(10).Gap(14).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(recommendationRowLabel(tr.Name, skipped)).
 			ContextMenu(a.queueSongItems(tr, i))
 		switch {
 		case playing:
@@ -914,13 +917,22 @@ func (a *app) queueTracks(c *ui.Context, list *ui.ListState, lastAt *int, p pale
 		row.Children(func() {
 			a.cover(c, tr.Album.PicURL, 96, 42, 7)
 			ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
-				ui.Text(c, tr.Name).FontSize(14).FontWeight(600).SingleLine()
-				a.artistLinks(c, tr, p.muted, p.text).FontSize(12.5).SingleLine()
+				color := p.text
+				if skipped {
+					color = p.muted
+				}
+				ui.Text(c, tr.Name).FontSize(14).FontWeight(600).TextColor(color).SingleLine()
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					a.artistLinks(c, tr, p.muted, p.text).FontSize(12.5).SingleLine().Shrink(1).MinWidth(0)
+					if skipped {
+						dislikedBadge(c, p.muted)
+					}
+				})
 			})
 			ui.Text(c, clock(tr.Length())).FontSize(12).FontFeatures("tnum").TextColor(p.faint)
 		})
 		if row.Clicked() && tr.Playable() {
-			if playing {
+			if playing && (!skipped || pl.Playing()) {
 				pl.TogglePlay()
 			} else {
 				pl.Jump(i)

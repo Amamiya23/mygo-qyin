@@ -2,6 +2,7 @@ package app
 
 import (
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"time"
 
@@ -77,20 +78,41 @@ func (a *app) radioFeed(name string) func(got func([]qqmusic.Track)) {
 			got(nil)
 			return
 		}
-		go func() {
-			// The FM gives a song or three at a time, some of them VIP
-			// songs the listener may not play: ask again for those.
-			var tracks []qqmusic.Track
-			for tries := 0; tries < 3 && len(tracks) == 0; tries++ {
+		// The FM gives a song or three at a time. Try another batch if
+		// none can play automatically, keeping the skipped songs in the list.
+		profile := a.profile
+		seen := make(map[int64]bool)
+		var tracks []qqmusic.Track
+		var request func(int)
+		request = func(tries int) {
+			go func() {
 				more, err := fetch()
-				if err != nil {
-					break
-				}
-				tracks = playable(more)
-			}
-			a.post(func() { got(tracks) })
-		}()
+				a.post(func() {
+					if a.profile != profile {
+						got(nil)
+						return
+					}
+					more = playable(more)
+					for _, tr := range more {
+						if !seen[tr.ID] {
+							tracks = append(tracks, tr)
+							seen[tr.ID] = true
+						}
+					}
+					if err == nil && tries < 3 && !hasAutomaticTrack(more, a.skipRecommendation) {
+						request(tries + 1)
+						return
+					}
+					got(tracks)
+				})
+			}()
+		}
+		request(1)
 	}
+}
+
+func hasAutomaticTrack(tracks []qqmusic.Track, skip func(*qqmusic.Track) bool) bool {
+	return slices.ContainsFunc(tracks, func(tr qqmusic.Track) bool { return !skip(&tr) })
 }
 
 // playFM plays the personal FM in the mode chosen, or goes on playing it.
@@ -113,7 +135,7 @@ func (a *app) playFM() {
 			return
 		}
 		a.radioStarting = ""
-		if len(tracks) == 0 {
+		if !hasAutomaticTrack(tracks, a.skipRecommendation) {
 			a.toast = "电台 暂时无法播放，请稍后再试"
 			return
 		}
@@ -133,17 +155,6 @@ func (a *app) exitRadio() {
 		label = "电台"
 	}
 	a.toast = "已退出" + label
-}
-
-// trashFM skips the song playing on the FM, which plays it no more.
-func (a *app) trashFM() {
-	tr := a.pl.Current()
-	if tr == nil {
-		return
-	}
-	id := tr.ID
-	a.pl.Next()
-	go qqmusic.FMTrash(id)
 }
 
 // startHeartMode plays songs like one the listener likes: the one playing,
@@ -328,13 +339,7 @@ func (a *app) fmCard(c *ui.Context) {
 func (a *app) fmCovers(c *ui.Context, tr *qqmusic.Track) {
 	const size = 232
 	ui.Box(c).Size(size+36, size).Shrink(0).Children(func() {
-		var next *qqmusic.Track
-		if tr != nil {
-			if order, at := a.pl.PlayOrder(); at >= 0 && at+1 < len(order) {
-				next = &a.pl.Queue()[order[at+1]]
-			}
-		}
-		if next != nil {
+		if next := a.pl.Upcoming(); tr != nil && next != nil {
 			back := ui.Box(c.Key(next.ID)).Absolute().Top(16).Left(36).Size(size-32, size-32).Radius(14).Opacity(0.55).Background(white.Alpha(0.12)).
 				Shadow(0, 10, 24, -8, radixInk.Alpha(0.4))
 			back.AnimatePose(ui.Pose{Rotate: 6, X: 14}, ui.Animation{Spring: ui.SpringOptions{Duration: 500 * time.Millisecond, Bounce: 0.2}})

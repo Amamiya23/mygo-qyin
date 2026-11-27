@@ -41,6 +41,11 @@ type Track struct {
 	// NeedsDetails keeps a sparse search result from supplying an incomplete
 	// playback filename, including after restoring a saved queue.
 	NeedsDetails bool `json:"needsDetails,omitempty"`
+	// RecommendationAccount is set only on daily or personal radio results.
+	RecommendationAccount int64 `json:"recommendationAccount,omitempty"`
+	// FromDailyRecommendations scopes the synced song blacklist to daily tracks,
+	// including in a saved playback queue.
+	FromDailyRecommendations bool `json:"fromDailyRecommendations,omitempty"`
 }
 
 // Loudness is QQ's measured gain in dB, sample peak and loudness range for
