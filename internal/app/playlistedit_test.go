@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -650,9 +651,9 @@ func TestSearchMineUsesDiskCacheAndBoundsMemory(t *testing.T) {
 		}
 	}
 
-	fetched := map[int64]bool{}
+	var fetched sync.Map
 	mineDetail = func(id int64) (*qqmusic.Playlist, error) {
-		fetched[id] = true
+		fetched.Store(id, true)
 		return &qqmusic.Playlist{
 			ID:     id,
 			Name:   fmt.Sprintf("网络%d", id),
@@ -665,8 +666,10 @@ func TestSearchMineUsesDiskCacheAndBoundsMemory(t *testing.T) {
 	a.searchMine(r, d)
 	pumpPosted(t, posted, func() bool { return d.page.loaded })
 
-	if fetched[1001] || fetched[1002] {
-		t.Fatalf("searchMine hit network for disk-cached playlists: %+v", fetched)
+	for _, id := range []int64{1001, 1002} {
+		if _, hit := fetched.Load(id); hit {
+			t.Fatalf("searchMine hit network for disk-cached playlist %d", id)
+		}
 	}
 	if len(d.res.Songs) != total {
 		t.Fatalf("matched %d songs, want %d", len(d.res.Songs), total)
