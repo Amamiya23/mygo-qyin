@@ -173,6 +173,7 @@ type app struct {
 
 	stageStyleOpen    bool // the stage's effect menu shows
 	lyricsSizeOpen    bool // the scrolling lyrics' size popover shows
+	lyricsSizeDirty   bool // lyric size changed while dragging and awaits release to save
 	lyricsSizeTrigger ui.Handle
 
 	queueOpen    bool // the player bar's floating queue shows

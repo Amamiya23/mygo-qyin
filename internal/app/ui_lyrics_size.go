@@ -43,9 +43,13 @@ func (a *app) lyricsSizeButton(c *ui.Context) {
 		reset.Children(func() { ui.Text(c, "恢复默认").FontSize(12) })
 		if reset.Clicked() {
 			a.settings.LyricsFontSize = lyricsFontSizeDefault
-			a.lyricsSizeChanged()
+			a.lyricsSizeChanged(true)
 		}
 	})
+	if !a.lyricsSizeOpen && a.lyricsSizeDirty {
+		a.lyricsSizeDirty = false
+		a.settings.save()
+	}
 	if panel.Dismissed() && !panel.PressedOutside() {
 		a.lyricsSizeTrigger.Focus(c)
 	}
@@ -57,7 +61,10 @@ func (a *app) lyricsSizeSlider(c *ui.Context) {
 	s := ui.SliderBase(c.Key("size"), &a.settings.LyricsFontSize, lyricsFontSizeMin, lyricsFontSizeMax).
 		Height(28).PaddingX(knob / 2).Step(1).AutoFocus().Label("调整歌词字号").Cursor(ui.CursorPointer)
 	if s.Changed() {
-		a.lyricsSizeChanged()
+		a.lyricsSizeChanged(!s.Pressed())
+	} else if !s.Pressed() && a.lyricsSizeDirty {
+		a.lyricsSizeDirty = false
+		a.settings.save()
 	}
 	value := float32((a.settings.LyricsFontSize - lyricsFontSizeMin) / (lyricsFontSizeMax - lyricsFontSizeMin))
 	fill := radixGreen(true, 9)
@@ -73,10 +80,15 @@ func (a *app) lyricsSizeSlider(c *ui.Context) {
 	})
 }
 
-func (a *app) lyricsSizeChanged() {
+func (a *app) lyricsSizeChanged(save bool) {
 	// A different size changes wrapping and line positions even while paused.
 	a.lyricAt = -2
 	// The offset stays where it is, not taken for the listener scrolling.
 	a.lyricGlide = lyricGlide{set: a.lyricScroll.Y}
-	a.settings.save()
+	if save {
+		a.lyricsSizeDirty = false
+		a.settings.save()
+	} else {
+		a.lyricsSizeDirty = true
+	}
 }

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"github.com/egoist/mygo"
 	"math"
@@ -316,8 +317,27 @@ func detachTaskbarLyricsWindow(w *mygo.Window) {
 type taskbarCOMObject struct{ vtable *[64]uintptr }
 type taskbarCOMReferences []*taskbarCOMObject
 
+const taskbarErrElementGone uint32 = 0x80040201 // UIA_E_ELEMENTNOTAVAILABLE
+
+type taskbarCOMError struct {
+	op string
+	hr uint32
+}
+
+func (e *taskbarCOMError) Error() string {
+	return fmt.Sprintf("%s: 0x%X", e.op, e.hr)
+}
+
+func isTaskbarElementGone(err error) bool {
+	var comErr *taskbarCOMError
+	return errors.As(err, &comErr) && comErr.hr == taskbarErrElementGone
+}
+
 func (refs *taskbarCOMReferences) own(object *taskbarCOMObject, hr uintptr) (*taskbarCOMObject, error) {
-	if int32(hr) < 0 || object == nil {
+	if int32(hr) < 0 {
+		return nil, &taskbarCOMError{op: "taskbar UI Automation HRESULT", hr: uint32(hr)}
+	}
+	if object == nil {
 		return nil, fmt.Errorf("taskbar UI Automation HRESULT 0x%X", uint32(hr))
 	}
 	*refs = append(*refs, object)
@@ -341,7 +361,7 @@ func taskbarProperty(object *taskbarCOMObject, id int) (taskbarVariant, error) {
 	var value taskbarVariant
 	hr, _, _ := syscall.SyscallN(object.vtable[10], uintptr(unsafe.Pointer(object)), uintptr(id), uintptr(unsafe.Pointer(&value)))
 	if int32(hr) < 0 {
-		return value, fmt.Errorf("read taskbar automation property %d: 0x%X", id, uint32(hr))
+		return value, &taskbarCOMError{op: fmt.Sprintf("read taskbar automation property %d", id), hr: uint32(hr)}
 	}
 	return value, nil
 }
@@ -480,6 +500,9 @@ func taskbarOccupiedBounds(taskbar uintptr, bounds taskbarNativeRect) ([]taskbar
 	for _, host := range hosts {
 		kind, e := taskbarProperty(host, 30003)
 		if e != nil {
+			if isTaskbarElementGone(e) {
+				continue
+			}
 			return nil, e
 		}
 		controlType := uint32(kind.value[0]) // VT_I4 only defines the low 32 bits.
@@ -487,22 +510,28 @@ func taskbarOccupiedBounds(taskbar uintptr, bounds taskbarNativeRect) ([]taskbar
 		if controlType == 50000 || controlType == 50002 || controlType == 50013 || controlType == 50004 || controlType == 50007 {
 			offscreen, e := taskbarProperty(host, 30022)
 			if e != nil {
+				if isTaskbarElementGone(e) {
+					continue
+				}
 				return nil, e
 			}
 			isVisible := offscreen.kind == 11 && offscreen.value[0]&0xffff == 0
 			taskbarClearVariant(&offscreen)
 			if isVisible {
-				if e = add(host); e != nil {
+				if e = add(host); e != nil && !isTaskbarElementGone(e) {
 					return nil, e
 				}
 			}
 		}
 		children, e := taskbarFindAll(&refs, host, 4, controls)
 		if e != nil {
+			if isTaskbarElementGone(e) {
+				continue
+			}
 			return nil, e
 		}
 		for _, child := range children {
-			if e = add(child); e != nil {
+			if e = add(child); e != nil && !isTaskbarElementGone(e) {
 				return nil, e
 			}
 		}
