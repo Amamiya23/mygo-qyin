@@ -126,6 +126,13 @@ func (f *fader) silent() bool {
 	return f.level(time.Now()) == 0
 }
 
+// fadingOut reports whether a pause fade is still ramping down toward silence.
+func (f *fader) fadingOut() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.to == 0 && f.level(time.Now()) > 0
+}
+
 // fade ramps the level from where it is to to, over d at most, then calls
 // done on its goroutine, unless another fade overtook it.
 func (f *fader) fade(to float64, d time.Duration, done func()) {

@@ -40,6 +40,7 @@ type download struct {
 	// once the song has all come in: the path it is at then.
 	part      string
 	keep      func(part string, n int64) (string, bool)
+	keepOpen  func(part string, n int64) (*os.File, string, bool, error)
 	afterKeep func(string)
 	// users counts what reads or writes the song: the stream decoding it,
 	// until it closes, and the goroutine fetching it. The last to go
@@ -53,12 +54,16 @@ var streamHTTP = &http.Client{Transport: network.Transport()}
 // startDownload fetches url, of size bytes if known, into part, a file
 // that keep keeps once it has all come in: or into memory, without one.
 func startDownload(ctx context.Context, url string, size int64, part *os.File, keep func(string, int64) (string, bool), afterKeep func(string)) *download {
+	return startDownloadWith(ctx, url, size, part, keep, nil, afterKeep)
+}
+
+func startDownloadWith(ctx context.Context, url string, size int64, part *os.File, keep func(string, int64) (string, bool), keepOpen func(string, int64) (*os.File, string, bool, error), afterKeep func(string)) *download {
 	ctx, cancel := context.WithCancel(ctx)
 	d := &download{size: size, cancel: cancel, users: 2}
 	d.cond.L = &d.mu
 	switch {
 	case part != nil:
-		d.file, d.part, d.keep, d.afterKeep = part, part.Name(), keep, afterKeep
+		d.file, d.part, d.keep, d.keepOpen, d.afterKeep = part, part.Name(), keep, keepOpen, afterKeep
 	case size > 0:
 		d.data = make([]byte, 0, prealloc(size))
 	}
@@ -122,7 +127,7 @@ func (d *download) run(ctx context.Context, url string) {
 			// Whole if as long as promised: the cache's.
 			var path string
 			var handErr error
-			if d.keep != nil && d.part != "" && (d.size <= 0 || d.n == d.size) {
+			if ctx.Err() == nil && (d.keepOpen != nil || d.keep != nil) && d.part != "" && d.n > 0 && (d.size <= 0 || d.n == d.size) {
 				path, handErr = d.hand()
 			}
 			finish(handErr)
@@ -176,8 +181,18 @@ func (d *download) hand() (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.file.Close()
-	path, ok := d.keep(d.part, d.n)
-	f, err := os.Open(path)
+	var (
+		f    *os.File
+		path string
+		ok   bool
+		err  error
+	)
+	if d.keepOpen != nil {
+		f, path, ok, err = d.keepOpen(d.part, d.n)
+	} else {
+		path, ok = d.keep(d.part, d.n)
+		f, err = os.Open(path)
+	}
 	if err != nil {
 		d.file, d.n, d.done, d.err = nil, 0, true, err
 		return "", err
@@ -188,6 +203,18 @@ func (d *download) hand() (string, error) {
 		return path, nil
 	}
 	return "", nil
+}
+
+// abort cancels an in-flight fetch and wakes readers waiting on future bytes
+// without releasing the file while the audio stream finishes closing.
+func (d *download) abort() {
+	d.cancel()
+	d.mu.Lock()
+	if !d.done {
+		d.done, d.err = true, context.Canceled
+	}
+	d.cond.Broadcast()
+	d.mu.Unlock()
 }
 
 // Close stops the download and wakes its readers: the stream lets the
