@@ -86,7 +86,7 @@ func renewSessionContextMode(ctx context.Context, prior Session, force bool) (Se
 	authState.Unlock()
 	s, err := refreshSession(ctx, prior)
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return prior, err
 		}
 		stage := "refresh"

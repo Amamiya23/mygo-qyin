@@ -3,6 +3,7 @@ package qqmusic
 import (
 	"bufio"
 	"context"
+	"crypto/x509"
 	"errors"
 	"io"
 	"net"
@@ -12,6 +13,38 @@ import (
 
 	"github.com/mewkiz/flac/meta"
 )
+
+// streamProbeError redacts signed stream URLs without disguising stream errors as login failures.
+type streamProbeError struct {
+	err error
+}
+
+func (e *streamProbeError) Unwrap() error { return e.err }
+
+func (e *streamProbeError) Error() string {
+	var dns *net.DNSError
+	if errors.As(e.err, &dns) {
+		return "音频流服务无法连接，请检查网络后重试"
+	}
+	var certificate x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	if errors.As(e.err, &certificate) || errors.As(e.err, &hostname) {
+		return "音频流证书校验失败，请检查网络后重试"
+	}
+	var network net.Error
+	if errors.As(e.err, &network) {
+		if network.Timeout() {
+			return "音频流连接超时，请检查网络后重试"
+		}
+		if !errors.Is(e.err, io.EOF) && !errors.Is(e.err, io.ErrUnexpectedEOF) {
+			return "音频流连接失败，请检查网络后重试"
+		}
+	}
+	if errors.Is(e.err, io.EOF) || errors.Is(e.err, io.ErrUnexpectedEOF) {
+		return "音频流连接被中断，请重试"
+	}
+	return "音频流探测失败，请检查网络后重试"
+}
 
 // inspectFLACStream bounds reads even when a CDN ignores Range. Resource and
 // format failures allow quality fallback; connection failures remain errors.
@@ -24,14 +57,11 @@ func inspectFLACStream(ctx context.Context, rawURL string) (*meta.StreamInfo, in
 	req.Header.Set("User-Agent", UserAgent)
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, 0, loginFailure("hires-stream", err)
+		return nil, 0, &streamProbeError{err: err}
 	}
 	defer res.Body.Close()
-	if res.StatusCode == http.StatusForbidden || res.StatusCode == http.StatusNotFound || res.StatusCode == http.StatusRequestedRangeNotSatisfiable {
-		return nil, 0, ErrUnavailable
-	}
 	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusPartialContent {
-		return nil, 0, loginHTTPError(res.StatusCode)
+		return nil, 0, ErrUnavailable
 	}
 	size := int64(0)
 	if res.StatusCode == http.StatusOK {
@@ -43,7 +73,7 @@ func inspectFLACStream(ctx context.Context, rawURL string) (*meta.StreamInfo, in
 	if err != nil {
 		var network net.Error
 		if errors.As(err, &network) {
-			return nil, 0, loginFailure("hires-stream", err)
+			return nil, 0, &streamProbeError{err: err}
 		}
 		return nil, 0, ErrUnavailable
 	}
