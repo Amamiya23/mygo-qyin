@@ -1,20 +1,20 @@
 # MyGo 本地补丁
 
-当前依赖为 [MyGo v0.9.2](https://github.com/egoist/mygo/releases/tag/v0.9.2)。
+当前依赖为 [MyGo v0.10.0](https://github.com/egoist/mygo/releases/tag/v0.10.0)。
 以下补丁均已应用到受 Git 跟踪的 `vendor/github.com/egoist/mygo`，
-路径相对 MyGo 根目录，并以干净的 v0.9.2 为基准生成。
+路径相对 MyGo 根目录，可应用到干净的 v0.10.0。
 
 | 补丁 | 用途 |
 | --- | --- |
-| `mygo-v0.9.2-radix-color-swatches.patch` | ColorPicker / ColorWell 内置色块使用 Radix Colors 第 9 阶与黑色端点，保留自选色及透明度。 |
-| `mygo-v0.9.2-linux-layer-drag.patch` | 沿用上游 layer-shell 移动和缩放，保留面板边界约束与 xdg-output 逻辑坐标，修复 KDE 分数缩放下的底边定位与恢复。 |
-| `mygo-v0.9.2-macos-dev-icon.patch` | 开发包优先选择 `macos.icon` 的 `-dev` 兄弟文件，正确读取和缓存 ICNS，并监听文件或资产目录变化。 |
-| `mygo-v0.9.2-windows-state-compat.patch` | 将旧版本地补丁保存的 `windowsBounds` 读入上游 `pixel*` 字段；已有 `pixel*` 优先，下次保存使用上游格式。 |
-| `mygo-v0.9.2-windows-acrylic-flyout.patch` | 为支持系统背板的亚克力弹层保留隐藏的窗口标题框架，恢复 Windows DWM 的桌面模糊。 |
-| `mygo-v0.9.2-desktop-audio.patch` | 在上游新版重采样与输出实现上保留原采样率、可选预热、尾音排空及重开、ALSA 回退、暂停旧曲隔离、终止性 Shutdown 和 WSOLA 输出率步进。 |
-| `mygo-v0.9.2-render-resource-lifetime.patch` | 在预算压力下跨开关复用闲置遮罩，固定坐标裁剪保留可复用尺寸；D3D11 / GL / Metal 清理退场的临时纹理及离屏层，保留新版视频处理。 |
-| `mygo-v0.9.2-retained-text-colors.patch` | 为保留的 TextLayout 缓存原绘制元数据并增加逐 span 前景色覆盖，外部歌词逐字淡入及重复描边时复用整行 shaping 与静态绘制信息。 |
-| `mygo-v0.9.2-glyph-color-damage.patch` | 字形几何与 atlas 不变时，将单纯前景色变化的重绘区域细化到变化字形；保留原场景、字形顺序与绘制效果。 |
+| `mygo-v0.10.0-radix-color-swatches.patch` | ColorPicker / ColorWell 内置色块使用 Radix Colors 第 9 阶与黑色端点，保留自选色及透明度。 |
+| `mygo-v0.10.0-linux-layer-drag.patch` | 沿用上游 layer-shell 移动和缩放，保留面板边界约束与 xdg-output 逻辑坐标，修复 KDE 分数缩放下的底边定位与恢复。 |
+| `mygo-v0.10.0-macos-dev-icon.patch` | 开发包优先选择 `macos.icon` 的 `-dev` 兄弟文件，正确读取和缓存 ICNS，并监听文件或资产目录变化。 |
+| `mygo-v0.10.0-windows-state-compat.patch` | 将旧版本地补丁保存的 `windowsBounds` 读入上游 `pixel*` 字段；已有 `pixel*` 优先，下次保存使用上游格式。 |
+| `mygo-v0.10.0-windows-acrylic-flyout.patch` | 为支持系统背板的亚克力弹层保留隐藏的窗口标题框架，恢复 Windows DWM 的桌面模糊。 |
+| `mygo-v0.10.0-desktop-audio.patch` | 在上游新版重采样与输出实现上保留原采样率、可选预热、尾音排空及重开、ALSA 回退、暂停旧曲隔离、终止性 Shutdown 和 WSOLA 输出率步进。 |
+| `mygo-v0.10.0-render-resource-lifetime.patch` | 在预算压力下跨开关复用闲置遮罩，固定坐标裁剪保留可复用尺寸；D3D11 / GL / Metal 清理退场的临时纹理及离屏层，保留新版视频处理。 |
+| `mygo-v0.10.0-retained-text-colors.patch` | 为保留的 TextLayout 缓存原绘制元数据并增加逐 span 前景色覆盖，外部歌词逐字淡入及重复描边时复用整行 shaping 与静态绘制信息。 |
+| `mygo-v0.10.0-glyph-color-damage.patch` | 字形几何与 atlas 不变时，将单纯前景色变化的重绘区域细化到变化字形；保留原场景、字形顺序与绘制效果。 |
 
 v0.9.2 已包含上游 Tester 同名内联链接目标修复（#1488）和解析裁剪优化（#1489），
 因此移除 `tester-label-target`、`analytic-clip` 两份本地补丁。新版按后端能力处理
@@ -24,7 +24,7 @@ v0.9.2 已包含上游 Tester 同名内联链接目标修复（#1488）和解析
 
 ```powershell
 go mod vendor
-Get-ChildItem patches/mygo-v0.9.2-*.patch | ForEach-Object {
+Get-ChildItem patches/mygo-v0.10.0-*.patch | ForEach-Object {
     git apply --check --directory=vendor/github.com/egoist/mygo $_.FullName
     if ($LASTEXITCODE -ne 0) { throw "补丁检查失败：$($_.Name)" }
     git apply --directory=vendor/github.com/egoist/mygo $_.FullName
@@ -34,6 +34,16 @@ Get-ChildItem patches/mygo-v0.9.2-*.patch | ForEach-Object {
 
 已应用时，将 `git apply --check` 改为 `git apply --reverse --check` 验证。
 升级依赖后需先检查上游是否已包含对应修复，再重新生成或移除补丁。
+
+## v0.10.0 升级
+
+九份本地补丁继续适用。macOS 开发图标补丁已适配新版文件监听，
+保留对生产图标和 `-dev` 图标的监听，以及上游新增的 Android 和 iOS 资源监听。
+
+- 九份补丁均通过正向重放与反向检查，重放结果与项目 `vendor` 一致（忽略行尾）。
+- UI 迁移工具只产生空白变化。`go tool mygo vet .`、Windows amd64、Linux amd64 和 macOS arm64 构建均通过。
+- MyGo 本地补丁回归连续五次通过，包含 Windows D3D11 像素测试。Linux 和 macOS 做了交叉编译。
+- 应用全量测试中的 `TestPurchasedDiskCacheOfflineAndRefresh` 会偶发只读回第一页；在升级前的 v0.9.2 上复现了同样的失败。单独跳过该用例后，其余应用测试全部通过。
 
 ## v0.9.2 升级验证
 

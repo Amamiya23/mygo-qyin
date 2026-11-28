@@ -43,7 +43,7 @@ github.com/ebitengine/purego/internal/cgo
 github.com/ebitengine/purego/internal/fakecgo
 github.com/ebitengine/purego/internal/strings
 github.com/ebitengine/purego/objc
-# github.com/egoist/mygo v0.9.2
+# github.com/egoist/mygo v0.10.0
 ## explicit; go 1.27.3
 github.com/egoist/mygo
 github.com/egoist/mygo/audio
@@ -63,11 +63,19 @@ github.com/egoist/mygo/internal/gpu/metal
 github.com/egoist/mygo/internal/i18ngen
 github.com/egoist/mygo/internal/i18nlink
 github.com/egoist/mygo/internal/imagesrc
+github.com/egoist/mygo/internal/inotify
+github.com/egoist/mygo/internal/keepstate
+github.com/egoist/mygo/internal/kqueue
 github.com/egoist/mygo/internal/l10n
 github.com/egoist/mygo/internal/linux
 github.com/egoist/mygo/internal/media
 github.com/egoist/mygo/internal/menuicon
+github.com/egoist/mygo/internal/mobile
+github.com/egoist/mygo/internal/mobile/android
+github.com/egoist/mygo/internal/mobile/ios
+github.com/egoist/mygo/internal/mobile/wire
 github.com/egoist/mygo/internal/nativegen
+github.com/egoist/mygo/internal/nativehost
 github.com/egoist/mygo/internal/nativelib
 github.com/egoist/mygo/internal/nsis
 github.com/egoist/mygo/internal/pacing

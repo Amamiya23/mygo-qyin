@@ -29,7 +29,7 @@ import (
 type buildInputs struct {
 	sourceDirs []string // directories of compiled packages: their .go and .s files
 	fileDirs   []string // directories of embedded files: all their files
-	files      []string // go.mod and go.sum files, the configuration, the icons, entitlements
+	files      []string // go.mod and go.sum files, the configuration, icons, entitlements
 	// resources is the resources directory: everything in it but the
 	// platform directories of other platforms.
 	resources string
@@ -86,6 +86,12 @@ func listBuildInputs(c *Config) (*buildInputs, error) {
 		} else {
 			in.files = append(in.files, icons...)
 		}
+	}
+	if a := c.Android.AdaptiveIcon; a != nil {
+		in.files = append(in.files, c.path(a.Foreground))
+	}
+	if l := c.IOS.LaunchScreen; l != nil && l.Image != "" {
+		in.files = append(in.files, c.path(l.Image))
 	}
 	if c.MacOS.Entitlements != "" {
 		in.files = append(in.files, c.path(c.MacOS.Entitlements))

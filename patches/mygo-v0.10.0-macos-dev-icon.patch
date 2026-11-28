@@ -73,20 +73,19 @@ diff --git a/cmd/mygo/dev.go b/cmd/mygo/dev.go
 diff --git a/cmd/mygo/watch.go b/cmd/mygo/watch.go
 --- a/cmd/mygo/watch.go
 +++ b/cmd/mygo/watch.go
-@@ -29,7 +29,7 @@
+@@ -29,7 +29,7 @@ import (
  type buildInputs struct {
  	sourceDirs []string // directories of compiled packages: their .go and .s files
  	fileDirs   []string // directories of embedded files: all their files
 -	files      []string // go.mod and go.sum files, the configuration, the icon, entitlements
-+	files      []string // go.mod and go.sum files, the configuration, the icons, entitlements
++	files      []string // go.mod and go.sum files, the configuration, icons, entitlements
  	// resources is the resources directory: everything in it but the
  	// platform directories of other platforms.
  	resources string
-@@ -77,6 +77,15 @@
- 	}
+@@ -78,6 +78,15 @@ func listBuildInputs(c *Config) (*buildInputs, error) {
  	if c.Icon != "" {
  		in.files = append(in.files, c.path(c.Icon))
-+	}
+ 	}
 +	if icon := c.MacOS.Icon; icon != "" {
 +		// Watch the missing sibling too, so adding it switches the dev icon.
 +		icons := []string{c.path(icon), c.path(devIconPath(icon))}
@@ -95,9 +94,10 @@ diff --git a/cmd/mygo/watch.go b/cmd/mygo/watch.go
 +		} else {
 +			in.files = append(in.files, icons...)
 +		}
++	}
+ 	if a := c.Android.AdaptiveIcon; a != nil {
+ 		in.files = append(in.files, c.path(a.Foreground))
  	}
- 	if c.MacOS.Entitlements != "" {
- 		in.files = append(in.files, c.path(c.MacOS.Entitlements))
 diff --git a/cmd/mygo/dev_icon_test.go b/cmd/mygo/dev_icon_test.go
 new file mode 100644
 --- /dev/null

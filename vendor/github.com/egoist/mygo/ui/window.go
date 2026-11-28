@@ -109,6 +109,9 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 	h.uiFont()
 	h.textLanguage()
 	h.automate()
+	if devAttach != nil {
+		devAttach(h)
+	}
 	// Load the fonts while the window shows up.
 	go text.Shared().Preload()
 	h.requestFrame()
@@ -328,6 +331,22 @@ func (h *windowHost) event(ev platform.SurfaceEvent) bool {
 		}
 		h.gpuTried, h.retryAt = false, time.Time{}
 		h.requestFrame()
+		return false
+	}
+	if ev.Kind >= platform.SurfaceLowMemory && ev.Kind <= platform.SurfaceStackPopped {
+		if ev.Kind == platform.SurfaceLowMemory {
+			// What the next frame makes again: the renderer's textures, its
+			// atlases and pipelines among them.
+			if h.gpu != nil {
+				h.gpu.Release()
+				h.gpu = nil
+				h.gpuTried, h.retryAt = false, time.Time{}
+			}
+			h.requestFrame()
+		}
+		if touchSystem != nil {
+			touchSystem(h.rt, ev)
+		}
 		return false
 	}
 	if ev.Kind == platform.WebViewTabOut || ev.Kind == platform.WebViewKey {
@@ -698,9 +717,13 @@ func (h *windowHost) retryLater() {
 
 // capture renders the last frame in memory: built now where none was yet,
 // or where one waits for the window to show (holdFrame, waitsOutOfSight),
-// so that a window out of sight shows what it shows now.
+// so that a window out of sight shows what it shows now; or where the
+// glyph atlases, which every window shares, moved or forgot the glyphs it
+// draws since it was painted, as another window making room in them does
+// (System.MakeRoom), as repaintParts tells: its text would show what took
+// their places (#1920). Within a frame, runFrame builds none.
 func (h *windowHost) capture() (int, int, []byte) {
-	if h.last == nil || h.rt.held || h.waitsOutOfSight() {
+	if h.last == nil || h.rt.held || h.waitsOutOfSight() || atlasGenerations(h.last) != h.rt.atlases {
 		h.rt.runFrame()
 	}
 	s := h.last
@@ -958,6 +981,14 @@ func (h *windowHost) textLanguage() {
 	h.textSystem().SetLanguage(h.locale())
 }
 
+// insets are those the surface tells, as a phone's.
+func (h *windowHost) insets() platform.Insets {
+	if s, ok := h.conn.Surface.(platform.InsetSurface); ok {
+		return s.Insets()
+	}
+	return platform.Insets{}
+}
+
 func (h *windowHost) titleBar() TitleBar {
 	if h.conn.TitleBar == nil {
 		return TitleBar{}
@@ -1043,6 +1074,16 @@ func (h *windowHost) tabIntoWebView(v NativeWebView, back bool) {
 	if n := v.SurfaceWebView(h.conn); n != nil {
 		n.TabInto(back)
 	}
+}
+
+func (h *windowHost) touchSurface() platform.TouchSurface {
+	s, _ := h.conn.Surface.(platform.TouchSurface)
+	return s
+}
+
+func (h *windowHost) stackSurface() platform.StackSurface {
+	s, _ := h.conn.Surface.(platform.StackSurface)
+	return s
 }
 
 func (h *windowHost) popupMenu(m *platform.Menu, x, y float32, chosen func(int)) {
