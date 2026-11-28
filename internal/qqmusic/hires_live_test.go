@@ -110,7 +110,7 @@ func TestLiveHiRes(t *testing.T) {
 							continue
 						}
 						u, _ := url.Parse(domain)
-						info, _, err := inspectFLACStream(u.ResolveReference(p).String())
+						info, _, err := inspectFLACStream(t.Context(), u.ResolveReference(p).String())
 						if err != nil {
 							t.Logf("%s: %s", label, hiResProbeError(err))
 							continue

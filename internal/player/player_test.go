@@ -2,11 +2,15 @@ package player
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -20,6 +24,97 @@ func TestPlayEmptyQueue(t *testing.T) {
 	p.PlayQueue(nil, 0) // an empty playlist's play button
 	if p.Current() != nil {
 		t.Error("playing from an empty queue")
+	}
+}
+
+// Switching tracks cancels the old audio request even before it creates a decoder.
+func TestSwitchTrackCancelsOldAudio(t *testing.T) {
+	data, err := os.ReadFile("testdata/seek.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []string{"looking up the URL", "waiting for first bytes", "already playing"} {
+		t.Run(phase, func(t *testing.T) {
+			started, canceled, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+				if r.URL.Path == "/next" {
+					w.Write(data)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				if phase == "already playing" {
+					w.Write(data[:len(data)/2])
+				}
+				w.(http.Flusher).Flush()
+				close(started)
+				select {
+				case <-r.Context().Done():
+					close(canceled)
+				case <-release:
+				}
+			}))
+			defer server.Close()
+			defer close(release)
+
+			resolve := songURL
+			t.Cleanup(func() { songURL = resolve })
+			songURL = func(ctx context.Context, id int64, level string) (*qqmusic.Stream, error) {
+				path := "/next"
+				if id == 1 {
+					if phase == "looking up the URL" {
+						close(started)
+						select {
+						case <-ctx.Done():
+							close(canceled)
+							return nil, ctx.Err()
+						case <-release:
+							return nil, errors.New("test ended before cancellation")
+						}
+					}
+					path = "/old"
+				}
+				return &qqmusic.Stream{URL: server.URL + path, Size: int64(len(data)), Type: "mp3", Level: level}, nil
+			}
+			cache := NewCache(t.TempDir(), 4096)
+			for _, id := range []int64{1, 2} {
+				if !cache.KeepLyrics(id, "[00:00.00]lyrics", "", "") {
+					t.Fatal("could not cache test lyrics")
+				}
+			}
+			posts := make(chan func(), 16)
+			p := New(func(fn func()) { posts <- fn })
+			p.Cache = cache
+			defer p.stop()
+			tracks := []qqmusic.Track{{ID: 1, Duration: 100000}, {ID: 2, Duration: 100000}}
+			p.PlayQueue(tracks, 0)
+			select {
+			case <-started:
+			case <-time.After(2 * time.Second):
+				t.Fatal("old request did not start")
+			}
+			if phase == "already playing" {
+				for p.Loading() {
+					next(t, posts)
+				}
+				if !p.Ready() || !p.Playing() {
+					t.Fatalf("old track did not start playback: %q", p.Err())
+				}
+			}
+
+			p.Next()
+			select {
+			case <-canceled:
+			case <-time.After(2 * time.Second):
+				t.Fatal("switching tracks did not cancel the old request")
+			}
+			for p.Loading() {
+				next(t, posts)
+			}
+			if p.Current().ID != 2 || !p.Ready() || !p.Playing() || p.Err() != "" {
+				t.Fatalf("next track did not start cleanly: track=%v, playing=%v, err=%q", p.Current(), p.Playing(), p.Err())
+			}
+		})
 	}
 }
 
@@ -621,7 +716,7 @@ func TestLoadSkippingPausedAndErrorClassification(t *testing.T) {
 	t.Run("paused Restore never skips even on ErrUnavailable or ErrLoginRequired", func(t *testing.T) {
 		for _, urlErr := range []error{qqmusic.ErrUnavailable, qqmusic.ErrLoginRequired} {
 			calls := 0
-			songURL = func(id int64, level string) (*qqmusic.Stream, error) {
+			songURL = func(context.Context, int64, string) (*qqmusic.Stream, error) {
 				calls++
 				return nil, urlErr
 			}
@@ -648,7 +743,7 @@ func TestLoadSkippingPausedAndErrorClassification(t *testing.T) {
 
 	t.Run("active PlayQueue stops on ErrLoginRequired without traversing queue", func(t *testing.T) {
 		calls := 0
-		songURL = func(id int64, level string) (*qqmusic.Stream, error) {
+		songURL = func(context.Context, int64, string) (*qqmusic.Stream, error) {
 			calls++
 			return nil, qqmusic.ErrLoginRequired
 		}
@@ -674,7 +769,7 @@ func TestLoadSkippingPausedAndErrorClassification(t *testing.T) {
 
 	t.Run("active PlayQueue still skips per-track ErrUnavailable to next playable track", func(t *testing.T) {
 		calls := 0
-		songURL = func(id int64, level string) (*qqmusic.Stream, error) {
+		songURL = func(context.Context, int64, string) (*qqmusic.Stream, error) {
 			calls++
 			return nil, qqmusic.ErrUnavailable
 		}

@@ -1,6 +1,7 @@
 package player
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -483,13 +484,13 @@ func (c *Cache) writeAsset(path string, data []byte) (string, bool) {
 // download fetches the song of the stream st into a file, to keep once it
 // has all come in, or a temporary file if the cache would not keep it.
 // Memory is only the fallback when no file can be made or written.
-func (c *Cache) download(id int64, st *qqmusic.Stream) *download {
+func (c *Cache) download(ctx context.Context, id int64, st *qqmusic.Stream) *download {
 	part := c.part(st)
 	if part == nil {
 		part, _ = temporaryDownloadFile()
-		return startDownload(st.URL, st.Size, part, nil, nil)
+		return startDownload(ctx, st.URL, st.Size, part, nil, nil)
 	}
-	return startDownload(st.URL, st.Size, part, func(path string, n int64) (string, bool) {
+	return startDownload(ctx, st.URL, st.Size, part, func(path string, n int64) (string, bool) {
 		return c.keep(id, st, path, n)
 	}, c.prune)
 }

@@ -2,6 +2,7 @@ package qqmusic
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,27 @@ import (
 	"strings"
 	"testing"
 )
+
+// Canceling a playback lookup also cancels the HTTP request resolving its URL.
+func TestSongURLContextCancelsRequest(t *testing.T) {
+	previous, prior := httpClient, sessionSnapshot()
+	t.Cleanup(func() { httpClient = previous; setSession(prior) })
+	setSession(Session{})
+	track := Track{ID: 8892, MID: "cancelSong"}
+	RememberTracks([]Track{track})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	httpClient = &http.Client{Transport: authRoundTripper(func(r *http.Request) (*http.Response, error) {
+		cancel()
+		if err := r.Context().Err(); err != context.Canceled {
+			t.Fatalf("playback HTTP request was not canceled: %v", err)
+		}
+		return nil, r.Context().Err()
+	})}
+	if _, err := SongURLContext(ctx, track.ID, "standard"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("playback lookup returned %v, want context cancellation", err)
+	}
+}
 
 func TestHiResPlaybackAndFallback(t *testing.T) {
 	for _, mode := range []string{"hires", "permission", "empty", "403", "404", "HTML", "low resolution", "320k", "128k", "connection", "old queue"} {
@@ -164,7 +186,7 @@ func TestHiResProbeHeader(t *testing.T) {
 				}
 				return &http.Response{StatusCode: tc.status, Body: io.NopCloser(bytes.NewReader(tc.body))}, nil
 			})}
-			info, _, err := inspectFLACStream("https://dl.stream.qqmusic.qq.com/RS01test.flac?vkey=private")
+			info, _, err := inspectFLACStream(t.Context(), "https://dl.stream.qqmusic.qq.com/RS01test.flac?vkey=private")
 			if !tc.ok {
 				if err == nil {
 					t.Fatal("accepted unavailable or invalid audio")

@@ -2,6 +2,7 @@ package qqmusic
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -14,8 +15,8 @@ import (
 
 // inspectFLACStream bounds reads even when a CDN ignores Range. Resource and
 // format failures allow quality fallback; connection failures remain errors.
-func inspectFLACStream(rawURL string) (*meta.StreamInfo, int64, error) {
-	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+func inspectFLACStream(ctx context.Context, rawURL string) (*meta.StreamInfo, int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, 0, ErrUnavailable
 	}

@@ -250,7 +250,7 @@ func TestStreamIntoCache(t *testing.T) {
 	ref := decodeAll(t, b)
 
 	st := &qqmusic.Stream{URL: srv.URL + "/whole", Size: int64(len(b)), Level: "exhigh", Type: "mp3"}
-	s, err := openStream(c.download(1, st), int64(len(ref)/2)*1000/44100)
+	s, err := openStream(c.download(t.Context(), 1, st), int64(len(ref)/2)*1000/44100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestStreamIntoCache(t *testing.T) {
 		dl.Close()
 	}
 
-	cut := c.download(2, &qqmusic.Stream{URL: srv.URL + "/cut", Size: int64(len(b)), Level: "exhigh", Type: "mp3"})
+	cut := c.download(t.Context(), 2, &qqmusic.Stream{URL: srv.URL + "/cut", Size: int64(len(b)), Level: "exhigh", Type: "mp3"})
 	cut.waitFor(int64(len(b) / 2))
 	cut.Close()
 	for start := time.Now(); time.Since(start) < 2*time.Second; time.Sleep(10 * time.Millisecond) {
@@ -314,7 +314,7 @@ func TestSharedStream(t *testing.T) {
 		}
 	}
 
-	dl := c.download(1, &qqmusic.Stream{URL: srv.URL, Size: int64(len(b)), Level: "exhigh", Type: "mp3"})
+	dl := c.download(t.Context(), 1, &qqmusic.Stream{URL: srv.URL, Size: int64(len(b)), Level: "exhigh", Type: "mp3"})
 	playing, err := openStream(dl, ms)
 	if err != nil {
 		t.Fatal(err)
@@ -362,7 +362,7 @@ func TestCacheKeepsOnlyKnownLevels(t *testing.T) {
 	dir := filepath.Join(root, "cache")
 	c := NewCache(dir, 1<<30)
 
-	dl := c.download(1, &qqmusic.Stream{URL: srv.URL, Size: int64(len(b)), Level: "/../../pwned", Type: "mp3"})
+	dl := c.download(t.Context(), 1, &qqmusic.Stream{URL: srv.URL, Size: int64(len(b)), Level: "/../../pwned", Type: "mp3"})
 	dl.waitFor(int64(len(b)))
 	dl.Close()
 	for start := time.Now(); time.Since(start) < 2*time.Second; time.Sleep(10 * time.Millisecond) {
@@ -390,7 +390,7 @@ func TestCacheKeepsOnlyKnownLevels(t *testing.T) {
 func TestStreamSizeIsNotTrusted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("short")) }))
 	defer srv.Close()
-	dl := startDownload(srv.URL, 1<<40, nil, nil, nil)
+	dl := startDownload(t.Context(), srv.URL, 1<<40, nil, nil, nil)
 	defer dl.Close()
 	dl.mu.Lock()
 	n := cap(dl.data)
@@ -416,7 +416,7 @@ func TestCachePruneDoesNotBlockReads(t *testing.T) {
 		t.Fatal("no cache file")
 	}
 	pruning, resume, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	dl := startDownload(srv.URL, st.Size, part, func(path string, n int64) (string, bool) {
+	dl := startDownload(t.Context(), srv.URL, st.Size, part, func(path string, n int64) (string, bool) {
 		return c.keep(1, st, path, n)
 	}, func(path string) {
 		defer close(finished)
@@ -490,7 +490,7 @@ func TestUncachedStreamUsesTemporaryFile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				downloadBody(t, func(*http.Request) io.ReadCloser { return io.NopCloser(bytes.NewReader(data)) })
-				dl := tc.cache.download(1, &qqmusic.Stream{URL: "https://audio.test/song", Size: int64(len(data)), Type: "flac", Level: "lossless"})
+				dl := tc.cache.download(t.Context(), 1, &qqmusic.Stream{URL: "https://audio.test/song", Size: int64(len(data)), Type: "flac", Level: "lossless"})
 				defer dl.Close()
 				synctest.Wait()
 				if dl.file == nil || dl.part == "" || cap(dl.data) != 0 {
@@ -555,7 +555,7 @@ func TestTemporaryDownloadCancellation(t *testing.T) {
 			return io.NopCloser(io.MultiReader(bytes.NewReader(data), canceledDownloadReader{r.Context()}))
 		})
 		var cache *Cache
-		dl := cache.download(1, &qqmusic.Stream{URL: "https://audio.test/song", Size: 1024})
+		dl := cache.download(t.Context(), 1, &qqmusic.Stream{URL: "https://audio.test/song", Size: 1024})
 		defer dl.Close()
 		synctest.Wait()
 		if dl.file == nil || !dl.share() {
@@ -620,7 +620,7 @@ func TestTemporaryDownloadFallsBackToMemory(t *testing.T) {
 		data := []byte("audio without temporary storage")
 		downloadBody(t, func(*http.Request) io.ReadCloser { return io.NopCloser(bytes.NewReader(data)) })
 		var cache *Cache
-		dl := cache.download(1, &qqmusic.Stream{URL: "https://audio.test/song", Size: int64(len(data))})
+		dl := cache.download(t.Context(), 1, &qqmusic.Stream{URL: "https://audio.test/song", Size: int64(len(data))})
 		defer dl.Close()
 		synctest.Wait()
 		if dl.file != nil || !bytes.Equal(dl.data, data) || dl.err != nil {

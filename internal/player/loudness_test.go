@@ -42,7 +42,7 @@ func TestCachedPlaybackDoesNotWaitForSlowLoudness(t *testing.T) {
 		}
 		p := &Player{Cache: c}
 		start := time.Now()
-		info, s, late, err := p.open(qqmusic.Track{ID: 1, Duration: 5000}, "exhigh", true)
+		info, s, late, err := openTrack(t.Context(), p.Cache, qqmusic.Track{ID: 1, Duration: 5000}, "exhigh", true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -168,7 +168,7 @@ func TestCachedSongLoudness(t *testing.T) {
 				return tc.v, tc.err
 			}
 			p := &Player{Cache: c}
-			info, s, late, err := p.open(qqmusic.Track{ID: 1, MID: "test-mid", Duration: 5000}, "exhigh", tc.normalize)
+			info, s, late, err := openTrack(t.Context(), p.Cache, qqmusic.Track{ID: 1, MID: "test-mid", Duration: 5000}, "exhigh", tc.normalize)
 			if err != nil {
 				t.Fatal(err)
 			}

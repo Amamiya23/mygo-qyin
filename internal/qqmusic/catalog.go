@@ -214,11 +214,15 @@ func authenticatedPlaylist(id int64) (*Playlist, error) {
 }
 
 func SongDetails(ids []int64) ([]Track, error) {
+	return songDetails(context.Background(), ids)
+}
+
+func songDetails(ctx context.Context, ids []int64) ([]Track, error) {
 	out := make([]Track, 0, len(ids))
 	for _, id := range ids {
 		var data object
 		t, _ := knownTrack(id)
-		if err := rpc("music.pf_song_detail_svr", "get_song_detail_yqq", map[string]any{"song_type": 0, "song_mid": t.MID, "song_id": strconv.FormatInt(id, 10)}, &data); err != nil {
+		if err := rpcWithCommContext(ctx, "music.pf_song_detail_svr", "get_song_detail_yqq", map[string]any{"song_type": 0, "song_mid": t.MID, "song_id": strconv.FormatInt(id, 10)}, &data, nil, nil); err != nil {
 			return out, err
 		}
 		track := convertTrack(obj(data["track_info"]))

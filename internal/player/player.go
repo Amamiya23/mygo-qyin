@@ -1,6 +1,7 @@
 package player
 
 import (
+	"context"
 	"errors"
 	"math"
 	"math/rand/v2"
@@ -60,15 +61,16 @@ type Player struct {
 	feeding  bool // the feed is asked
 	awaiting bool // at the queue's end, for what the feed gives
 
-	track   *qqmusic.Track
-	out     *audio.Player
-	stream  stream
-	info    *qqmusic.Stream // what the current track streams
-	fade    fader
-	loading bool
-	playing bool // what the listener wants: false while paused
-	err     string
-	gen     int // counts loads, to drop the results of stale ones
+	track      *qqmusic.Track
+	out        *audio.Player
+	stream     stream
+	info       *qqmusic.Stream // what the current track streams
+	fade       fader
+	loading    bool
+	playing    bool // what the listener wants: false while paused
+	err        string
+	gen        int // counts loads, to drop the results of stale ones
+	cancelLoad context.CancelFunc
 
 	lyrics       []lyrics.Line
 	lyricsLoaded bool
@@ -718,6 +720,11 @@ func (p *Player) Levels() ([Bands]float32, bool) {
 }
 
 func (p *Player) stop() {
+	if p.cancelLoad != nil {
+		p.cancelLoad()
+		p.cancelLoad = nil
+	}
+	p.loading = false
 	if out := p.out; out != nil {
 		// Paused first, it fades out over a few milliseconds, rather than
 		// stopping with a click.
@@ -804,10 +811,12 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 		level = p.Quality()
 	}
 	normalize := p.Normalize != nil && p.Normalize() != NormalizeOff
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancelLoad = cancel
 	go func() {
-		info, s, loudness, err := p.open(t, level, normalize)
+		info, s, loudness, err := openTrack(ctx, cache, t, level, normalize)
 		p.post(func() {
-			if gen != p.gen {
+			if ctx.Err() != nil {
 				if s != nil {
 					s.Close()
 				}
@@ -815,6 +824,8 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 			}
 			p.loading = false
 			if err != nil {
+				cancel()
+				p.cancelLoad = nil
 				p.err = err.Error()
 				unavailable := errors.Is(err, qqmusic.ErrUnavailable)
 				if unavailable {
@@ -852,7 +863,7 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 			}
 			p.out.OnEnd(func() {
 				p.post(func() {
-					if gen == p.gen {
+					if ctx.Err() == nil {
 						p.ended()
 					}
 				})
@@ -868,8 +879,16 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 			p.sync()
 		})
 		if loudness != nil {
-			if v := <-loudness; v != nil {
-				p.post(func() { p.applyLateLoudness(gen, *v) })
+			select {
+			case v := <-loudness:
+				if v != nil {
+					p.post(func() {
+						if ctx.Err() == nil {
+							p.applyLateLoudness(gen, *v)
+						}
+					})
+				}
+			case <-ctx.Done():
 			}
 		}
 	}()
@@ -877,9 +896,9 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 
 const loudnessWait = 50 * time.Millisecond
 
-// open opens track t's audio at level: kept in the cache, or else
+// openTrack opens track t's audio at level: kept in the cache, or else
 // streamed into it, and kept once it has all come in.
-func (p *Player) open(t qqmusic.Track, level string, normalize bool) (*qqmusic.Stream, stream, <-chan *qqmusic.Loudness, error) {
+func openTrack(ctx context.Context, cache *Cache, t qqmusic.Track, level string, normalize bool) (*qqmusic.Stream, stream, <-chan *qqmusic.Loudness, error) {
 	// Resolve loudness while the audio opens, including for songs already on
 	// disk. A failed metadata request leaves the stream's gain unchanged.
 	var loudness <-chan *qqmusic.Loudness
@@ -896,14 +915,14 @@ func (p *Player) open(t qqmusic.Track, level string, normalize bool) (*qqmusic.S
 			result <- &v
 		}()
 	}
-	dl, info, ok := p.Cache.lookup(t.ID, level)
+	dl, info, ok := cache.lookup(t.ID, level)
 	if !ok {
 		var err error
-		info, err = songURL(t.ID, level)
+		info, err = songURL(ctx, t.ID, level)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		dl = p.Cache.download(t.ID, info)
+		dl = cache.download(ctx, t.ID, info)
 	}
 	s, err := openStream(dl, t.Duration)
 	if err != nil {
@@ -920,6 +939,9 @@ func (p *Player) open(t qqmusic.Track, level string, normalize bool) (*qqmusic.S
 			}
 			loudness = nil
 		case <-timer.C:
+		case <-ctx.Done():
+			s.Close()
+			return nil, nil, nil, ctx.Err()
 		}
 	}
 	return info, s, loudness, nil
@@ -929,7 +951,7 @@ var (
 	fetchCover   = qqmusic.Fetch
 	songLyrics   = qqmusic.Lyrics
 	songLoudness = qqmusic.SongLoudness
-	songURL      = qqmusic.SongURL
+	songURL      = qqmusic.SongURLContext
 )
 
 func withLoudness(info *qqmusic.Stream, v qqmusic.Loudness) *qqmusic.Stream {

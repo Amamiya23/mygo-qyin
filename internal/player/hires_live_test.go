@@ -48,7 +48,7 @@ func TestLiveHiResPlayback(t *testing.T) {
 		t.Fatal("cannot load song detail")
 	}
 	p := &Player{Cache: NewCache(t.TempDir(), 1<<30)}
-	info, s, _, err := p.open(tracks[0], "hires", false)
+	info, s, _, err := openTrack(t.Context(), p.Cache, tracks[0], "hires", false)
 	if err != nil {
 		// Errors from downloads may contain the signed URL.
 		t.Fatalf("open failed (%T)", err)
@@ -101,7 +101,7 @@ func TestLiveHiResPlayback(t *testing.T) {
 	if metadata.Level != "hires" || metadata.Size != info.Size {
 		t.Fatal("cached metadata does not match stream")
 	}
-	_, replay, _, err := p.open(tracks[0], "hires", false)
+	_, replay, _, err := openTrack(t.Context(), p.Cache, tracks[0], "hires", false)
 	if err != nil {
 		t.Fatal("cached playback failed")
 	}
@@ -147,7 +147,7 @@ func TestStreamLive(t *testing.T) {
 		t.Fatal("QQ returned no public MP3 long enough to seek")
 	}
 	start := time.Now()
-	dl := startDownload(st.URL, st.Size, nil, nil, nil)
+	dl := startDownload(t.Context(), st.URL, st.Size, nil, nil, nil)
 	s, err := openMP3Stream(dl, duration)
 	if err != nil {
 		t.Fatal(err)

@@ -52,8 +52,8 @@ var streamHTTP = &http.Client{Transport: network.Transport()}
 
 // startDownload fetches url, of size bytes if known, into part, a file
 // that keep keeps once it has all come in: or into memory, without one.
-func startDownload(url string, size int64, part *os.File, keep func(string, int64) (string, bool), afterKeep func(string)) *download {
-	ctx, cancel := context.WithCancel(context.Background())
+func startDownload(ctx context.Context, url string, size int64, part *os.File, keep func(string, int64) (string, bool), afterKeep func(string)) *download {
+	ctx, cancel := context.WithCancel(ctx)
 	d := &download{size: size, cancel: cancel, users: 2}
 	d.cond.L = &d.mu
 	switch {
