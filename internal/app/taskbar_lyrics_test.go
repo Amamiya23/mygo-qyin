@@ -259,6 +259,7 @@ func TestTaskbarLyricsPlacementSpace(t *testing.T) {
 		{"left taskbar shrinks from left when crowded", true, []taskbarLyricsInterval{{0, 700}, {880, 1000}}, 708, 164},
 		{"classic Win10 ReBar anchors to right edge", true, []taskbarLyricsInterval{{0, 400}}, 712, 280},
 		{"left taskbar full hides", true, []taskbarLyricsInterval{{0, 800}, {880, 1000}}, 0, 0},
+		{"left taskbar right side full hides instead of crossing center", true, []taskbarLyricsInterval{{0, 120}, {480, 1000}}, 0, 0},
 		{"left taskbar unknown hides", true, nil, 0, 0},
 	}
 	for _, tt := range tests {

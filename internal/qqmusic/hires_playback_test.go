@@ -174,6 +174,7 @@ func TestHiResProbeHeader(t *testing.T) {
 		{"server ignores Range", header, 200, true},
 		{"ID3 prefix", append([]byte{'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0}, header...), 206, true},
 		{"missing resource", header, 404, false},
+		{"server error falls back", header, 502, false},
 		{"HTML response", []byte("<html>not audio</html>"), 200, false},
 		{"truncated header", header[:30], 206, false},
 	} {
@@ -191,6 +192,9 @@ func TestHiResProbeHeader(t *testing.T) {
 				if err == nil {
 					t.Fatal("accepted unavailable or invalid audio")
 				}
+				if tc.status == 502 && !errors.Is(err, ErrUnavailable) {
+					t.Fatalf("HTTP 502 returned %v, want ErrUnavailable for quality fallback", err)
+				}
 				return
 			}
 			if err != nil {
@@ -207,6 +211,22 @@ func TestHiResProbeErrorRedactsURL(t *testing.T) {
 	err := &url.Error{Op: "Get", URL: "https://example.com/?vkey=private", Err: errors.New("private")}
 	if message := hiResProbeError(err); strings.Contains(message, "private") || strings.Contains(message, "example.com") {
 		t.Fatal("diagnostics leaked signed URL")
+	}
+}
+
+// Stream domain validation normalizes host casing and rejects userinfo or non-QQ hosts.
+func TestValidStreamDomainHardening(t *testing.T) {
+	if !validStreamDomain("https://DL.STREAM.QQMUSIC.QQ.COM/song.flac") {
+		t.Fatal("rejected valid uppercase QQ stream host")
+	}
+	for _, raw := range []string{
+		"https://user:pass@dl.stream.qqmusic.qq.com/song.flac",
+		"https://qqmusic.qq.com@evil.example/song.flac",
+		"//dl.stream.qqmusic.qq.com/song.flac",
+	} {
+		if validStreamDomain(raw) {
+			t.Fatalf("accepted unsafe stream domain %q", raw)
+		}
 	}
 }
 

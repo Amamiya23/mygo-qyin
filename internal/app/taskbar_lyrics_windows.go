@@ -395,6 +395,9 @@ func taskbarFindAll(refs *taskbarCOMReferences, element *taskbarCOMObject, scope
 		var item *taskbarCOMObject
 		hr, _, _ = syscall.SyscallN(array.vtable[4], uintptr(unsafe.Pointer(array)), uintptr(i), uintptr(unsafe.Pointer(&item)))
 		if _, err := refs.own(item, hr); err != nil {
+			if isTaskbarElementGone(err) {
+				continue
+			}
 			return nil, err
 		}
 		result = append(result, item)

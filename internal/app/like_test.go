@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"image"
 	"image/color"
 	"image/draw"
@@ -488,5 +489,30 @@ func TestLikeCurrent(t *testing.T) {
 	a.likeCurrent()
 	if !a.likedPrograms[3] || a.liked[13] {
 		t.Fatalf("episode liked %v, its audio %v", a.likedPrograms[3], a.liked[13])
+	}
+}
+
+// Signing out before a failed unlike finishes must not panic on a nil liked map or restore the heart.
+func TestUnlikeFailureAfterSignOutDoesNotPanic(t *testing.T) {
+	release := make(chan struct{})
+	likeSong = func(int64, bool) error {
+		<-release
+		return errors.New("network down")
+	}
+	defer func() { likeSong = qqmusic.Like }()
+
+	posts := make(chan func(), 4)
+	a := newTestApp()
+	a.postFn = func(fn func()) { posts <- fn }
+	a.profile = &qqmusic.Profile{UserID: 1}
+	a.liked = map[int64]bool{7: true}
+
+	a.toggleLike(&qqmusic.Track{ID: 7, Name: "宝船"})
+	a.signedIn(nil)
+	close(release)
+	(<-posts)()
+
+	if a.liked != nil {
+		t.Fatalf("stale unlike callback restored liked map after sign-out: %v", a.liked)
 	}
 }

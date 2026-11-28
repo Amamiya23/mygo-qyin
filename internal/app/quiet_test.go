@@ -135,3 +135,15 @@ func TestExitQQRadio(t *testing.T) {
 		t.Fatalf("radio %q, current %v, queue %d", a.pl.Radio(), a.pl.Current(), len(a.pl.Queue()))
 	}
 }
+
+// Instrumental tracks must recompute quiet intervals once their empty lyrics finish loading.
+func TestQuietCommentInstrumentalAfterLyricsLoad(t *testing.T) {
+	a, tr, _ := quietApp(5 * time.Second)
+	if cm, _ := a.quietComment(&tr, nil, false, 5*time.Second); cm != nil {
+		t.Fatalf("showed hot comment before lyrics loaded: %+v", cm)
+	}
+	cm, _ := a.quietComment(&tr, nil, true, 5*time.Second)
+	if cm == nil || cm.ID != 1 {
+		t.Fatalf("instrumental track missed hot comment after lyrics loaded: %+v", cm)
+	}
+}

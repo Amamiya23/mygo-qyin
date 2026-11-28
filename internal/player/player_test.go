@@ -118,6 +118,31 @@ func TestSwitchTrackCancelsOldAudio(t *testing.T) {
 	}
 }
 
+// Pausing during seekGap with fades disabled must not resume playback, and ending while paused must not advance.
+func TestPauseDuringSeekGapAndEndedWhilePaused(t *testing.T) {
+	posts := make(chan func(), 16)
+	p := New(func(fn func()) { posts <- fn })
+	p.PlaybackFade = func() bool { return false }
+	p.Cue([]qqmusic.Track{{ID: 1, Duration: 60000}, {ID: 2, Duration: 60000}})
+	out := audio.NewPlayer(&silence{})
+	defer out.Close()
+	p.Attach(out)
+	out.Play()
+	p.playing = true
+
+	p.Seek(10 * time.Second)
+	p.TogglePlay()
+	next(t, posts)
+	if p.Playing() || out.Playing() {
+		t.Fatalf("paused seek resumed playback with fade disabled: playing=%v out=%v", p.Playing(), out.Playing())
+	}
+
+	p.ended()
+	if p.Current().ID != 1 || p.Playing() {
+		t.Fatalf("ending while paused advanced track: cur=%d playing=%v", p.Current().ID, p.Playing())
+	}
+}
+
 // silence is a long song of nothing.
 type silence struct{}
 
@@ -922,8 +947,9 @@ func TestPlayNextAfterSongEnds(t *testing.T) {
 	for _, repeat := range []RepeatMode{RepeatOff, RepeatAll} {
 		for _, at := range []int{0, 1} {
 			p := New(func(func()) {})
+			defer p.stop()
 			p.Cue([]qqmusic.Track{{ID: 1}, {ID: 2}})
-			p.at, p.track, p.repeat = at, &p.queue[at], repeat
+			p.at, p.track, p.repeat, p.playing = at, &p.queue[at], repeat, true
 			p.PlayNext(qqmusic.Track{ID: 3})
 			p.ended()
 			if p.Current() == nil || p.Current().ID != 3 || !p.Playing() {

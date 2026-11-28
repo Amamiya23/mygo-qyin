@@ -651,3 +651,40 @@ func TestTemporaryDownloadWriteFailure(t *testing.T) {
 		t.Fatalf("write failure left a temporary file: %v", err)
 	}
 }
+
+// Negative FLAC seek targets clamp to zero, and 0-byte cache files are rejected on keep and lookup.
+func TestFLACNegativeSeekAndEmptyCacheRejected(t *testing.T) {
+	b, err := os.ReadFile("testdata/seek.flac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := openFLACStream(downloaded(b), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.SetPosition(-100); err != nil {
+		t.Fatalf("negative FLAC seek failed: %v", err)
+	}
+
+	c := NewCache(t.TempDir(), 1<<20)
+	part := filepath.Join(c.dir, "empty.part")
+	if err := os.WriteFile(part, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st := &qqmusic.Stream{Level: "exhigh", Type: "mp3", Size: 0}
+	if _, ok := c.keep(99, st, part, 0); ok {
+		t.Fatal("cache kept a 0-byte audio file")
+	}
+	key := cacheKey(99, "exhigh")
+	if err := os.WriteFile(filepath.Join(c.dir, key+".mp3"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(c.dir, key+".json"), []byte(`{"level":"exhigh","type":"mp3","size":0}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if dl, _, ok := c.lookup(99, "exhigh"); ok {
+		dl.Close()
+		t.Fatal("cache lookup returned a 0-byte file")
+	}
+}

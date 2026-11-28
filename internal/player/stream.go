@@ -97,7 +97,9 @@ func (d *download) run(ctx context.Context, url string) {
 	defer d.release()
 	finish := func(err error) {
 		d.mu.Lock()
-		d.done, d.err = true, err
+		if !d.done {
+			d.done, d.err = true, err
+		}
 		d.cond.Broadcast()
 		d.mu.Unlock()
 	}
